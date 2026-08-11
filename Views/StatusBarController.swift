@@ -174,7 +174,7 @@ class StatusBarController {
             store.clear(keepProtected: keepProtected)
         }
         
-activeAlert = nil
+        activeAlert = nil
     }
 
     @objc private func visibilityChanged() {
