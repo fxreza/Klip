@@ -93,7 +93,13 @@ final class SettingsManager: ObservableObject {
         }
     }
     @Published var launchAtLogin: Bool = false
-    @Published var historyLimit: HistoryLimit = .essential
+    @Published var historyLimit: HistoryLimit = .default {
+        didSet {
+            guard isLoaded, historyLimit != oldValue else { return }
+            defaults.set(historyLimit.rawValue, forKey: "historyLimit")
+            NotificationCenter.default.post(name: .bufferHistoryLimitChanged, object: nil)
+        }
+    }
     @Published var includePrereleases: Bool = false {
         didSet {
             guard isLoaded, includePrereleases != oldValue else { return }
@@ -237,15 +243,6 @@ final class SettingsManager: ObservableObject {
         self.windowHeight = defaults.object(forKey: "windowHeight") as? Double
 
         isLoaded = true
-    }
-
-    /// Legacy explicit-save hook, kept only for `historyLimit` (owned by a
-    /// concurrent task that is replacing this enum/property with a richer
-    /// API and will fold its persistence into a `didSet` of its own). Every
-    /// other setting above now persists immediately via `didSet`, so callers
-    /// no longer need to call this for them.
-    func save() {
-        defaults.set(historyLimit.rawValue, forKey: "historyLimit")
     }
 
     func toggleLaunchAtLogin(_ enabled: Bool) {

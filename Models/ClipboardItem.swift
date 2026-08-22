@@ -188,14 +188,6 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         isPinned || isBookmarked || !tags.isEmpty || isLocked || folderID != nil
     }
 
-    // 1B-compat: `isTruncated` / `originalSizeBytes` were dead storage fields
-    // and are gone from the model and from history.json. These read-only shims
-    // exist only so `Views/HistoryWindow.swift` (owned by another agent this
-    // phase) keeps compiling; delete both, and the banner at HistoryWindow's
-    // `itemContent`, at integration.
-    var isTruncated: Bool { false }
-    var originalSizeBytes: Int? { nil }
-
     /// Whether this item is editable inline
     var isEditable: Bool {
         type == .text && !isFileBacked && !isFile && (textContent?.count ?? 0) <= 5000

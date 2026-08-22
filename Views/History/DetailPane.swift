@@ -196,19 +196,7 @@ struct DetailPane: View {
     private func itemContent(_ item: ClipboardItem) -> some View {
         switch item.type {
         case .text:
-            if item.isTruncated {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(item.textContent ?? "")
-                        .font(.system(size: 13, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-
-                    Label("Content was too large to store (\(viewModel.formattedSize(bytes: item.originalSizeBytes ?? 0))). Showing first 500 characters.", systemImage: "exclamationmark.triangle")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .padding(.top, 4)
-                }
-            } else if item.isFileBacked || (item.textContent?.count ?? 0) > 5000 {
+            if item.isFileBacked || (item.textContent?.count ?? 0) > 5000 {
                 textContent(item)
             } else if viewModel.isEditing {
                 TextEditor(text: $viewModel.editText)

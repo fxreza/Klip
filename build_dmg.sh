@@ -30,6 +30,7 @@ swiftc \
 -framework Cocoa \
 -framework SwiftUI \
 -framework Carbon \
+-default-isolation MainActor \
 *.swift $(find Models Services Views -name '*.swift') \
 -o ${BUILD_DIR}/${APP_NAME}_arm64
 
@@ -41,6 +42,7 @@ swiftc \
 -framework Cocoa \
 -framework SwiftUI \
 -framework Carbon \
+-default-isolation MainActor \
 *.swift $(find Models Services Views -name '*.swift') \
 -o ${BUILD_DIR}/${APP_NAME}_x86_64
 

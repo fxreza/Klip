@@ -23,7 +23,7 @@ enum SettingsManagerTests {
         ("klipFontRole_previewRolesFlaggedCorrectly", testFontRolePreviewFlag),
         ("klipScaled_scalesByListOrPreviewFactor", testKlipScaledUsesCorrectFactor),
         ("fontKlip_changesWithListFontScale", testFontKlipTracksListScale),
-        ("historyLimitShim_defaultAndFromStoredRaw", testHistoryLimitShim),
+        ("historyLimitShim_defaultAndFromStoredRaw", testHistoryLimitMapping),
     ]
 
     // MARK: - AccentTheme
@@ -130,10 +130,16 @@ enum SettingsManagerTests {
 
     // MARK: - HistoryLimit TEMP-SHIM (Views/SettingsView.swift)
 
-    static func testHistoryLimitShim() throws {
-        try expectEqual(HistoryLimit.default, .essential)
-        try expectEqual(HistoryLimit.from(storedRaw: nil), .essential, "missing stored value falls back to .default")
-        try expectEqual(HistoryLimit.from(storedRaw: 500), .deep, "known rawValue resolves to its case")
-        try expectEqual(HistoryLimit.from(storedRaw: 999_999), .essential, "unknown rawValue falls back to .default")
+    static func testHistoryLimitMapping() throws {
+        try expectEqual(HistoryLimit.default, .k10)
+        try expectEqual(HistoryLimit.from(storedRaw: nil), .k10, "missing stored value falls back to .default")
+        try expectEqual(HistoryLimit.from(storedRaw: 100), .k1, "legacy essential maps to 1,000")
+        try expectEqual(HistoryLimit.from(storedRaw: 500), .k1, "legacy deep maps to 1,000")
+        try expectEqual(HistoryLimit.from(storedRaw: 1000), .k1)
+        try expectEqual(HistoryLimit.from(storedRaw: 5000), .k5)
+        try expectEqual(HistoryLimit.from(storedRaw: 0), .unlimited)
+        try expectEqual(HistoryLimit.from(storedRaw: 999_999), .k10, "unknown rawValue falls back to .default")
+        try expectNil(HistoryLimit.unlimited.maxItems)
+        try expectEqual(HistoryLimit.k5.maxItems, 5000)
     }
 }

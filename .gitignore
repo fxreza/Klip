@@ -88,3 +88,5 @@ reference
 !releases/**/*.zip
 !dist/*.dmg
 !dist/*.zip
+build-gate.log
+tests-gate.log

@@ -1,30 +1,5 @@
 import SwiftUI
 
-// TEMP-SHIM remove at integration: `Services/SettingsManager.swift`'s
-// `HistoryLimit` enum still has today's essential/deep/unlimited(=1000)
-// cases. A concurrent worktree is replacing it with the target API from
-// docs/plan/briefs/1C-settings-theme.md:
-//   enum HistoryLimit: Int, CaseIterable { case k1 = 1000, k5 = 5000, k10 = 10000, unlimited = 0 }
-//   static let default, maxItems: Int?, isUnlimited, label, subtitle, static func from(storedRaw:)
-// This extension backfills just enough of that API (in terms of *today's*
-// cases) so this file can be written directly against the target shape.
-// `maxItems` never returns nil today because the old enum has no "unlimited"
-// case in the new sense — that's expected of a shim, and the real
-// implementation's nil-for-unlimited case is exactly what `isDowngrade(from:to:)`
-// below already accounts for.
-extension HistoryLimit {
-    static var `default`: HistoryLimit { .essential }
-
-    var maxItems: Int? { rawValue }
-
-    var isUnlimited: Bool { false }
-
-    static func from(storedRaw: Int?) -> HistoryLimit {
-        guard let raw = storedRaw, let match = HistoryLimit(rawValue: raw) else { return .default }
-        return match
-    }
-}
-
 /// Settings window for Klip preferences. Every control binds directly to
 /// `SettingsManager.shared` — there is no separate view-model layer, and
 /// every change applies immediately (this matches how native macOS Settings
@@ -226,12 +201,11 @@ private struct HistorySettingsTab: View {
 
     private func apply(_ tier: HistoryLimit) {
         settings.historyLimit = tier
-        settings.save()
         NotificationCenter.default.post(name: .bufferHistoryLimitChanged, object: nil)
     }
 
     /// True when `new` keeps fewer items than `current` — i.e. items could be
-    /// trimmed. `nil` `maxItems` means "unlimited" (see the TEMP-SHIM above).
+    /// trimmed. `nil` `maxItems` means "unlimited".
     private func isDowngrade(from current: HistoryLimit, to new: HistoryLimit) -> Bool {
         switch (current.maxItems, new.maxItems) {
         case (nil, nil): return false
