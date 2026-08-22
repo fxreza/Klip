@@ -1,16 +1,16 @@
 #!/bin/bash
-# Install dist/Klip.app into /Applications, replacing upstream Buffer (approved by the user on 2026-08-22):
+# Install dist/app.noindex/Klip.app into /Applications, replacing upstream Buffer (approved by the user on 2026-08-22):
 #  1. back up ~/Library/Application Support/Buffer to releases/backup-<date>/ (copy, original untouched)
 #  2. quit a running /Applications/Buffer.app (graceful, then SIGTERM)
 #  3. move /Applications/Buffer.app to the Trash (recoverable)
-#  4. copy dist/Klip.app to /Applications/Klip.app (replacing a previous Klip.app after moving it to the Trash)
+#  4. copy dist/app.noindex/Klip.app to /Applications/Klip.app (replacing a previous Klip.app after moving it to the Trash)
 #  5. launch Klip
 # Usage: scripts/install_local.sh [--no-launch] [--keep-buffer]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 LAUNCH=1; KEEP=0
 for a in "$@"; do case "$a" in --no-launch) LAUNCH=0;; --keep-buffer) KEEP=1;; *) echo "unknown arg $a"; exit 2;; esac; done
-[[ -d dist/Klip.app ]] || { echo "dist/Klip.app missing - run scripts/release.sh first"; exit 1; }
+[[ -d dist/app.noindex/Klip.app ]] || { echo "dist/app.noindex/Klip.app missing - run scripts/release.sh first"; exit 1; }
 
 STAMP=$(date +%Y%m%d-%H%M%S)
 SRC="$HOME/Library/Application Support/Buffer"
@@ -39,7 +39,7 @@ if pgrep -f "/Applications/Klip.app/Contents/MacOS/Klip" >/dev/null; then
   pkill -f "/Applications/Klip.app/Contents/MacOS/Klip" 2>/dev/null || true; sleep 1
 fi
 trash "/Applications/Klip.app"
-ditto dist/Klip.app /Applications/Klip.app
+ditto dist/app.noindex/Klip.app /Applications/Klip.app
 xattr -cr /Applications/Klip.app 2>/dev/null || true
 codesign -dvv /Applications/Klip.app 2>&1 | grep -E "^Authority|^Identifier" | head -2
 if [[ $LAUNCH -eq 1 ]]; then open -a /Applications/Klip.app; sleep 3; pgrep -fl "/Applications/Klip.app/Contents/MacOS/Klip" | head -1 || echo "Klip did not stay running - check Console"; fi

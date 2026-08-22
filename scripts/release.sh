@@ -22,21 +22,21 @@ fi
 
 scripts/gate.sh
 
-mkdir -p "$OUT" dist
+mkdir -p "$OUT" dist/app.noindex
 if [[ $NOTARIZE -eq 1 ]]; then
   sh build_dmg.sh
   cp -f Klip_Silicon.dmg Klip_Silicon.zip Klip_Intel.dmg Klip_Intel.zip "$OUT"/
-  rm -rf dist/Klip.app; ditto -x -k Klip_Silicon.zip dist/
+  rm -rf dist/app.noindex/Klip.app; ditto -x -k Klip_Silicon.zip dist/app.noindex/
 else
   scripts/build_local.sh --arch both --dist
   rm -f "$OUT/Klip_Universal.zip"
-  (cd build && ditto -c -k --keepParent Klip.app "../$OUT/Klip_Universal.zip")
-  lipo -info build/Klip.app/Contents/MacOS/Klip
+  (cd build.noindex && ditto -c -k --keepParent Klip.app "../$OUT/Klip_Universal.zip")
+  lipo -info build.noindex/Klip.app/Contents/MacOS/Klip
 fi
 
 (cd "$OUT" && shasum -a 256 *.zip *.dmg 2>/dev/null > checksums.txt || shasum -a 256 *.zip > checksums.txt; cat checksums.txt)
 [[ -f "$OUT/release_notes.md" ]] || echo "# Klip v${VERSION}" > "$OUT/release_notes.md"
-rm -rf build
+rm -rf build.noindex
 
 git add "$OUT" dist
 git commit -q -m "release: v${VERSION} artifacts in ${OUT} and dist/" || true

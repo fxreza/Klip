@@ -41,19 +41,19 @@ done
 
 # Get absolute repo path
 REPO_PATH="$(cd "$(dirname "$0")/.." && pwd)"
-BINARY="${REPO_PATH}/build/${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
+BINARY="${REPO_PATH}/build.noindex/${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
 
 # Default data directory
 if [[ -z "$DATA_DIR" ]]; then
-    DATA_DIR="${REPO_PATH}/build/test-data"
+    DATA_DIR="${REPO_PATH}/build.noindex/test-data"
 fi
 
 # Kill function - only kills locally built instance
 kill_local_instance() {
     # Kill only the locally built app, never the installed ones
-    if pgrep -f "${REPO_PATH}/build/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" >/dev/null 2>&1; then
+    if pgrep -f "${REPO_PATH}/build.noindex/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" >/dev/null 2>&1; then
         echo "🛑 Killing locally built ${APP_NAME}..."
-        pkill -f "${REPO_PATH}/build/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" || true
+        pkill -f "${REPO_PATH}/build.noindex/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" || true
         sleep 0.5
         echo "✅ Killed"
     else
@@ -81,7 +81,7 @@ fi
 mkdir -p "$DATA_DIR"
 
 # Prepare log file
-LOG_FILE="${REPO_PATH}/build/run.log"
+LOG_FILE="${REPO_PATH}/build.noindex/run.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
 # Launch binary directly with environment variables
@@ -103,7 +103,7 @@ echo "✅ Started with PID: $PID"
 sleep 0.5
 
 # Verify it's still running
-if ! pgrep -f "${REPO_PATH}/build/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" >/dev/null 2>&1; then
+if ! pgrep -f "${REPO_PATH}/build.noindex/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" >/dev/null 2>&1; then
     echo "❌ Failed to start. Last 20 lines of log:"
     tail -20 "$LOG_FILE" >&2
     exit 1

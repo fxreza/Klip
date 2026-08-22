@@ -18,7 +18,7 @@ For the app target (product type application) it:
     entries for .swift files that no longer exist on disk;
   - adds those entries for every .swift file under Models/, Services/,
     Views/ (recursively) plus root-level *.swift files, skipping Tests/,
-    BufferTests/, reference/, build/, scripts/; nested groups (e.g.
+    BufferTests/, reference/, build.noindex/, scripts/; nested groups (e.g.
     "Views/History") are created on demand to mirror the folder layout;
   - adds PBXFileReference/PBXBuildFile entries (in the same group as the
     existing Cocoa.framework) plus a Frameworks-phase entry for each
@@ -55,7 +55,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PBXPROJ_PATH = REPO_ROOT / "Klip.xcodeproj" / "project.pbxproj"
 
-EXCLUDED_DIR_NAMES = {"Tests", "BufferTests", "reference", "build", "scripts"}
+EXCLUDED_DIR_NAMES = {"Tests", "BufferTests", "reference", "build", "build.noindex", "scripts"}
 SOURCE_DIRS = ("Models", "Services", "Views")
 
 # Frameworks the build scripts link beyond Cocoa (Cocoa is already wired up

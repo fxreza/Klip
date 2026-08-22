@@ -15,7 +15,7 @@ if [[ "${1:-}" == "-v" ]]; then
     VERBOSE=1
 fi
 
-BUILD_DIR="build/tests"
+BUILD_DIR="build.noindex/tests"
 mkdir -p "$BUILD_DIR"
 
 # Root-level *.swift minus the @main file (it declares its own @main App

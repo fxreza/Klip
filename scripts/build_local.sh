@@ -25,7 +25,7 @@ fi
 ARCH="arm64"
 DIST_FLAG=false
 SIGN_IDENTITY=""
-OUTPUT_DIR="build"
+OUTPUT_DIR="build.noindex"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -259,11 +259,11 @@ codesign -dvv "${APP_DIR}" 2>&1 | grep "Authority" || echo "  (ad-hoc signature)
 # Copy to dist if requested
 if [[ "$DIST_FLAG" == true ]]; then
     echo ""
-    echo "📤 Copying to dist/"
-    rm -rf "dist/${APP_NAME}.app"
-    mkdir -p "dist"
-    cp -R "${APP_DIR}" "dist/"
-    echo "✅ Copied to dist/${APP_NAME}.app"
+    echo "📤 Copying to dist/app.noindex/"
+    rm -rf "dist/app.noindex/${APP_NAME}.app"
+    mkdir -p "dist/app.noindex"
+    cp -R "${APP_DIR}" "dist/app.noindex/"
+    echo "✅ Copied to dist/app.noindex/${APP_NAME}.app"
 fi
 
 # Calculate elapsed time

@@ -134,7 +134,10 @@ releases/
 
 Each folder is permanent - never overwrite a published release.
 
-The `dist/` directory holds the latest live build for quick reference.
+The `dist/` directory holds the latest live build for quick reference. The
+unpacked app lives at `dist/app.noindex/Klip.app` - the `.noindex` suffix keeps
+it out of the Spotlight index so it does not show up as a duplicate of
+`/Applications/Klip.app` in Spotlight and Raycast. See `CLAUDE.md`.
 
 ---
 
