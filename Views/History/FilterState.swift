@@ -19,6 +19,10 @@ enum Scope: Hashable {
 enum ChipFilter: Hashable {
     case all
     case kind(ContentKind)
+    /// Task 6B: matches any item carrying at least one tag, regardless of
+    /// which one. Combines with `FilterState.tag` (an exact `#tag` match)
+    /// the same way every other chip does — see `matches(_:chip:)`.
+    case tagged
 
     /// The chips shown, in bar order.
     static let bar: [ChipFilter] = [
@@ -31,12 +35,14 @@ enum ChipFilter: Hashable {
         .kind(.code),
         .kind(.email),
         .kind(.phone),
+        .tagged,
     ]
 
     var label: String {
         switch self {
         case .all: return "All"
         case .kind(let kind): return kind.label
+        case .tagged: return "Tags"
         }
     }
 
@@ -44,6 +50,7 @@ enum ChipFilter: Hashable {
         switch self {
         case .all: return "square.grid.2x2"
         case .kind(let kind): return kind.systemImage
+        case .tagged: return "tag"
         }
     }
 }
@@ -90,6 +97,9 @@ struct FilterState: Equatable {
     /// - **Text** is the catch-all for text items that have not been classified
     ///   as something more specific (`kind == nil`) plus explicit
     ///   `.text` / `.richText`.
+    /// - **Tags** (`.tagged`, task 6B) matches any item carrying at least one
+    ///   tag — it does not care which one; picking a specific tag is
+    ///   `FilterState.tag`, applied separately in `apply(_:_:)`.
     /// - Every other chip requires an exact `kind` match, so it shows nothing
     ///   until detection backfills.
     static func matches(_ item: ClipboardItem, chip: ChipFilter) -> Bool {
@@ -104,6 +114,8 @@ struct FilterState: Equatable {
             return item.type == .text && (item.kind == nil || item.kind == .text || item.kind == .richText)
         case .kind(let kind):
             return item.kind == kind
+        case .tagged:
+            return !item.tags.isEmpty
         }
     }
 

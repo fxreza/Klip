@@ -42,10 +42,20 @@ struct HistoryContentView: View {
                     SearchBar(store: store, viewModel: viewModel, isSearchFocused: $isSearchFocused)
 
                     if viewModel.showTagAutocomplete && !store.allTags.isEmpty {
-                        TagAutocompleteBar(store: store, viewModel: viewModel)
+                        TagAutocompleteBar(store: store, viewModel: viewModel, tags: viewModel.tagSuggestions)
                     }
 
                     FilterChipBar(viewModel: viewModel)
+
+                    // Task 6B: the Tags chip shows every tag (most-used
+                    // first) under the chip row so a tap sets
+                    // `activeTagFilter` without needing `#` search. Hidden
+                    // while the `#`-mode bar above is already showing its
+                    // own (differently ordered) list, so the two never
+                    // double up.
+                    if viewModel.showTagsChipBar {
+                        TagAutocompleteBar(store: store, viewModel: viewModel, tags: viewModel.tagsByUsage)
+                    }
 
                     Divider()
 

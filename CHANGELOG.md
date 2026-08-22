@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## 3.0.2 (2026-08-22)
+
+### Added
+
+- **Tags chip** - A `Tags` chip in the filter row narrows the list to clips carrying at least one tag. Activating it shows every tag (most-used first) in a bar under the chips; clicking one narrows further to that tag, and clearing the tag filter (⌫ on an empty search, or the tag pill's ×) drops back to "all tagged clips" with the chip still active. Typing `#tag` in search still works exactly as before, and now lights the Tags chip too.
+- **`# tags` legend hint** - The action bar's shortcut legend now includes `# tags`, pointing at the `#tag` search syntax and the new Tags chip.
+
+### Changed
+
+- **Shortcut legend wraps instead of dropping shortcuts** - At the default window width (sidebar and preview both open), the full legend no longer collapses straight to "navigate / paste" - it now wraps onto up to two compact rows, so `⌥↩ paste plain` and `# tags` (and everything else) stay visible. Only drops to the shorter tier if the full set still doesn't fit in two rows.
+- **Settings footer trimmed** - The "Designed to disappear" tagline and the Star on GitHub / Report an Issue links are gone from Settings; only the version line remains.
+
+---
+
 ## 3.0.1 (2026-08-22)
 
 Fixes from the first live test of 3.0.0.

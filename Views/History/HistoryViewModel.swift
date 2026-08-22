@@ -106,6 +106,64 @@ final class HistoryViewModel: ObservableObject {
         FilterState(query: debouncedSearchText, tag: activeTagFilter, scope: scope, chip: chipFilter)
     }
 
+    // MARK: - Chip row (task 6B)
+    //
+    // `FilterChipBar`'s tap handler and "is this chip lit up" check both live
+    // here rather than inline in the view, so the Tags-specific rules —
+    // reading active off `activeTagFilter` too, and a tap on an active Tags
+    // chip clearing both `chipFilter` and `activeTagFilter` — are unit
+    // testable without instantiating SwiftUI.
+
+    /// Whether `filter` should read as selected in the chip row.
+    ///
+    /// Every chip but Tags is a straight match against `chipFilter`. Tags
+    /// also reads active whenever `activeTagFilter != nil` — typing `#tag` in
+    /// search and picking a suggestion lights the chip even though it was
+    /// never tapped.
+    func chipIsActive(_ filter: ChipFilter) -> Bool {
+        if filter == .tagged {
+            return chipFilter == .tagged || activeTagFilter != nil
+        }
+        return chipFilter == filter
+    }
+
+    /// Chip-row tap handler.
+    ///
+    /// - `.all` always resets everything, including a tag filter picked up
+    ///   via `#` search.
+    /// - `.tagged`: tapping it while already active (whether that's because
+    ///   the chip itself is selected or because a `#tag` filter is live)
+    ///   clears both `chipFilter` and `activeTagFilter`; tapping it while
+    ///   inactive just activates the chip, leaving any specific tag filter
+    ///   alone (the tag bar then reads as "all tagged clips").
+    /// - Every other chip toggles between itself and `.all`, same as before
+    ///   task 6B, and never touches `activeTagFilter`.
+    func tapChip(_ filter: ChipFilter) {
+        let active = chipIsActive(filter)
+        switch filter {
+        case .all:
+            chipFilter = .all
+            activeTagFilter = nil
+        case .tagged:
+            if active {
+                chipFilter = .all
+                activeTagFilter = nil
+            } else {
+                chipFilter = .tagged
+            }
+        default:
+            chipFilter = active ? .all : filter
+        }
+    }
+
+    /// Whether the Tags chip's tag bar (`TagAutocompleteBar`, sorted by use
+    /// count) should show under the chip row. Suppressed while the `#`-mode
+    /// bar above the chips is already showing its own (alphabetical,
+    /// prefix-filtered) list, so the two never double up.
+    var showTagsChipBar: Bool {
+        chipFilter == .tagged && !showTagAutocomplete && !store.allTags.isEmpty
+    }
+
     // MARK: - Inline prompts
     //
     // A system alert would make the borderless panel resign key and close, so
@@ -197,6 +255,22 @@ final class HistoryViewModel: ObservableObject {
         let query = searchText.hasPrefix("#") ? String(searchText.dropFirst()).lowercased() : ""
         if query.isEmpty { return store.allTags }
         return store.allTags.filter { $0.hasPrefix(query) }
+    }
+
+    /// Every tag in use, ordered by how many items carry it (most first) and
+    /// then by name. Feeds `TagAutocompleteBar` when it is opened from the
+    /// Tags chip (task 6B) — unlike `tagSuggestions`, which stays plain
+    /// alphabetical for `#` search mode, this surfaces the tags the user
+    /// reaches for most.
+    var tagsByUsage: [String] {
+        var counts: [String: Int] = [:]
+        for item in store.items {
+            for tag in item.tags { counts[tag, default: 0] += 1 }
+        }
+        return counts.keys.sorted { a, b in
+            let (countA, countB) = (counts[a] ?? 0, counts[b] ?? 0)
+            return countA != countB ? countA > countB : a < b
+        }
     }
 
     func tagInputSuggestions(excluding existing: [String]) -> [String] {
