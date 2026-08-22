@@ -82,6 +82,7 @@
 		1606CE65A78E28B45FFF3DC7 /* SyncMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6DE8D7057DF5453F95F8D41 /* SyncMerge.swift */; };
 		32429272B49AE643B8075190 /* SyncTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5D76B3E376400DA5A05EEF /* SyncTab.swift */; };
 		B69CCF063F3674C8B4DE27BF /* ImageThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A650DD6CCD4B07CE3621FA4 /* ImageThumbnailCache.swift */; };
+		B4806C5E5988F2CABF1F2481 /* KlipDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = B32C9AD64843714FA64A6749 /* KlipDefaults.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -174,6 +175,7 @@
 		F6DE8D7057DF5453F95F8D41 /* SyncMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncMerge.swift; sourceTree = "<group>"; };
 		6D5D76B3E376400DA5A05EEF /* SyncTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncTab.swift; sourceTree = "<group>"; };
 		4A650DD6CCD4B07CE3621FA4 /* ImageThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageThumbnailCache.swift; sourceTree = "<group>"; };
+		B32C9AD64843714FA64A6749 /* KlipDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KlipDefaults.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -283,6 +285,7 @@
 				08370ACDDE3F89166CCA7642 /* PasteboardFlavors.swift */,
 				B71BAB98875A972B309F3867 /* CloudDriveSync.swift */,
 				F6DE8D7057DF5453F95F8D41 /* SyncMerge.swift */,
+				B32C9AD64843714FA64A6749 /* KlipDefaults.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -553,6 +556,7 @@
 				1606CE65A78E28B45FFF3DC7 /* SyncMerge.swift in Sources */,
 				32429272B49AE643B8075190 /* SyncTab.swift in Sources */,
 				B69CCF063F3674C8B4DE27BF /* ImageThumbnailCache.swift in Sources */,
+				B4806C5E5988F2CABF1F2481 /* KlipDefaults.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
