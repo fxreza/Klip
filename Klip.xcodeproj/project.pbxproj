@@ -70,6 +70,8 @@
 		A0BB00AE35E548041987F22D /* Appearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11B3A05BF54CE9488FB6C6BD /* Appearance.swift */; };
 		231581D50C2A6761D3039DC6 /* FontScale.swift in Sources */ = {isa = PBXBuildFile; fileRef = 016E8671183BC7BA521CEE7D /* FontScale.swift */; };
 		C443DDE631D13C58313E2F00 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E51D3EFCFC3E830351CF97 /* Theme.swift */; };
+		28979D2569F6C82BEDE0C12A /* HistoryViewModel+Lock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 471DA497C864DED66B8F565A /* HistoryViewModel+Lock.swift */; };
+		D11B8D69FC483851BA98E0E7 /* Toast.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCE0254BB77CF0DA7EBA6DB8 /* Toast.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -150,6 +152,8 @@
 		11B3A05BF54CE9488FB6C6BD /* Appearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Appearance.swift; sourceTree = "<group>"; };
 		016E8671183BC7BA521CEE7D /* FontScale.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontScale.swift; sourceTree = "<group>"; };
 		A5E51D3EFCFC3E830351CF97 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		471DA497C864DED66B8F565A /* HistoryViewModel+Lock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HistoryViewModel+Lock.swift"; sourceTree = "<group>"; };
+		FCE0254BB77CF0DA7EBA6DB8 /* Toast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Toast.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -314,6 +318,8 @@
 				1E44FC6EF08FD7B5E2F47076 /* Sidebar.swift */,
 				0D0BE7C989A1A47C15D9F9C5 /* TagAutocompleteBar.swift */,
 				74DCD0172BE1E2BDB3D5651C /* TagSection.swift */,
+				471DA497C864DED66B8F565A /* HistoryViewModel+Lock.swift */,
+				FCE0254BB77CF0DA7EBA6DB8 /* Toast.swift */,
 			);
 			path = History;
 			sourceTree = "<group>";
@@ -505,6 +511,8 @@
 				A0BB00AE35E548041987F22D /* Appearance.swift in Sources */,
 				231581D50C2A6761D3039DC6 /* FontScale.swift in Sources */,
 				C443DDE631D13C58313E2F00 /* Theme.swift in Sources */,
+				28979D2569F6C82BEDE0C12A /* HistoryViewModel+Lock.swift in Sources */,
+				D11B8D69FC483851BA98E0E7 /* Toast.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

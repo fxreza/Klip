@@ -40,6 +40,12 @@ Usage:
 """
 from __future__ import annotations
 
+import re as _re
+def _q(v):
+    """Quote a pbxproj scalar when it contains characters outside the bare-word set."""
+    return v if _re.fullmatch(r"[A-Za-z0-9_./]+", v) else '"' + v.replace('"', '\\"') + '"'
+
+
 import argparse
 import hashlib
 import re
@@ -446,7 +452,7 @@ def sync(check_only: bool) -> int:
                     f"\t\t\tisa = PBXGroup;\n"
                     f"\t\t\tchildren = (\n"
                     f"\t\t\t);\n"
-                    f"\t\t\tpath = {segment};\n"
+                    f"\t\t\tpath = {_q(segment)};\n"
                     f'\t\t\tsourceTree = "<group>";\n'
                     f"\t\t}};\n"
                 )
@@ -471,7 +477,7 @@ def sync(check_only: bool) -> int:
         bf_id = gen_id("buildfile", path, "Sources")
         fref_line = (
             f"\t\t{fref_id} /* {basename} */ = {{isa = PBXFileReference; "
-            f"lastKnownFileType = sourcecode.swift; path = {basename}; "
+            f"lastKnownFileType = sourcecode.swift; path = {_q(basename)}; "
             f'sourceTree = "<group>"; }};\n'
         )
         bf_line = (
