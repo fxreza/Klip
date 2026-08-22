@@ -82,6 +82,7 @@
 		D6556DF7C0FED443DBBFE3BF /* CloudDriveSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = B71BAB98875A972B309F3867 /* CloudDriveSync.swift */; };
 		1606CE65A78E28B45FFF3DC7 /* SyncMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6DE8D7057DF5453F95F8D41 /* SyncMerge.swift */; };
 		32429272B49AE643B8075190 /* SyncTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5D76B3E376400DA5A05EEF /* SyncTab.swift */; };
+		B69CCF063F3674C8B4DE27BF /* ImageThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A650DD6CCD4B07CE3621FA4 /* ImageThumbnailCache.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -174,6 +175,7 @@
 		B71BAB98875A972B309F3867 /* CloudDriveSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveSync.swift; sourceTree = "<group>"; };
 		F6DE8D7057DF5453F95F8D41 /* SyncMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncMerge.swift; sourceTree = "<group>"; };
 		6D5D76B3E376400DA5A05EEF /* SyncTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncTab.swift; sourceTree = "<group>"; };
+		4A650DD6CCD4B07CE3621FA4 /* ImageThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageThumbnailCache.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -349,6 +351,7 @@
 				47A10955400EBE5FEE3C4CB9 /* HistoryViewModel+Folders.swift */,
 				06B8D3DFF6742AF6DD334273 /* HistoryViewModel+Shortcuts.swift */,
 				EC3A99ECEC67DA2B442C6562 /* HistoryViewModel+Paste.swift */,
+				4A650DD6CCD4B07CE3621FA4 /* ImageThumbnailCache.swift */,
 			);
 			path = History;
 			sourceTree = "<group>";
@@ -553,6 +556,7 @@
 				D6556DF7C0FED443DBBFE3BF /* CloudDriveSync.swift in Sources */,
 				1606CE65A78E28B45FFF3DC7 /* SyncMerge.swift in Sources */,
 				32429272B49AE643B8075190 /* SyncTab.swift in Sources */,
+				B69CCF063F3674C8B4DE27BF /* ImageThumbnailCache.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

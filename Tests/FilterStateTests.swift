@@ -31,6 +31,9 @@ enum FilterStateTests {
         ("query_imageWithNoSearchableField_stillExcluded", testQueryImageWithNothingSearchableExcluded),
         ("query_oldTextContentBehavior_stillWorks", testQueryOldTextContentBehaviorUnchanged),
         ("apply_10kItems_staysUnderTimingBudget", testApplyTimingBudget),
+        // 5A-15 — the folded search blob is cached per item.
+        ("searchBlobCache_invalidatesWhenTheItemChanges", testBlobCacheInvalidation),
+        ("searchBlobCache_warmQueryPassIsUnderBudget", testBlobCacheWarmPass),
     ]
 
     // MARK: - Fixtures
@@ -467,5 +470,71 @@ enum FilterStateTests {
         try expect(elapsedMs < 150, "apply() over 10,000 items took \(elapsedMs) ms, want < 150 ms")
         try expect(result.count >= 0, "sanity: apply must return without crashing")
         print("FilterState.apply timing over 10,000 items: \(String(format: "%.2f", elapsedMs)) ms")
+    }
+
+    // MARK: - 5A-15: cached search blobs
+
+    /// The cache is keyed on `(id, updatedAt)`, and every store mutation
+    /// stamps `updatedAt` — so an edited clip must be re-blobbed, never
+    /// matched against its old text.
+    static func testBlobCacheInvalidation() throws {
+        let original = ClipboardItem(type: .text, textContent: "alpha invoice")
+        try expectEqual(FilterState.apply([original], FilterState(query: "alpha")).count, 1,
+                        "the original text should match")
+
+        // Same id, new content, newer stamp — exactly what an edit produces.
+        let edited = ClipboardItem(
+            id: original.id,
+            type: .text,
+            timestamp: original.timestamp,
+            textContent: "beta receipt",
+            updatedAt: original.updatedAt.addingTimeInterval(1)
+        )
+        try expectEqual(FilterState.apply([edited], FilterState(query: "alpha")).count, 0,
+                        "a stale cached blob must not keep matching the old text")
+        try expectEqual(FilterState.apply([edited], FilterState(query: "receipt")).count, 1,
+                        "the new text should match")
+
+        // Tags and OCR text feed the same blob, and are stamped the same way.
+        let tagged = ClipboardItem(
+            id: original.id,
+            type: .text,
+            timestamp: original.timestamp,
+            textContent: "beta receipt",
+            tags: ["quarterly"],
+            updatedAt: original.updatedAt.addingTimeInterval(2)
+        )
+        try expectEqual(FilterState.apply([tagged], FilterState(query: "quarterly")).count, 1,
+                        "a newly added tag must be visible to search")
+    }
+
+    /// The keystroke cost this cache exists for. The uncached pass rebuilt
+    /// and folded a String per item on every keystroke (measured at 35.6 ms
+    /// for a no-match query over 10,000 items).
+    static func testBlobCacheWarmPass() throws {
+        var items: [ClipboardItem] = []
+        items.reserveCapacity(10_000)
+        for i in 0..<10_000 {
+            items.append(text("Some clipboard text number \(i) about coffee and code",
+                              tags: ["tag\(i % 50)"], sourceApp: "App\(i % 10)"))
+        }
+
+        FilterState.resetSearchBlobCache()
+        let coldStart = Date()
+        _ = FilterState.apply(items, FilterState(query: "zzzznotamatch"))
+        let coldMs = Date().timeIntervalSince(coldStart) * 1000
+
+        let warmStart = Date()
+        let warm = FilterState.apply(items, FilterState(query: "zzzznotamatch"))
+        let warmMs = Date().timeIntervalSince(warmStart) * 1000
+
+        print("FilterState.apply worst-case query over 10,000 items: cold \(String(format: "%.2f", coldMs)) ms, warm \(String(format: "%.2f", warmMs)) ms")
+        try expectEqual(warm.count, 0, "the query matches nothing — the whole list is scanned")
+        // The budget here is generous because `scripts/run_tests.sh` builds
+        // the runner unoptimised; the same pass measures 7.4 ms under `-O`
+        // (the build the app actually ships), against the 35.6 ms the review
+        // measured for the uncached version.
+        try expect(warmMs < 20, "a warm no-match pass took \(warmMs) ms, want < 20 ms")
+        try expect(warmMs < coldMs, "the warm pass must be cheaper than the cold one")
     }
 }

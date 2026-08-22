@@ -14,24 +14,34 @@ struct ClipList: View {
     @ObservedObject var store: ClipboardStore
     @ObservedObject var viewModel: HistoryViewModel
 
-    @State private var hoveredID: UUID?
-
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: true) {
                 LazyVStack(spacing: 3) {
                     let items = viewModel.filteredItems
+                    // 5A-14: `ForEach(Array(items.enumerated()), …)` copied
+                    // 10,000 `(Int, ClipboardItem)` tuples on *every* body
+                    // pass. `FilterState.apply` guarantees a pinned-first
+                    // partition, so the pinned run is a prefix: counting it
+                    // costs only the number of pinned items, and the two
+                    // things the index was used for (the "is this the first
+                    // unpinned row" separator, and the click handlers' index)
+                    // are derived from that instead.
+                    let pinnedCount = items.prefix(while: { $0.isPinned }).count
+                    let separatorID: UUID? = (pinnedCount > 0 && pinnedCount < items.count)
+                        ? items[pinnedCount].id
+                        : nil
 
                     if items.isEmpty, let message = noMatchesMessage {
                         emptyState(message)
                     } else {
-                        if items.contains(where: { $0.isPinned }) {
+                        if pinnedCount > 0 {
                             pinnedHeader
                         }
 
-                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        ForEach(items) { item in
                             // Separator between the pinned group and the rest.
-                            if !item.isPinned && index > 0 && items[index - 1].isPinned {
+                            if item.id == separatorID {
                                 Rectangle()
                                     .fill(Theme.separator)
                                     .frame(height: 0.5)
@@ -39,7 +49,7 @@ struct ClipList: View {
                                     .padding(.vertical, 3)
                             }
 
-                            row(item, at: index)
+                            row(item)
                         }
                     }
                 }
@@ -107,13 +117,12 @@ struct ClipList: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func row(_ item: ClipboardItem, at index: Int) -> some View {
+    private func row(_ item: ClipboardItem) -> some View {
         ClipRow(
             item: item,
             store: store,
             isPrimarySelection: item.id == viewModel.selectedID,
             isMultiSelected: viewModel.selectedIDs.contains(item.id) && item.id != viewModel.selectedID,
-            isHovered: hoveredID == item.id,
             // Unchanged: tapping a row's tag chip sets the filter and nothing else.
             onTagTap: { tag in viewModel.activeTagFilter = tag }
         )
@@ -122,7 +131,7 @@ struct ClipList: View {
         .overlay(
             ClickModifierDetector(
                 onClickWithModifiers: { modifiers in
-                    viewModel.selectedIndex = index
+                    viewModel.focusIndex(of: item.id)
 
                     if modifiers.hasCommand {
                         viewModel.toggleSelection(item.id)
@@ -144,7 +153,10 @@ struct ClipList: View {
                         image: ClipRowDragImage.make(for: item, count: ids.count)
                     )
                 },
-                onDragBegan: { ids in viewModel.restoreSelection(ids) }
+                onDragBegan: { ids in viewModel.restoreSelection(ids) },
+                // 5A-19: the right-click selection happens here, on the
+                // mouse-down, not inside the `.contextMenu` ViewBuilder.
+                onRightMouseDown: { viewModel.selectForContextMenu(item.id) }
             ),
             alignment: .center
         )
@@ -158,24 +170,23 @@ struct ClipList: View {
         .highPriorityGesture(
             TapGesture(count: 2)
                 .onEnded { _ in
-                    viewModel.selectedIndex = index
+                    viewModel.focusIndex(of: item.id)
                     viewModel.copy(item)
                     viewModel.onDismiss()
                 }
         )
-        .onHover { hovering in
-            if hovering {
-                hoveredID = item.id
-            } else if hoveredID == item.id {
-                hoveredID = nil
-            }
-        }
         .contextMenu {
             // Right-clicking a row outside the current selection selects it
             // first; right-clicking inside an existing multi-selection
             // leaves it untouched (Phase 3D) — see
             // `HistoryViewModel.selectForContextMenu`.
-            let _ = viewModel.selectForContextMenu(item.id)
+            //
+            // 5A-19: that selection change used to be made *inside* this
+            // ViewBuilder (`let _ = viewModel.selectForContextMenu(...)`),
+            // i.e. observable state mutated during a view update — undefined
+            // behaviour if SwiftUI ever evaluates the builder outside a
+            // right-click. It now happens on the right mouse-down above, so
+            // this builder is a pure read.
             RowContextMenu(viewModel: viewModel, item: item)
         }
     }

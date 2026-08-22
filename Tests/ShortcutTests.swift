@@ -24,6 +24,10 @@ enum ShortcutTests {
         ("persistence_roundTripsThroughInjectedUserDefaults", testPersistenceRoundTrip),
         ("persistence_onlyStoresOverridesNotTheFullTable", testPersistenceStoresOverridesOnly),
         ("action_forEvent_findsFirstMatchingAction", testActionForEvent),
+        // review-2B test gap #1 — HotkeyRecorder's Esc / modifier gate.
+        ("recorder_escapeCancelsRecording", testRecorderEscapeCancels),
+        ("recorder_requiresCommandControlOrOption", testRecorderModifierGate),
+        ("recorder_recordsTheFullModifierSet", testRecorderRecordsModifiers),
     ]
 
     // MARK: - Fixtures
@@ -252,6 +256,42 @@ enum ShortcutTests {
 
         let unmatched = event(keyCode: 200, modifiers: [.command, .shift, .option, .control])
         try expectNil(manager.action(for: unmatched))
+    }
+
+    // MARK: - HotkeyRecorder gate (review-2B test gap #1)
+    //
+    // `RecorderView.keyDown` was only ever verified by reading it. The rules
+    // are pure — Escape cancels (and so can never itself be recorded), and a
+    // combination without ⌘/⌃/⌥ is rejected so a rebind cannot swallow
+    // ordinary typing — so they are now pinned directly.
+
+    static func testRecorderEscapeCancels() throws {
+        try expectEqual(RecorderView.outcome(keyCode: 53, flags: []), .cancel,
+                        "Escape cancels recording")
+        try expectEqual(RecorderView.outcome(keyCode: 53, flags: [.command]), .cancel,
+                        "⌘Escape is still a cancel, never a recordable binding")
+    }
+
+    static func testRecorderModifierGate() throws {
+        try expectEqual(RecorderView.outcome(keyCode: 35, flags: []), .reject,
+                        "a bare key is not a safe shortcut")
+        try expectEqual(RecorderView.outcome(keyCode: 35, flags: [.shift]), .reject,
+                        "shift alone is not enough")
+        try expectEqual(RecorderView.outcome(keyCode: 35, flags: [.capsLock, .function]), .reject,
+                        "non-device-independent flags do not count")
+
+        try expectEqual(RecorderView.outcome(keyCode: 35, flags: [.command]),
+                        .record(KeyBinding(keyCode: 35, modifiers: [.command])))
+        try expectEqual(RecorderView.outcome(keyCode: 35, flags: [.control]),
+                        .record(KeyBinding(keyCode: 35, modifiers: [.control])))
+        try expectEqual(RecorderView.outcome(keyCode: 35, flags: [.option]),
+                        .record(KeyBinding(keyCode: 35, modifiers: [.option])))
+    }
+
+    static func testRecorderRecordsModifiers() throws {
+        let outcome = RecorderView.outcome(keyCode: 1, flags: [.command, .shift, .option, .capsLock])
+        try expectEqual(outcome, .record(KeyBinding(keyCode: 1, modifiers: [.command, .shift, .option])),
+                        "caps lock is dropped; the rest of the set is kept")
     }
 
     // MARK: - Local helpers

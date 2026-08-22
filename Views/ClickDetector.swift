@@ -22,6 +22,13 @@ struct ClickModifierDetector: NSViewRepresentable {
     /// mouse-down collapsed it.
     var onDragBegan: (([UUID]) -> Void)? = nil
 
+    /// Called on right mouse-down, *before* the event travels on to the
+    /// SwiftUI `.contextMenu` below. `ClipList` uses it to select the
+    /// right-clicked row: doing that here instead of inside the menu's
+    /// `ViewBuilder` keeps observable state out of the view-update pass
+    /// (review 5A-19) while preserving the ordering the menu depends on.
+    var onRightMouseDown: (() -> Void)? = nil
+
     /// Pointer travel, in points, that separates a click from a drag.
     static let dragThreshold: CGFloat = 4
 
@@ -29,6 +36,7 @@ struct ClickModifierDetector: NSViewRepresentable {
         var onClickWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
         var dragPayload: (() -> ClipDragRequest?)?
         var onDragBegan: (([UUID]) -> Void)?
+        var onRightMouseDown: (() -> Void)?
 
         private var mouseDownPoint: CGPoint?
         private var pendingDrag: ClipDragRequest?
@@ -42,6 +50,14 @@ struct ClickModifierDetector: NSViewRepresentable {
             // the whole selection even though the press collapses it.
             pendingDrag = dragPayload?()
             onClickWithModifiers?(event.modifierFlags)
+        }
+
+        /// Right-click: select the row first, then let the event continue up
+        /// the responder chain so the SwiftUI `.contextMenu` opens exactly as
+        /// it did before (5A-19).
+        override func rightMouseDown(with event: NSEvent) {
+            onRightMouseDown?()
+            super.rightMouseDown(with: event)
         }
 
         override func mouseDragged(with event: NSEvent) {
@@ -116,6 +132,7 @@ struct ClickModifierDetector: NSViewRepresentable {
         view.onClickWithModifiers = onClickWithModifiers
         view.dragPayload = dragPayload
         view.onDragBegan = onDragBegan
+        view.onRightMouseDown = onRightMouseDown
         return view
     }
 
@@ -124,6 +141,7 @@ struct ClickModifierDetector: NSViewRepresentable {
             clickView.onClickWithModifiers = onClickWithModifiers
             clickView.dragPayload = dragPayload
             clickView.onDragBegan = onDragBegan
+            clickView.onRightMouseDown = onRightMouseDown
         }
     }
 }

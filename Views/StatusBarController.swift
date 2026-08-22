@@ -180,7 +180,9 @@ class StatusBarController {
         if alert.runModal() == .alertFirstButtonReturn {
             let keepProtected = checkbox.state == .on
             let result = store.clear(keepProtected: keepProtected)
-            showClearResult(result)
+            // 5A-10: nothing that just went away should keep a cached badge.
+            ImageThumbnailCache.evictAll()
+            showClearResult(result, keepProtected: keepProtected)
         }
 
         activeAlert = nil
@@ -190,20 +192,38 @@ class StatusBarController {
     /// open (no `HistoryViewModel` to hand a toast to from here), so this
     /// always uses a follow-up `NSAlert` - informational, auto-dismissible
     /// with Return/Esc.
-    private func showClearResult(_ result: ClipboardStore.DeleteResult) {
+    private func showClearResult(_ result: ClipboardStore.DeleteResult, keepProtected: Bool) {
         let alert = NSAlert()
         alert.messageText = "History Cleared"
-        let kept = result.skippedLocked
-        let clipsWord = result.deleted == 1 ? "clip" : "clips"
-        if kept > 0 {
-            let protectedWord = kept == 1 ? "protected clip" : "protected clips"
-            alert.informativeText = "Cleared \(result.deleted) \(clipsWord); \(kept) \(protectedWord) kept."
-        } else {
-            alert.informativeText = "Cleared \(result.deleted) \(clipsWord)."
-        }
+        alert.informativeText = Self.clearResultMessage(
+            deleted: result.deleted,
+            kept: result.skippedLocked,
+            keepProtected: keepProtected
+        )
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    /// Wording of the Clear History result (review-2B low #1), as a pure
+    /// function so `Tests/StatusBarCopyTests.swift` can pin it.
+    ///
+    /// The kept count is deliberately *not* described as "locked": with the
+    /// checkbox on, `clear(keepProtected: true)` keeps everything protected —
+    /// pinned, starred, tagged, foldered **and** locked — so calling all of
+    /// them locked (the wording the other delete surfaces use, where only
+    /// locks can block a delete) would be wrong. With the checkbox off, locks
+    /// really are the only thing left standing, and the message says so.
+    static func clearResultMessage(deleted: Int, kept: Int, keepProtected: Bool) -> String {
+        let clipsWord = deleted == 1 ? "clip" : "clips"
+        guard kept > 0 else { return "Cleared \(deleted) \(clipsWord)." }
+        let keptWord: String
+        if keepProtected {
+            keptWord = kept == 1 ? "protected clip" : "protected clips"
+        } else {
+            keptWord = kept == 1 ? "locked clip" : "locked clips"
+        }
+        return "Cleared \(deleted) \(clipsWord); \(kept) \(keptWord) kept."
     }
 
     @objc private func visibilityChanged() {

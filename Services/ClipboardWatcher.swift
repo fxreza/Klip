@@ -20,11 +20,23 @@ class ClipboardWatcher: ObservableObject {
     private var lastFileFingerprint: String?
     
     private let pollInterval: TimeInterval = 0.5
-    
+
     // Size thresholds for text handling
     private let inlineTextLimit = 50_000       // 50 KB — store inline
     private let previewLength = 500            // Characters kept as inline preview
-    
+
+    /// Where the expensive half of a text capture runs (review 5A-04).
+    ///
+    /// The poll itself must stay on the main run loop (it reads
+    /// `NSPasteboard.general`), but classification and the `texts/`,
+    /// `flavors/` disk writes do not: a 14.9 MB clip used to block main for
+    /// 5.0 s inside `ContentDetector.detect`, with the menu bar, the panel and
+    /// the hotkey all dead for the duration. **Serial** so two captures can
+    /// never land in `store.add` out of order; dedupe is unaffected because
+    /// `lastContentHash` is still updated synchronously on main before the
+    /// hand-off.
+    private let captureQueue = DispatchQueue(label: "com.fxreza.klip.capture", qos: .utility)
+
     init(store: ClipboardStore) {
         self.store = store
         self.lastChangeCount = NSPasteboard.general.changeCount
@@ -71,9 +83,17 @@ class ClipboardWatcher: ObservableObject {
     }
     
     private func checkClipboard() {
+        capture(from: NSPasteboard.general)
+    }
+
+    /// One poll tick against `pasteboard`.
+    ///
+    /// Split out of `checkClipboard()` so tests and the perf harness can drive
+    /// exactly this code path against a private `NSPasteboard(name:)` instead
+    /// of the user's real clipboard.
+    func capture(from pasteboard: NSPasteboard) {
         guard !isPaused else { return }
-        
-        let pasteboard = NSPasteboard.general
+
         let currentChangeCount = pasteboard.changeCount
         
         // No change detected
@@ -103,8 +123,11 @@ class ClipboardWatcher: ObservableObject {
            !filePaths.isEmpty {
             if filePaths.count == 1, let filePath = filePaths.first, isImageFile(filePath) {
                 // Read and process image file asynchronously to avoid blocking the poll timer
+                // 5A-29: `lastContentHash` is read here, on main, and passed
+                // in — the background closure never reads watcher state.
+                let knownHash = lastContentHash
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                    self?.processImageFile(filePath, sourceApp: sourceApp)
+                    self?.processImageFile(filePath, knownHash: knownHash, sourceApp: sourceApp)
                 }
                 return  // Prevent .string branch from also processing this change
             }
@@ -139,79 +162,138 @@ class ClipboardWatcher: ObservableObject {
                 // RTF/flavors payload worth keeping.
                 // Cap the RTF blob like the raw-flavors bundle (review-2B M1): an
                 // oversized RTF representation is dropped, the plain text is kept.
+                //
+                // These three reads stay on main: they read the pasteboard,
+                // which must not be touched after the poll returns (its
+                // contents can change under us).
                 let rtfData = pasteboard.data(forType: .rtf).flatMap { $0.count <= PasteboardFlavors.maxRawBytes ? $0 : nil }
                 let htmlData = pasteboard.data(forType: .html)
                 let isRich = rtfData != nil || htmlData != nil
                 let flavorsData = PasteboardFlavors.capture(pasteboard)
 
-                var item: ClipboardItem
-                if textSize <= inlineTextLimit {
-                    // Small text: store inline (current behavior)
-                    item = ClipboardItem.text(text, sourceApp: sourceApp)
-                } else {
-                    // Large text: save to file, store preview inline
-                    let preview = String(text.prefix(previewLength))
-                    guard let filename = store.saveText(text) else { return }
-                    item = ClipboardItem.largeText(preview: preview, filename: filename, sourceApp: sourceApp)
-                    print("[Buffer] Large text (\(textSize / 1024) KB) saved to file: \(filename)")
+                // Everything past this point is classification and disk I/O
+                // over data we already hold — no pasteboard access — so it
+                // runs off the main thread (5A-04) and hops back only for
+                // `store.add`.
+                captureQueue.async { [weak self] in
+                    self?.finishTextCapture(
+                        text: text,
+                        textSize: textSize,
+                        sourceApp: sourceApp,
+                        rtfData: rtfData,
+                        flavorsData: flavorsData,
+                        isRich: isRich
+                    )
                 }
-
-                // Detect against the full captured text (not just an inline
-                // preview) — we already have it in memory here. 3C's detector
-                // result (link/email/phone/color/code) is kept as-is; only a
-                // plain `.text` result is upgraded to `.richText`.
-                var kind = ContentDetector.detect(for: item, fullText: text)
-                if isRich && kind == .text {
-                    kind = .richText
-                }
-                item.kind = kind
-
-                if let rtfData, let filename = store.saveRTF(rtfData, itemID: item.id) {
-                    item.rtfFilename = filename
-                }
-                if let flavorsData, let filename = store.saveFlavors(flavorsData, itemID: item.id) {
-                    item.flavorsFilename = filename
-                }
-
-                store.add(item)
             }
             return
         }
         
-        // Try to capture image
-        if let imageData = getImageData(from: pasteboard) {
-            let hash = imageData.hashValue
-            
-            // Skip consecutive duplicates
-            if hash != lastContentHash {
-                lastContentHash = hash
-                
-                // Save image to disk
-                if let filename = store.saveImage(imageData) {
-                    var item = ClipboardItem.image(filename: filename, sourceApp: sourceApp)
-                    item.kind = .image
-                    store.add(item)
-                }
+        // Try to capture image. The pasteboard read stays on main; the
+        // PNG re-encode (a full decode + re-compress, tens of ms for a
+        // retina screenshot) and the disk write go to `captureQueue`,
+        // like the text branch above (5A-04).
+        if let rawImageData = rawImageData(from: pasteboard) {
+            // 5A-29: read `lastContentHash` here, on main, instead of from
+            // the background closure.
+            let knownHash = lastContentHash
+            captureQueue.async { [weak self] in
+                self?.finishImageCapture(rawImageData, knownHash: knownHash, sourceApp: sourceApp)
             }
         }
     }
-    
-    private func getImageData(from pasteboard: NSPasteboard) -> Data? {
-        let imageTypes: [NSPasteboard.PasteboardType] = [.png, .tiff]
-        
-        for type in imageTypes {
-            if let data = pasteboard.data(forType: type) {
-                if let image = NSImage(data: data),
-                   let tiffData = image.tiffRepresentation,
-                   let bitmap = NSBitmapImageRep(data: tiffData),
-                   let pngData = bitmap.representation(using: .png, properties: [:]) {
-                    return pngData
-                }
-                return data
-            }
+
+    /// Background half of a pasteboard image capture.
+    private func finishImageCapture(_ rawImageData: Data, knownHash: Int, sourceApp: String?) {
+        let imageData = pngData(from: rawImageData) ?? rawImageData
+        let hash = imageData.hashValue
+
+        // Skip consecutive duplicates
+        guard hash != knownHash else { return }
+
+        // Save image to disk
+        guard let filename = store.saveImage(imageData) else { return }
+        var item = ClipboardItem.image(filename: filename, sourceApp: sourceApp)
+        item.kind = .image
+        let captured = item
+        DispatchQueue.main.async { [weak self] in
+            self?.lastContentHash = hash
+            self?.store.add(captured)
         }
-        
+    }
+    
+    /// The expensive half of a text capture, run on `captureQueue`.
+    ///
+    /// Classification (`ContentDetector`, itself `nonisolated` and now capped
+    /// at `detectionInputLimit`) plus the `texts/` and `flavors/` writes. The
+    /// `store.save*` helpers it calls are pure file writes against immutable
+    /// directory URLs — they touch no `ClipboardStore` state — which is the
+    /// same contract `processImageFile` has relied on for `saveImage` since
+    /// before this change. The item is handed to `store.add` back on main.
+    private func finishTextCapture(
+        text: String,
+        textSize: Int,
+        sourceApp: String?,
+        rtfData: Data?,
+        flavorsData: Data?,
+        isRich: Bool
+    ) {
+        var item: ClipboardItem
+        if textSize <= inlineTextLimit {
+            // Small text: store inline (current behavior)
+            item = ClipboardItem.text(text, sourceApp: sourceApp)
+        } else {
+            // Large text: save to file, store preview inline
+            let preview = String(text.prefix(previewLength))
+            guard let filename = store.saveText(text) else { return }
+            item = ClipboardItem.largeText(preview: preview, filename: filename, sourceApp: sourceApp)
+            print("[Buffer] Large text (\(textSize / 1024) KB) saved to file: \(filename)")
+        }
+
+        // Detect against the full captured text (not just an inline
+        // preview) — we already have it in memory here. 3C's detector
+        // result (link/email/phone/color/code) is kept as-is; only a
+        // plain `.text` result is upgraded to `.richText`.
+        var kind = ContentDetector.detect(for: item, fullText: text)
+        if isRich && kind == .text {
+            kind = .richText
+        }
+        item.kind = kind
+
+        if let rtfData, let filename = store.saveRTF(rtfData, itemID: item.id) {
+            item.rtfFilename = filename
+        }
+        if let flavorsData, let filename = store.saveFlavors(flavorsData, itemID: item.id) {
+            item.flavorsFilename = filename
+        }
+
+        let captured = item
+        DispatchQueue.main.async { [weak self] in
+            self?.store.add(captured)
+        }
+    }
+
+    /// The raw `.png`/`.tiff` bytes on the pasteboard, if any. Cheap enough
+    /// to run on the poll thread; the conversion below is not.
+    private func rawImageData(from pasteboard: NSPasteboard) -> Data? {
+        let imageTypes: [NSPasteboard.PasteboardType] = [.png, .tiff]
+        for type in imageTypes {
+            if let data = pasteboard.data(forType: type) { return data }
+        }
         return nil
+    }
+
+    /// Normalises arbitrary image bytes to PNG. Returns `nil` when the data
+    /// cannot be decoded, in which case callers keep the original bytes —
+    /// the same fallback the old `getImageData` had.
+    private nonisolated func pngData(from data: Data) -> Data? {
+        guard let image = NSImage(data: data),
+              let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let png = bitmap.representation(using: .png, properties: [:]) else {
+            return nil
+        }
+        return png
     }
     
     /// Check if a file path points to an image by examining its UTType
@@ -226,28 +308,25 @@ class ClipboardWatcher: ObservableObject {
     }
     
     /// Read image file from disk, convert to PNG, and store as image item
-    private func processImageFile(_ filePath: String, sourceApp: String?) {
+    private func processImageFile(_ filePath: String, knownHash: Int, sourceApp: String?) {
         do {
             // Read file bytes
             let fileURL = URL(fileURLWithPath: filePath)
             let fileData = try Data(contentsOf: fileURL)
-            
+
             // Convert to PNG using the same pattern as pasteboard image handling
-            guard let image = NSImage(data: fileData),
-                  let tiffData = image.tiffRepresentation,
-                  let bitmap = NSBitmapImageRep(data: tiffData),
-                  let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            guard let pngData = pngData(from: fileData) else {
                 print("[Buffer] Failed to convert image file: \(filePath)")
                 return
             }
-            
+
             // Check for duplicate using hash
             let hash = pngData.hashValue
-            guard hash != lastContentHash else {
+            guard hash != knownHash else {
                 // print("[Buffer] Duplicate image file detected: \(filePath)")
                 return
             }
-            
+
             // Save image to disk and add to store
             if let filename = store.saveImage(pngData) {
                 var item = ClipboardItem.image(filename: filename, sourceApp: sourceApp)

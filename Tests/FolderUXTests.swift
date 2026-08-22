@@ -41,6 +41,9 @@ enum FolderUXTests {
         ("dragIDs_useTheSelectionWhenTheRowIsPartOfIt", testDragIDs),
         ("handleDrop_routesByScope", testHandleDrop),
         ("reorderFolder_movesOntoTheTargetSlot", testReorderFolder),
+        // review-2B test gaps #2 and #3.
+        ("dragAndDrop_carriesImageAndFileClipsToo", testDragImageAndFileClips),
+        ("cycleScope_wrapsAroundInBothDirections", testCycleScopeWraparound),
     ]
 
     // MARK: - Harness
@@ -519,6 +522,83 @@ enum FolderUXTests {
             try expect(!vm.handleDrop(ids: [], on: .all), "an empty payload is rejected")
             try expect(!vm.handleDrop(ids: [items[0].id], on: .folder(UUID())),
                        "a folder that no longer exists rejects the drop")
+        }
+    }
+
+    /// review-2B test gap #2: the drag payload and the drop handler are
+    /// type-agnostic by inspection — nothing had ever exercised them with an
+    /// **image** or **file** clip, only text.
+    static func testDragImageAndFileClips() throws {
+        try withViewModel { vm, store in
+            let folder = store.createFolder(name: "Assets")
+            let picture = ClipboardItem(type: .image, imageFilename: "\(UUID().uuidString).png")
+            let document = ClipboardItem(
+                type: .text,
+                textContent: "Report.pdf",
+                fileAttachment: FileAttachment(
+                    originalName: "Report.pdf",
+                    referencePath: "/tmp/Report.pdf",
+                    byteSize: 1024
+                )
+            )
+            let note = text("just text")
+            store.items = [picture, document, note]
+            vm.applyFilters(resetSelection: .keep)
+
+            // Payload: an image + a file clip round-trip through the private
+            // pasteboard encoding exactly like text clips do.
+            vm.selectedIDs = [picture.id, document.id]
+            let dragged = vm.dragIDs(startingAt: document.id)
+            try expectEqual(dragged, [picture.id, document.id],
+                            "a mixed image/file selection drags as a whole, in list order")
+            try expectEqual(ClipDragPayload.decode(ClipDragPayload.encode(dragged)), dragged,
+                            "image and file ids survive the payload round trip")
+
+            // Drop: both land in the folder and are locked by filing.
+            try expect(vm.handleDrop(ids: dragged, on: .folder(folder.id)),
+                       "a folder row accepts image and file clips")
+            let filed = store.items.filter { $0.folderID == folder.id }
+            try expectEqual(Set(filed.map { $0.id }), Set(dragged),
+                            "both the image and the file clip are filed")
+            try expect(filed.allSatisfy { $0.isLocked }, "filing locks them, whatever their type")
+            try expectNil(store.items.first(where: { $0.id == note.id })?.folderID,
+                          "the clip that was not dragged is untouched")
+        }
+    }
+
+    /// review-2B test gap #3: ⌘[ / ⌘] walk All → Favorites → each folder and
+    /// wrap around at both ends.
+    static func testCycleScopeWraparound() throws {
+        try withViewModel { vm, store in
+            let work = store.createFolder(name: "Work")
+            let home = store.createFolder(name: "Home")
+            try expectEqual(vm.orderedScopes, [.all, .favorites, .folder(work.id), .folder(home.id)],
+                            "scope order is All, Favorites, then folders in sidebar order")
+
+            vm.scope = .all
+            vm.cycleScope(by: 1)
+            try expectEqual(vm.scope, .favorites)
+            vm.cycleScope(by: 1)
+            try expectEqual(vm.scope, .folder(work.id))
+            vm.cycleScope(by: 1)
+            try expectEqual(vm.scope, .folder(home.id))
+            vm.cycleScope(by: 1)
+            try expectEqual(vm.scope, .all, "forwards past the last folder wraps to All")
+
+            vm.cycleScope(by: -1)
+            try expectEqual(vm.scope, .folder(home.id), "backwards from All wraps to the last folder")
+            vm.cycleScope(by: -1)
+            try expectEqual(vm.scope, .folder(work.id))
+            vm.cycleScope(by: -1)
+            try expectEqual(vm.scope, .favorites)
+            vm.cycleScope(by: -1)
+            try expectEqual(vm.scope, .all)
+
+            // A scope that is no longer in the list starts from the beginning
+            // rather than trapping.
+            vm.scope = .folder(UUID())
+            vm.cycleScope(by: 1)
+            try expectEqual(vm.scope, .favorites, "an unknown scope cycles from position 0")
         }
     }
 

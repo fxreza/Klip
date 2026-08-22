@@ -21,6 +21,10 @@ enum FileClipTests {
         ("uniqueURL_noCollision_returnsSameName", testUniqueURLNoCollision),
         ("uniqueURL_collision_appendsCounter", testUniqueURLCollision),
         ("uniqueURL_collision_noExtension", testUniqueURLCollisionNoExtension),
+        // 5A-23 — a failed save must not destroy the file already there.
+        ("copyReplacingItem_replacesAnExistingFile", testCopyReplacingItemReplaces),
+        ("copyReplacingItem_keepsTheOriginalWhenTheCopyFails", testCopyReplacingItemFailureKeepsOriginal),
+        ("copyReplacingItem_writesWhenNothingIsThere", testCopyReplacingItemFresh),
     ]
 
     // MARK: - Helpers
@@ -246,6 +250,56 @@ enum FileClipTests {
             try makeFile("README", in: dir)
             let url = PasteController.uniqueURL(for: "README", in: dir)
             try expectEqual(url.lastPathComponent, "README 2", "a name with no extension still gets a counter suffix")
+        }
+    }
+
+    // MARK: - copyReplacingItem (5A-23)
+
+    static func testCopyReplacingItemReplaces() throws {
+        try withTempDir { dir in
+            let source = try makeFile("source.txt", in: dir, contents: "new bytes")
+            let destination = try makeFile("saved.txt", in: dir, contents: "existing bytes")
+
+            try PasteController.copyReplacingItem(at: source, to: destination)
+
+            try expectEqual(try String(contentsOf: destination, encoding: .utf8), "new bytes",
+                            "the destination should hold the new content")
+            let leftovers = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+                .filter { $0.hasPrefix(".klip-save-") }
+            try expect(leftovers.isEmpty, "no staging file should be left behind")
+        }
+    }
+
+    /// The finding: the old code removed the destination first, so a failing
+    /// copy left the user with neither file.
+    static func testCopyReplacingItemFailureKeepsOriginal() throws {
+        try withTempDir { dir in
+            let missingSource = dir.appendingPathComponent("gone.txt")
+            let destination = try makeFile("saved.txt", in: dir, contents: "existing bytes")
+
+            var threw = false
+            do {
+                try PasteController.copyReplacingItem(at: missingSource, to: destination)
+            } catch {
+                threw = true
+            }
+
+            try expect(threw, "a missing source must surface as an error")
+            try expectEqual(try String(contentsOf: destination, encoding: .utf8), "existing bytes",
+                            "the pre-existing file must survive a failed save")
+            let leftovers = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+                .filter { $0.hasPrefix(".klip-save-") }
+            try expect(leftovers.isEmpty, "no staging file should be left behind")
+        }
+    }
+
+    static func testCopyReplacingItemFresh() throws {
+        try withTempDir { dir in
+            let source = try makeFile("source.txt", in: dir, contents: "new bytes")
+            let destination = dir.appendingPathComponent("saved.txt")
+
+            try PasteController.copyReplacingItem(at: source, to: destination)
+            try expectEqual(try String(contentsOf: destination, encoding: .utf8), "new bytes")
         }
     }
 

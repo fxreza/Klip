@@ -22,6 +22,13 @@ rm -rf build dmg_* ${APP_NAME}_*.dmg ${APP_NAME}_*.zip
 
 mkdir -p ${BUILD_DIR}
 
+# Source list (review 5A-26): null-delimited, so a file name with a space
+# cannot split into two arguments.
+SOURCES=(*.swift)
+while IFS= read -r -d '' f; do
+    SOURCES+=("$f")
+done < <(find Models Services Views -name '*.swift' -print0 | sort -z)
+
 echo "🔨 Compiling Swift for arm64 (Apple Silicon)..."
 swiftc \
 -sdk $(xcrun --show-sdk-path --sdk macosx) \
@@ -33,7 +40,7 @@ swiftc \
 -framework Quartz \
 -framework QuickLookThumbnailing \
 -default-isolation MainActor \
-*.swift $(find Models Services Views -name '*.swift') \
+"${SOURCES[@]}" \
 -o ${BUILD_DIR}/${APP_NAME}_arm64
 
 echo "🔨 Compiling Swift for x86_64 (Intel)..."
@@ -47,7 +54,7 @@ swiftc \
 -framework Quartz \
 -framework QuickLookThumbnailing \
 -default-isolation MainActor \
-*.swift $(find Models Services Views -name '*.swift') \
+"${SOURCES[@]}" \
 -o ${BUILD_DIR}/${APP_NAME}_x86_64
 
 package_app() {

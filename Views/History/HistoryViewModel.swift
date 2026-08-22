@@ -249,6 +249,14 @@ final class HistoryViewModel: ObservableObject {
         let currentFiltered = FilterState.apply(store.items, filterState)
         self.filteredItems = currentFiltered
 
+        // 5A-22: clamp before anything reads `filteredItems[selectedIndex]`.
+        // `.keep` and the `.preserve` early-return (`guard let id =
+        // selectedID`) both leave the index untouched, so a stale index that
+        // outlived its row would turn the next ⇧↑ into an out-of-range crash.
+        if selectedIndex >= currentFiltered.count {
+            selectedIndex = max(0, currentFiltered.count - 1)
+        }
+
         switch resetSelection {
         case .keep:
             return
@@ -317,6 +325,16 @@ final class HistoryViewModel: ObservableObject {
 
     // MARK: - Selection helpers
 
+    /// Point `selectedIndex` at `id`'s row.
+    ///
+    /// `ClipList` used to be able to hand the index straight in, because its
+    /// `ForEach` enumerated the array; it no longer does (5A-14), and a click
+    /// is rare enough that one lookup costs nothing.
+    func focusIndex(of id: UUID) {
+        guard let index = filteredItems.firstIndex(where: { $0.id == id }) else { return }
+        selectedIndex = index
+    }
+
     /// Select a single item (clears previous multi-selection)
     func selectSingle(_ id: UUID) {
         selectedIDs = [id]
@@ -359,12 +377,16 @@ final class HistoryViewModel: ObservableObject {
     }
 
     /// Extend selection upward (Shift+↑ behavior)
+    ///
+    /// 5A-22: both ends go through `[safe:]`, like `navigateUp`/`navigateDown`
+    /// already did — an out-of-range `selectedIndex` returns instead of
+    /// trapping.
     func extendSelectionUp() {
         guard selectedIndex > 0 else { return }
 
-        let currentItem = filteredItems[selectedIndex]
+        guard let currentItem = filteredItems[safe: selectedIndex] else { return }
         let previousIndex = selectedIndex - 1
-        let previousItem = filteredItems[previousIndex]
+        guard let previousItem = filteredItems[safe: previousIndex] else { return }
 
         if selectedIDs.isEmpty {
             selectSingle(currentItem.id)
@@ -382,9 +404,9 @@ final class HistoryViewModel: ObservableObject {
     func extendSelectionDown() {
         guard selectedIndex < filteredItems.count - 1 else { return }
 
-        let currentItem = filteredItems[selectedIndex]
+        guard let currentItem = filteredItems[safe: selectedIndex] else { return }
         let nextIndex = selectedIndex + 1
-        let nextItem = filteredItems[nextIndex]
+        guard let nextItem = filteredItems[safe: nextIndex] else { return }
 
         if selectedIDs.isEmpty {
             selectSingle(currentItem.id)
