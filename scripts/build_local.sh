@@ -104,7 +104,7 @@ for CURRENT_ARCH in "${ARCHS[@]}"; do
         -framework Cocoa \
         -framework SwiftUI \
         -framework Carbon \
-        *.swift Models/*.swift Services/*.swift Views/*.swift \
+        *.swift $(find Models Services Views -name "*.swift" | sort) \
         -o "${OUTPUT_BIN}" \
         2>&1 | tee "${COMPILE_LOG}"
 
@@ -116,7 +116,7 @@ for CURRENT_ARCH in "${ARCHS[@]}"; do
 done
 
 # Count compiler warnings
-WARN_COUNT=$(grep -c "warning:" "${OUTPUT_DIR}/compile-logs"/*.log 2>/dev/null || echo 0)
+WARN_COUNT=$(cat "${OUTPUT_DIR}/compile-logs"/*.log 2>/dev/null | grep -c "warning:" || true); WARN_COUNT=${WARN_COUNT:-0}
 if [[ $WARN_COUNT -gt 0 ]]; then
     echo "⚠️  Compiler warnings: $WARN_COUNT"
 fi
