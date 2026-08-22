@@ -42,7 +42,20 @@ class PasteController {
                let tiffData = image.tiffRepresentation {
                 pasteboard.setData(tiffData, forType: .tiff)
             }
+        case .file:
+            writeFileURLs(for: [item], store: store, to: pasteboard)
         }
+    }
+
+    /// Write file items' payloads onto the pasteboard as file URLs, so the
+    /// receiving app copies/attaches the files. Phase 3F refines this (file
+    /// promises, security-scoped bookmarks, per-file stored paths).
+    @discardableResult
+    private static func writeFileURLs(for items: [ClipboardItem], store: ClipboardStore, to pasteboard: NSPasteboard) -> Bool {
+        let urls = items.flatMap { store.fileURLs(for: $0) }
+        guard !urls.isEmpty else { return false }
+        pasteboard.writeObjects(urls.map { $0 as NSURL })
+        return true
     }
     
     /// Paste item into the frontmost application
@@ -67,6 +80,8 @@ class PasteController {
                     }
                 }
             }
+        case .file:
+            writeFileURLs(for: [item], store: store, to: pasteboard)
         }
 
         // Reactivate previous app, then simulate paste after it has focus
@@ -79,78 +94,67 @@ class PasteController {
     }
     
     /// Paste multiple items into the frontmost application
-    /// Text items are joined with newlines, images are handled individually
+    /// Text items are joined with newlines; images and files go out together as
+    /// file URLs (like a Finder multi-select).
     static func pasteMultiple(_ items: [ClipboardItem], store: ClipboardStore, previousApp: NSRunningApplication? = nil) {
         guard !items.isEmpty else { return }
-        
+
         let pasteboard = NSPasteboard.general
-        
+
         // Separate items by type
         let textItems = items.filter { $0.type == .text }
         let imageItems = items.filter { $0.type == .image }
-        
+        let fileItems = items.filter { $0.type == .file }
+        let hasURLItems = !imageItems.isEmpty || !fileItems.isEmpty
+
+        /// Writes every image (as a PNG in the temp dir) and every file payload
+        /// onto the pasteboard as one batch of file URLs, then pastes.
+        func writeURLBatchAndPaste() {
+            pasteboard.clearContents()
+
+            var urls: [URL] = []
+            for (index, imageItem) in imageItems.enumerated() {
+                if let image = store.image(for: imageItem) {
+                    let paddedNumber = String(format: "%04d", index + 1)
+                    let fileName = "image-\(paddedNumber).png"
+                    if let fileURL = saveImageToTemp(image, fileName: fileName) {
+                        urls.append(fileURL)
+                    }
+                }
+            }
+            urls.append(contentsOf: fileItems.flatMap { store.fileURLs(for: $0) })
+
+            if !urls.isEmpty {
+                pasteboard.writeObjects(urls.map { $0 as NSURL })
+                simulatePasteWithCustomDelay(0.05)
+            }
+        }
+
         // If we have text items, paste them first
         if !textItems.isEmpty {
             pasteboard.clearContents()
             let joinedText = textItems.compactMap { store.fullText(for: $0) }.joined(separator: "\n")
             pasteboard.setString(joinedText, forType: .string)
-            
+
             // If all items are text, paste once and done
-            if imageItems.isEmpty {
+            if !hasURLItems {
                 previousApp?.activate(options: .activateIgnoringOtherApps)
                 simulatePasteWithCustomDelay(0.1)
                 return
             }
-            
-            // Paste text first, then images together after
+
+            // Paste text first, then images/files together after
             previousApp?.activate(options: .activateIgnoringOtherApps)
             simulatePasteWithCustomDelay(0.1)
-            
-            // Then paste all images together
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                pasteboard.clearContents()
-                
-                // Save all images and collect URLs
-                var imageURLs: [URL] = []
-                for (index, imageItem) in imageItems.enumerated() {
-                    if let image = store.image(for: imageItem) {
-                        let paddedNumber = String(format: "%04d", index + 1)
-                        let fileName = "image-\(paddedNumber).png"
-                        if let fileURL = saveImageToTemp(image, fileName: fileName) {
-                            imageURLs.append(fileURL)
-                        }
-                    }
-                }
-                
-                // Paste all URLs together
-                if !imageURLs.isEmpty {
-                    pasteboard.writeObjects(imageURLs as [NSPasteboardWriting])
-                    simulatePasteWithCustomDelay(0.05)
-                }
+                writeURLBatchAndPaste()
             }
-        } else if !imageItems.isEmpty {
-            // Images only - paste all together at once (like Finder multi-select)
+        } else if hasURLItems {
+            // Images/files only - paste all together at once (like Finder multi-select)
             previousApp?.activate(options: .activateIgnoringOtherApps)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                pasteboard.clearContents()
-                
-                // Save all images and collect URLs
-                var imageURLs: [URL] = []
-                for (index, imageItem) in imageItems.enumerated() {
-                    if let image = store.image(for: imageItem) {
-                        let paddedNumber = String(format: "%04d", index + 1)
-                        let fileName = "image-\(paddedNumber).png"
-                        if let fileURL = saveImageToTemp(image, fileName: fileName) {
-                            imageURLs.append(fileURL)
-                        }
-                    }
-                }
-                
-                // Paste all URLs together at once
-                if !imageURLs.isEmpty {
-                    pasteboard.writeObjects(imageURLs as [NSPasteboardWriting])
-                    simulatePasteWithCustomDelay(0.05)
-                }
+                writeURLBatchAndPaste()
             }
         }
     }

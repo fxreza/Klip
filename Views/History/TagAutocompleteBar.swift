@@ -13,19 +13,17 @@ struct TagAutocompleteBar: View {
                         viewModel.applyTagFilter(tag)
                     }) {
                         Text("#\(tag)")
-                            .font(.system(size: 11))
-                            .foregroundColor(TagChip.color(for: tag))
-                            .padding(.horizontal, 6)
+                            .font(.klip(.chip))
+                            .foregroundStyle(TagChip.color(for: tag))
+                            .padding(.horizontal, 8)
                             .padding(.vertical, 3)
-                            .background(TagChip.color(for: tag).opacity(0.10))
-                            .cornerRadius(4)
+                            .background(Capsule().fill(TagChip.color(for: tag).opacity(0.12)))
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
         }
-        .background(Color(NSColor.controlBackgroundColor))
     }
 }

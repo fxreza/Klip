@@ -13,20 +13,68 @@ enum FilterStateTests {
         ("tagFilter_keepsOnlyItemsCarryingTheTag", testTagFilter),
         ("tagFilterAndQuery_combine", testMixed),
         ("emptyAndWhitespaceQuery_areTreatedAsNoQuery", testWhitespaceQuery),
+        ("scope_all_keepsEverythingIncludingFoldered", testScopeAll),
+        ("scope_favorites_keepsBookmarkedOnly", testScopeFavorites),
+        ("scope_folder_keepsThatFolderOnly", testScopeFolder),
+        ("chip_all_isANoOp", testChipAll),
+        ("chip_image_matchesImageTypeRegardlessOfKind", testChipImage),
+        ("chip_file_matchesItemsWithAnAttachment", testChipFile),
+        ("chip_text_isTheCatchAllForUndetectedText", testChipText),
+        ("chip_specificKinds_requireAnExactKindMatch", testChipSpecificKinds),
+        ("scopeChipTagAndQuery_combine", testScopeChipCombine),
     ]
 
     // MARK: - Fixtures
 
-    private static func text(_ content: String, pinned: Bool = false, tags: [String] = []) -> ClipboardItem {
-        ClipboardItem(type: .text, textContent: content, isPinned: pinned, tags: tags)
+    private static func text(
+        _ content: String,
+        pinned: Bool = false,
+        tags: [String] = [],
+        bookmarked: Bool = false,
+        folder: UUID? = nil,
+        kind: ContentKind? = nil
+    ) -> ClipboardItem {
+        ClipboardItem(
+            type: .text,
+            textContent: content,
+            isPinned: pinned,
+            isBookmarked: bookmarked,
+            tags: tags,
+            folderID: folder,
+            kind: kind
+        )
     }
 
-    private static func image(pinned: Bool = false, tags: [String] = []) -> ClipboardItem {
-        ClipboardItem(type: .image, imageFilename: "images/\(UUID().uuidString).png", isPinned: pinned, tags: tags)
+    private static func image(
+        pinned: Bool = false,
+        tags: [String] = [],
+        bookmarked: Bool = false,
+        folder: UUID? = nil,
+        kind: ContentKind? = nil
+    ) -> ClipboardItem {
+        ClipboardItem(
+            type: .image,
+            imageFilename: "images/\(UUID().uuidString).png",
+            isPinned: pinned,
+            isBookmarked: bookmarked,
+            tags: tags,
+            folderID: folder,
+            kind: kind
+        )
+    }
+
+    private static func file(_ name: String, bookmarked: Bool = false, folder: UUID? = nil) -> ClipboardItem {
+        var item = ClipboardItem.file(attachment: FileAttachment(originalName: name, byteSize: 10))
+        item.isBookmarked = bookmarked
+        item.folderID = folder
+        return item
     }
 
     private static func contents(_ items: [ClipboardItem]) -> [String] {
-        items.map { $0.textContent ?? "<image>" }
+        items.map { item in
+            if let attachment = item.fileAttachment { return attachment.originalName }
+            return item.textContent ?? "<image>"
+        }
     }
 
     // MARK: - Tests
@@ -124,5 +172,141 @@ enum FilterStateTests {
         // Surrounding whitespace is trimmed before matching.
         let padded = FilterState.apply(items, FilterState(query: "  alpha  "))
         try expectEqual(contents(padded), ["alpha"], "query should be trimmed before matching")
+    }
+
+    // MARK: - Scope (sidebar sections)
+
+    /// Per decision D4, a clip filed into a folder stays visible in "All".
+    static func testScopeAll() throws {
+        let folderID = UUID()
+        let items = [
+            text("loose"),
+            text("filed", folder: folderID),
+            text("starred", bookmarked: true),
+        ]
+
+        let result = FilterState.apply(items, FilterState(scope: .all))
+        try expectEqual(contents(result), ["loose", "filed", "starred"], "All shows everything, folders included")
+    }
+
+    /// Favorites is exactly the `isBookmarked` (star) flag, across every type.
+    static func testScopeFavorites() throws {
+        let items = [
+            text("plain"),
+            text("starred", bookmarked: true),
+            image(bookmarked: true),
+            text("pinned but not starred", pinned: true),
+            file("Doc.pdf", bookmarked: true),
+        ]
+
+        let result = FilterState.apply(items, FilterState(scope: .favorites))
+        try expectEqual(contents(result), ["starred", "<image>", "Doc.pdf"], "only bookmarked items, in list order")
+    }
+
+    /// A folder scope keeps exactly that folder's members.
+    static func testScopeFolder() throws {
+        let a = UUID()
+        let b = UUID()
+        let items = [
+            text("in-a", folder: a),
+            text("in-b", folder: b),
+            text("loose"),
+            text("pinned-in-a", pinned: true, folder: a),
+        ]
+
+        let result = FilterState.apply(items, FilterState(scope: .folder(a)))
+        try expectEqual(contents(result), ["pinned-in-a", "in-a"], "only folder A, pinned first")
+
+        let empty = FilterState.apply(items, FilterState(scope: .folder(UUID())))
+        try expectEqual(empty.count, 0, "an unknown folder id filters everything out")
+    }
+
+    // MARK: - Content-kind chips
+
+    static func testChipAll() throws {
+        let items = [text("a"), image(), file("F.txt")]
+        let result = FilterState.apply(items, FilterState(chip: .all))
+        try expectEqual(result.count, 3, "the All chip must not filter anything")
+    }
+
+    /// Image keys off the storage type, so it works before detection backfills.
+    static func testChipImage() throws {
+        let items = [
+            text("a"),
+            image(),
+            image(kind: .image),
+            file("F.png"),
+        ]
+        let result = FilterState.apply(items, FilterState(chip: .kind(.image)))
+        try expectEqual(result.count, 2, "both image items, detected or not; a .file item is not an image")
+    }
+
+    /// File keys off the attachment, so it works before detection backfills.
+    static func testChipFile() throws {
+        let items = [text("a"), image(), file("Report.pdf"), file("Sheet.xlsx")]
+        let result = FilterState.apply(items, FilterState(chip: .kind(.file)))
+        try expectEqual(contents(result), ["Report.pdf", "Sheet.xlsx"], "only items carrying a file attachment")
+    }
+
+    /// Text is the catch-all for text items that have no more specific kind.
+    static func testChipText() throws {
+        let items = [
+            text("undetected"),                  // kind == nil → Text
+            text("plain", kind: .text),
+            text("styled", kind: .richText),     // richText has no chip → Text
+            text("https://example.com", kind: .link),
+            image(),
+            file("F.txt"),
+        ]
+        let result = FilterState.apply(items, FilterState(chip: .kind(.text)))
+        try expectEqual(
+            contents(result),
+            ["undetected", "plain", "styled"],
+            "undetected text plus explicit text/richText; links, images and files excluded"
+        )
+    }
+
+    /// Every other chip is an exact `kind` match, so it stays empty until
+    /// Phase 3C's detector backfills `kind`.
+    static func testChipSpecificKinds() throws {
+        let items = [
+            text("https://example.com"),                          // undetected
+            text("https://example.org", kind: .link),
+            text("me@example.com", kind: .email),
+            text("#ff6600", kind: .color),
+            text("let x = 1", kind: .code),
+            text("+1 555 0100", kind: .phone),
+        ]
+
+        try expectEqual(contents(FilterState.apply(items, FilterState(chip: .kind(.link)))), ["https://example.org"], "Link")
+        try expectEqual(contents(FilterState.apply(items, FilterState(chip: .kind(.email)))), ["me@example.com"], "Email")
+        try expectEqual(contents(FilterState.apply(items, FilterState(chip: .kind(.color)))), ["#ff6600"], "Color")
+        try expectEqual(contents(FilterState.apply(items, FilterState(chip: .kind(.code)))), ["let x = 1"], "Code")
+        try expectEqual(contents(FilterState.apply(items, FilterState(chip: .kind(.phone)))), ["+1 555 0100"], "Phone")
+
+        let undetectedOnly = [text("https://example.com")]
+        try expectEqual(
+            FilterState.apply(undetectedOnly, FilterState(chip: .kind(.link))).count,
+            0,
+            "an item with kind == nil never matches a specific-kind chip"
+        )
+    }
+
+    /// Scope → tag → chip → query, all four at once.
+    static func testScopeChipCombine() throws {
+        let folderID = UUID()
+        let items = [
+            text("apple link", tags: ["work"], folder: folderID, kind: .link),
+            text("apple link elsewhere", tags: ["work"], kind: .link),          // wrong scope
+            text("apple link untagged", folder: folderID, kind: .link),         // wrong tag
+            text("apple plain", tags: ["work"], folder: folderID, kind: .text), // wrong chip
+            text("banana link", tags: ["work"], folder: folderID, kind: .link), // wrong query
+        ]
+
+        let result = FilterState.apply(
+            items,
+            FilterState(query: "apple", tag: "work", scope: .folder(folderID), chip: .kind(.link))
+        )
+        try expectEqual(contents(result), ["apple link"], "every predicate must hold")
     }
 }

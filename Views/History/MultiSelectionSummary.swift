@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Detail-pane content shown when more than one item is selected:
-/// counts, total size, type breakdown, Download All, first-item preview and
-/// the inline delete confirmation.
+/// Preview-pane content shown when more than one item is selected: counts,
+/// total size, type breakdown, Download All, first-item preview and the inline
+/// delete confirmation.
 struct MultiSelectionSummary: View {
     @ObservedObject var viewModel: HistoryViewModel
 
@@ -15,25 +15,9 @@ struct MultiSelectionSummary: View {
         VStack(alignment: .leading, spacing: 12) {
             // Count breakdown
             HStack(spacing: 20) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Items")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.7))
-                    Text("\(selectionCount)")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.primary)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Total Size")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.7))
-                    Text(viewModel.formattedByteCount(viewModel.selectedItemsTotalSize))
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.primary)
-                }
-
-                Spacer()
+                statTile("Items", value: "\(selectionCount)")
+                statTile("Total Size", value: viewModel.formattedByteCount(viewModel.selectedItemsTotalSize))
+                Spacer(minLength: 0)
             }
 
             Divider()
@@ -41,41 +25,42 @@ struct MultiSelectionSummary: View {
             // Type breakdown
             let textCount = selectedItems.filter { $0.type == .text }.count
             let imageCount = selectedItems.filter { $0.type == .image }.count
+            let fileCount = selectedItems.filter { $0.type == .file }.count
+            let lockedCount = selectedItems.filter { $0.isLocked }.count
 
             VStack(alignment: .leading, spacing: 8) {
                 if textCount > 0 {
-                    HStack(spacing: 8) {
-                        Image(systemName: "doc.text")
-                            .foregroundColor(.secondary)
-                        Text("\(textCount) text \(textCount == 1 ? "item" : "items")")
-                            .font(.system(size: 12))
-                    }
+                    breakdownRow("doc.text", "\(textCount) text \(textCount == 1 ? "item" : "items")")
                 }
-
                 if imageCount > 0 {
-                    HStack(spacing: 8) {
-                        Image(systemName: "photo")
-                            .foregroundColor(.secondary)
-                        Text("\(imageCount) image \(imageCount == 1 ? "item" : "items")")
-                            .font(.system(size: 12))
-                    }
+                    breakdownRow("photo", "\(imageCount) image \(imageCount == 1 ? "item" : "items")")
+                }
+                if fileCount > 0 {
+                    breakdownRow("doc", "\(fileCount) file \(fileCount == 1 ? "item" : "items")")
+                }
+                if lockedCount > 0 {
+                    breakdownRow("lock.fill", "\(lockedCount) locked")
                 }
             }
 
             Divider()
 
-            // Download All Images button (only show if all selected items are images)
-            if textCount == 0 && imageCount > 0 {
+            // Download All Images (only when everything selected is an image)
+            if textCount == 0 && fileCount == 0 && imageCount > 0 {
                 Button(action: { viewModel.downloadAllImages() }) {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.down.to.line")
                         Text("Download All (\(imageCount))")
                         Spacer()
                     }
+                    .font(.klip(.preview))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
                     .frame(maxWidth: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.chipInactive))
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.plain)
 
                 Divider()
             }
@@ -84,13 +69,14 @@ struct MultiSelectionSummary: View {
             if let firstItem = selectedItems.first, firstItem.type == .text {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("First item preview")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.7))
+                        .font(.klip(.caption))
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
 
                     let preview = (firstItem.textContent ?? "").prefix(200)
                     Text(String(preview))
-                        .font(.system(size: 12))
-                        .foregroundColor(.primary.opacity(0.8))
+                        .font(.klip(.preview))
+                        .foregroundStyle(.primary.opacity(0.8))
                         .lineLimit(4)
                         .truncationMode(.tail)
                 }
@@ -99,11 +85,13 @@ struct MultiSelectionSummary: View {
             Divider()
 
             if viewModel.showDeleteConfirmation {
-                // Inline confirmation — avoids NSPanel key-resign issue with .alert
+                // Inline confirmation — a system alert would make the borderless
+                // panel resign key and close.
                 VStack(spacing: 8) {
                     Text("Delete \(selectionCount) items permanently?")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.primary.opacity(0.85))
+                        .font(.klip(.chip))
+                        .fontWeight(.medium)
+                        .foregroundStyle(.primary)
 
                     HStack(spacing: 10) {
                         Button(action: {
@@ -112,36 +100,28 @@ struct MultiSelectionSummary: View {
                             }
                         }) {
                             Text("Cancel")
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.klip(.chip))
+                                .fontWeight(.medium)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 5)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 5)
-                                        .fill(Color(NSColor.controlBackgroundColor))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 5)
-                                        .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
-                                )
+                                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.chipInactive))
                         }
                         .buttonStyle(.plain)
-                        .foregroundColor(.primary)
+                        .foregroundStyle(.primary)
 
                         Button(action: {
                             viewModel.deleteSelectedItems()
                             viewModel.showDeleteConfirmation = false
                         }) {
                             Text("Delete")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.klip(.chip))
+                                .fontWeight(.semibold)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 5)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 5)
-                                        .fill(Color.red.opacity(0.85))
-                                )
+                                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.destructive.opacity(0.85)))
                         }
                         .buttonStyle(.plain)
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                     }
                 }
                 .padding(.vertical, 4)
@@ -154,18 +134,41 @@ struct MultiSelectionSummary: View {
                 }) {
                     HStack(spacing: 6) {
                         Image(systemName: "trash")
-                        Text("Delete \(selectionCount) Items...")
+                        Text("Delete \(selectionCount) Items…")
                     }
-                    .foregroundColor(isDeleteHovered ? .red : .secondary.opacity(0.7))
+                    .font(.klip(.chip))
+                    .fontWeight(.medium)
+                    .foregroundStyle(isDeleteHovered ? Theme.destructive : Color.secondary)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 11, weight: .medium))
                 .onHover { hovering in
                     isDeleteHovered = hovering
                 }
                 .transition(.opacity)
             }
+        }
+    }
+
+    private func statTile(_ label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.klip(.caption))
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.klip(.preview))
+                .fontWeight(.bold)
+                .foregroundStyle(.primary)
+        }
+    }
+
+    private func breakdownRow(_ systemImage: String, _ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
+            Text(text)
+                .font(.klip(.preview))
         }
     }
 }

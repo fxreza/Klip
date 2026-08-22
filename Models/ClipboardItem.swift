@@ -158,6 +158,17 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         )
     }
 
+    /// Create a file clipboard item. Capture of files is Phase 3F; this factory
+    /// exists so the `.file` case has a canonical construction path.
+    static func file(attachment: FileAttachment, sourceApp: String? = nil) -> ClipboardItem {
+        ClipboardItem(
+            type: .file,
+            sourceApp: sourceApp,
+            kind: .file,
+            fileAttachment: attachment
+        )
+    }
+
     /// Create a large text clipboard item (file-backed with inline preview)
     static func largeText(preview: String, filename: String, sourceApp: String? = nil) -> ClipboardItem {
         ClipboardItem(
@@ -208,6 +219,8 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
             return text
         case .image:
             return "Image"
+        case .file:
+            return fileAttachment?.originalName ?? "File"
         }
     }
 
@@ -221,6 +234,8 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
             return textContent?.hashValue ?? 0
         case .image:
             return imageFilename?.hashValue ?? 0
+        case .file:
+            return fileAttachment?.originalName.hashValue ?? 0
         }
     }
 
@@ -230,4 +245,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
 enum ClipboardItemType: String, Codable {
     case text
     case image
+    /// One or more files copied from Finder. The payload lives in
+    /// `ClipboardItem.fileAttachment`; capture is Phase 3F.
+    case file
 }

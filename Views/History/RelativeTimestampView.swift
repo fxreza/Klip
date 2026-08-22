@@ -1,21 +1,28 @@
 import SwiftUI
 
+/// Live "3 minutes ago" label. Ticks once a second while visible.
 struct RelativeTimestampView: View {
     let timestamp: Date
+    /// Font role, so the row subtitle and the preview footer can size it
+    /// differently while both track the user's font-scale setting.
+    var role: KlipFontRole = .rowSubtitle
+    /// Foreground colour — selected rows pass `Theme.onAccentSecondary`.
+    var color: Color = .secondary
+
     @State private var currentDate = Date()
-    
+
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    
+
     var body: some View {
         Text(timeAgo(from: timestamp, relativeTo: currentDate))
-            .font(.system(size: 11))
-            .foregroundColor(.secondary)
+            .font(.klip(role))
+            .foregroundStyle(color)
             .lineLimit(1)
             .onReceive(timer) { input in
                 currentDate = input
             }
     }
-    
+
     private func timeAgo(from date: Date, relativeTo now: Date) -> String {
         let diff = now.timeIntervalSince(date)
         if diff < 1 {
@@ -51,4 +58,3 @@ struct RelativeTimestampView: View {
         }
     }
 }
-

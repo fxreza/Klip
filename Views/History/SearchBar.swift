@@ -1,69 +1,92 @@
 import SwiftUI
 
-/// Top bar: active tag chip, search field, clear button, item count.
+/// Top bar: magnifier, active tag chip, the search field, a clear button and
+/// the item count.
+///
+/// Styled like Clipfield's rounded 15pt search field, but deliberately still a
+/// SwiftUI `TextField` rather than Clipfield's `NSSearchField` wrapper: Klip's
+/// key handling lives in `GlobalKeyMonitor`, and swapping in an
+/// `NSViewRepresentable` with its own `doCommandBy` routing would fork that.
+/// Debounce, `#tag` mode, the tag pill, the clear X and the count all behave
+/// exactly as before.
 struct SearchBar: View {
     @ObservedObject var store: ClipboardStore
     @ObservedObject var viewModel: HistoryViewModel
     @FocusState.Binding var isSearchFocused: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
-            // Search icon
-            Image(systemName: "magnifyingglass")
-                .foregroundColor(.secondary.opacity(0.7))
-                .font(.system(size: 13, weight: .medium))
+        HStack(spacing: 9) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.klip(.sidebar))
+                    .foregroundStyle(.secondary)
 
-            if let tag = viewModel.activeTagFilter {
-                HStack(spacing: 3) {
-                    Text("#\(tag)")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(TagChip.color(for: tag))
-                    Button(action: { viewModel.activeTagFilter = nil }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(TagChip.color(for: tag).opacity(0.6))
-                    }
-                    .buttonStyle(.plain)
+                if let tag = viewModel.activeTagFilter {
+                    tagPill(tag)
                 }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(TagChip.color(for: tag).opacity(0.12))
-                .cornerRadius(5)
-                .overlay(RoundedRectangle(cornerRadius: 5)
-                    .stroke(TagChip.color(for: tag).opacity(0.2), lineWidth: 0.5))
-            }
 
-            TextField(store.allTags.isEmpty ? "Search clipboard…" : "Search or #tag…", text: $viewModel.searchText)
+                TextField(
+                    store.allTags.isEmpty ? "Search clipboard…" : "Search or #tag…",
+                    text: $viewModel.searchText
+                )
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(.klip(.sidebarTitle))
                 .focused($isSearchFocused)
 
-            if !viewModel.searchText.isEmpty {
-                Button(action: { viewModel.searchText = "" }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary.opacity(0.5))
-                        .font(.system(size: 12))
+                if !viewModel.searchText.isEmpty {
+                    Button(action: { viewModel.searchText = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.klip(.sidebar))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.scale.combined(with: .opacity))
+                    .help("Clear search")
                 }
-                .buttonStyle(.plain)
             }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.rowCornerRadius)
+                    .fill(Color.primary.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.rowCornerRadius)
+                    .strokeBorder(Theme.separator, lineWidth: 1)
+            )
 
-            Spacer()
-
-            // Item count
             Text("\(viewModel.filteredItems.count) items")
-                .font(.system(size: 11, weight: .regular))
-                .foregroundColor(.secondary.opacity(0.6))
+                .font(.klip(.caption))
+                .monospacedDigit()
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .fixedSize()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            Color(NSColor.controlBackgroundColor)
-                .overlay(
-                    Rectangle()
-                        .frame(height: 0.5)
-                        .foregroundColor(Color.primary.opacity(0.15)),
-                    alignment: .bottom
-                )
-        )
+        .padding(.horizontal, 16)
+        .padding(.top, 13)
+        .padding(.bottom, 10)
+        .animation(.easeOut(duration: 0.12), value: viewModel.searchText.isEmpty)
+    }
+
+    private func tagPill(_ tag: String) -> some View {
+        HStack(spacing: 3) {
+            Text("#\(tag)")
+                .font(.klip(.chip))
+                .fontWeight(.medium)
+                .foregroundStyle(TagChip.color(for: tag))
+            Button(action: { viewModel.activeTagFilter = nil }) {
+                Image(systemName: "xmark")
+                    .font(.klip(.badge))
+                    .fontWeight(.bold)
+                    .foregroundStyle(TagChip.color(for: tag).opacity(0.6))
+            }
+            .buttonStyle(.plain)
+            .help("Clear tag filter")
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(TagChip.color(for: tag).opacity(0.12)))
+        .overlay(Capsule().strokeBorder(TagChip.color(for: tag).opacity(0.25), lineWidth: 0.5))
+        .fixedSize()
     }
 }

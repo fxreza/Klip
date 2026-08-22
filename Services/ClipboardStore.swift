@@ -663,8 +663,30 @@ class ClipboardStore: ObservableObject {
                 let attributes = try? fileManager.attributesOfItem(atPath: url.path)
                 return attributes?[.size] as? Int
             }
+        case .file:
+            // Size lives on the attachment, handled above. A `.file` item with
+            // no attachment is malformed; report nothing rather than guessing.
+            return nil
         }
         return nil
+    }
+
+    /// Absolute on-disk URLs for a `.file` item's payload.
+    ///
+    /// Provisional: copied-in files resolve under the storage directory,
+    /// reference attachments use the original path. Phase 3F owns the final
+    /// version (security-scoped bookmark resolution, multi-file copies with
+    /// their own stored paths); until then this is what the row badge, the
+    /// preview pane and `PasteController` use.
+    func fileURLs(for item: ClipboardItem) -> [URL] {
+        guard let attachment = item.fileAttachment else { return [] }
+        if let relative = attachment.storedRelativePath {
+            return [storageDirectory.appendingPathComponent(relative)]
+        }
+        if let path = attachment.referencePath {
+            return [URL(fileURLWithPath: path)]
+        }
+        return []
     }
 
     // MARK: - Saving

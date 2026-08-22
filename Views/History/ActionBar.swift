@@ -1,152 +1,122 @@
 import SwiftUI
 
-/// Bottom bar: up/down navigation buttons, the static shortcut legend and the
-/// Paste button.
+/// Bottom bar: layout toggles on the left, the shortcut legend in the middle,
+/// the Paste button on the right.
+///
+/// The legend text is still hardcoded — Phase 3E makes it read the user's key
+/// bindings.
 struct ActionBar: View {
     @ObservedObject var viewModel: HistoryViewModel
+    @ObservedObject var settings: SettingsManager
 
     var body: some View {
-        HStack(spacing: 16) {
-            // Navigate buttons - minimal, elegant
-            HStack(spacing: 6) {
-                Button(action: { viewModel.navigateDown() }) {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color(NSColor.controlBackgroundColor))
-                                .shadow(color: Color.black.opacity(0.06), radius: 1, x: 0, y: 1)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-                        )
-                }
-                .buttonStyle(.plain)
+        HStack(spacing: 12) {
+            toggles
 
-                Button(action: { viewModel.navigateUp() }) {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color(NSColor.controlBackgroundColor))
-                                .shadow(color: Color.black.opacity(0.06), radius: 1, x: 0, y: 1)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-                        )
-                }
-                .buttonStyle(.plain)
+            Divider()
+                .frame(height: 14)
+
+            // Scrolls rather than pushing the Paste button off a narrow window.
+            ScrollView(.horizontal, showsIndicators: false) {
+                legend
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            if viewModel.isEditing {
-                Text("Editing")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.accentColor)
+            Spacer(minLength: 8)
+                .frame(maxWidth: 8)
 
-                Color.primary.opacity(0.1)
-                    .frame(width: 2, height: 14)
-
-                HStack(spacing: 4) {
-                    Text("Esc")
-                        .font(.system(size: 10))
-                    Text("exit")
-                        .font(.system(size: 11))
-                }
-                .foregroundColor(.secondary.opacity(0.6))
-
-                HStack(spacing: 4) {
-                    Text("⌘E")
-                        .font(.system(size: 10))
-                    Text("save")
-                        .font(.system(size: 11))
-                }
-                .foregroundColor(.secondary.opacity(0.6))
-                .padding(.leading, 4)
-            } else {
-                Text("Navigate")
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundColor(.secondary.opacity(0.8))
-
-                Color.primary.opacity(0.1)
-                    .frame(width: 2, height: 14)
-
-                HStack(spacing: 4) {
-                    Text("⌘↑↓")
-                        .font(.system(size: 10))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color(NSColor.controlBackgroundColor))
-                        .cornerRadius(3)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 3)
-                                .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
-                        )
-                    Text("multi-select")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary.opacity(0.6))
-                }
-
-                HStack(spacing: 4) {
-                    Text("⌘P")
-                        .font(.system(size: 10))
-                    Text("pin")
-                        .font(.system(size: 11))
-                }
-                .foregroundColor(.secondary.opacity(0.6))
-                .padding(.leading, 8)
-
-                HStack(spacing: 4) {
-                    Text("⌘B")
-                        .font(.system(size: 10))
-                    Text("save")
-                        .font(.system(size: 11))
-                }
-                .foregroundColor(.secondary.opacity(0.6))
-                .padding(.leading, 4)
-
-                if let item = viewModel.selectedItem, item.isEditable {
-                    HStack(spacing: 4) {
-                        Text("⌘E")
-                            .font(.system(size: 10))
-                        Text("edit")
-                            .font(.system(size: 11))
-                    }
-                    .foregroundColor(.secondary.opacity(0.6))
-                    .padding(.leading, 4)
-                }
-
-                if viewModel.selectedItem?.type == .image {
-                    HStack(spacing: 4) {
-                        Text("⌘S")
-                            .font(.system(size: 10))
-                        Text("save")
-                            .font(.system(size: 11))
-                    }
-                    .foregroundColor(.secondary.opacity(0.6))
-                    .padding(.leading, 4)
-                }
-            }
-
-            Spacer()
-
-            PasteButton(action: { if let item = viewModel.selectedItem { viewModel.onPaste(item) } })
+            // Unchanged: the button pastes the focused item (Enter is what
+            // pastes a whole multi-selection).
+            PasteButton(action: {
+                if let item = viewModel.selectedItem { viewModel.onPaste(item) }
+            })
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            Color(NSColor.controlBackgroundColor)
-                .overlay(
-                    Rectangle()
-                        .frame(height: 0.5)
-                        .foregroundColor(Color.primary.opacity(0.15)),
-                    alignment: .top
-                )
+        .padding(.vertical, 9)
+        .background(Theme.barBackground)
+        .overlay(
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundStyle(Theme.separator),
+            alignment: .top
         )
+    }
+
+    // MARK: - Left: layout toggles
+
+    private var toggles: some View {
+        HStack(spacing: 10) {
+            Button {
+                withAnimation(Theme.selectionSpring) { viewModel.toggleSidebar() }
+            } label: {
+                Image(systemName: "sidebar.left")
+                    .font(Theme.icon(13))
+                    .foregroundStyle(settings.sidebarCollapsed ? Color.secondary : Theme.accent)
+            }
+            .buttonStyle(.plain)
+            .help(settings.sidebarCollapsed ? "Show sidebar" : "Hide sidebar")
+
+            Button {
+                withAnimation(Theme.selectionSpring) { viewModel.togglePreviewPane() }
+            } label: {
+                Image(systemName: "sidebar.right")
+                    .font(Theme.icon(13))
+                    .foregroundStyle(settings.showPreviewPane ? Theme.accent : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(settings.showPreviewPane ? "Hide preview" : "Show preview")
+        }
+    }
+
+    // MARK: - Middle: shortcut legend
+
+    @ViewBuilder
+    private var legend: some View {
+        if viewModel.isEditing {
+            HStack(spacing: 10) {
+                Text("Editing")
+                    .font(.klip(.caption))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.accent)
+                legendItem("Esc", "exit")
+                legendItem("⌘E", "save")
+            }
+        } else {
+            HStack(spacing: 10) {
+                legendItem("↑↓", "navigate")
+                legendItem("⌘↑↓", "multi-select")
+                legendItem("⌘P", "pin")
+                legendItem("⌘B", "star")
+                if let item = viewModel.selectedItem, item.isEditable {
+                    legendItem("⌘E", "edit")
+                }
+                if viewModel.selectedItem?.type == .image {
+                    legendItem("⌘S", "save")
+                }
+                legendItem("⌘[ ]", "scope")
+            }
+            .lineLimit(1)
+        }
+    }
+
+    private func legendItem(_ key: String, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            Text(key)
+                .font(.klip(.caption))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.primary.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3)
+                        .strokeBorder(Theme.separator, lineWidth: 0.5)
+                )
+            Text(label)
+                .font(.klip(.caption))
+                .foregroundStyle(.secondary)
+        }
+        .fixedSize()
     }
 }
