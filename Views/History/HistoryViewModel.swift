@@ -162,6 +162,17 @@ final class HistoryViewModel: ObservableObject {
     /// `HistoryWindowController` right after the window is ordered in.
     @Published var isPresented = false
 
+    // MARK: - 3E state
+    //
+    // Custom shortcuts (Phase 3E) need no additional stored state here: the
+    // key → action table lives in `ShortcutManager.shared` (observed
+    // directly by `ActionBar` and `Views/Settings/ShortcutsTab.swift`), and
+    // every dispatch target in `GlobalKeyMonitor`/
+    // `HistoryViewModel+Shortcuts.swift` reuses selection/mode state that
+    // already exists above (`isEditing`, `showTagInput`, `selectedItem`,
+    // `filteredItems`, …). This block is a marker for future 3E-owned state,
+    // kept separate from sibling tasks' own `// MARK: - 3x state` blocks.
+
     // MARK: - Init
 
     init(store: ClipboardStore) {
