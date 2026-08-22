@@ -100,6 +100,8 @@ private struct HistorySettingsTab: View {
                 Text("Locked clips can't be deleted until you unlock them. Clips inside folders are locked automatically. Pinned, starred, tagged, locked and folder clips never count toward the history limit.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
             Section("Files") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Copy files into storage up to")
