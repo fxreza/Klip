@@ -120,17 +120,32 @@ struct ClipList: View {
         .id(item.id)
         .contentShape(Rectangle())
         .overlay(
-            ClickModifierDetector { modifiers in
-                viewModel.selectedIndex = index
+            ClickModifierDetector(
+                onClickWithModifiers: { modifiers in
+                    viewModel.selectedIndex = index
 
-                if modifiers.hasCommand {
-                    viewModel.toggleSelection(item.id)
-                } else if modifiers.hasShift {
-                    viewModel.extendSelectionTo(item.id)
-                } else {
-                    viewModel.selectSingle(item.id)
-                }
-            },
+                    if modifiers.hasCommand {
+                        viewModel.toggleSelection(item.id)
+                    } else if modifiers.hasShift {
+                        viewModel.extendSelectionTo(item.id)
+                    } else {
+                        viewModel.selectSingle(item.id)
+                    }
+                },
+                // 3B: evaluated on mouse-down *before* the click above runs, so
+                // pressing a row that belongs to a multi-selection still drags
+                // the whole selection. Nothing happens until the pointer moves
+                // past the drag threshold, so a plain click is unaffected.
+                dragPayload: {
+                    let ids = viewModel.dragIDs(startingAt: item.id)
+                    guard !ids.isEmpty else { return nil }
+                    return ClipDragRequest(
+                        ids: ids,
+                        image: ClipRowDragImage.make(for: item, count: ids.count)
+                    )
+                },
+                onDragBegan: { ids in viewModel.restoreSelection(ids) }
+            ),
             alignment: .center
         )
         .simultaneousGesture(

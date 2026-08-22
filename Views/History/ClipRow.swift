@@ -236,3 +236,107 @@ struct ClipRow: View {
         }
     }
 }
+
+// MARK: - Drag image (3B)
+
+/// Builds the little card that follows the pointer while clip rows (or a
+/// sidebar folder) are dragged.
+///
+/// It is *drawn* rather than snapshotted from the live view hierarchy: the row
+/// is rendered by SwiftUI into the panel's shared layer, so there is no NSView
+/// whose `cacheDisplay` would yield just that row. A drawn card also keeps the
+/// image readable over any drop target and makes the multi-item case (a count
+/// badge) trivial.
+enum ClipRowDragImage {
+    static let size = NSSize(width: 216, height: 40)
+
+    /// - Parameters:
+    ///   - title: single-line preview text; whitespace is collapsed.
+    ///   - count: number of clips being dragged; > 1 adds the count badge.
+    ///   - symbolName: SF Symbol drawn in the leading badge.
+    static func make(title: String, count: Int, symbolName: String) -> NSImage {
+        let collapsed = title
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+
+        let image = NSImage(size: size, flipped: false) { rect in
+            let card = rect.insetBy(dx: 1, dy: 1)
+            let path = NSBezierPath(roundedRect: card, xRadius: 9, yRadius: 9)
+
+            NSColor.windowBackgroundColor.withAlphaComponent(0.96).setFill()
+            path.fill()
+            NSColor.labelColor.withAlphaComponent(0.18).setStroke()
+            path.lineWidth = 1
+            path.stroke()
+
+            // Leading badge.
+            let badgeRect = NSRect(x: card.minX + 8, y: card.midY - 11, width: 22, height: 22)
+            let badgePath = NSBezierPath(roundedRect: badgeRect, xRadius: 6, yRadius: 6)
+            NSColor.controlAccentColor.withAlphaComponent(0.22).setFill()
+            badgePath.fill()
+            if let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) {
+                let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+                let tinted = symbol.withSymbolConfiguration(config) ?? symbol
+                tinted.draw(
+                    in: badgeRect.insetBy(dx: 5, dy: 5),
+                    from: .zero,
+                    operation: .sourceOver,
+                    fraction: 0.85
+                )
+            }
+
+            // Title.
+            let textRect = NSRect(
+                x: badgeRect.maxX + 8,
+                y: card.midY - 8,
+                width: card.maxX - badgeRect.maxX - 16 - (count > 1 ? 22 : 0),
+                height: 16
+            )
+            let style = NSMutableParagraphStyle()
+            style.lineBreakMode = .byTruncatingTail
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 12, weight: .regular),
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: style,
+            ]
+            (collapsed as NSString).draw(in: textRect, withAttributes: attributes)
+
+            // Count badge for a multi-row drag.
+            if count > 1 {
+                let label = "\(count)" as NSString
+                let badgeFont = NSFont.systemFont(ofSize: 11, weight: .bold)
+                let labelSize = label.size(withAttributes: [.font: badgeFont])
+                let diameter = max(19, labelSize.width + 11)
+                let circle = NSRect(
+                    x: card.maxX - diameter - 7,
+                    y: card.midY - diameter / 2,
+                    width: diameter,
+                    height: diameter
+                )
+                NSColor.controlAccentColor.setFill()
+                NSBezierPath(ovalIn: circle).fill()
+                label.draw(
+                    at: NSPoint(
+                        x: circle.midX - labelSize.width / 2,
+                        y: circle.midY - labelSize.height / 2
+                    ),
+                    withAttributes: [.font: badgeFont, .foregroundColor: NSColor.white]
+                )
+            }
+            return true
+        }
+        return image
+    }
+
+    /// Convenience for a clip drag: picks the symbol from the item's kind.
+    static func make(for item: ClipboardItem, count: Int) -> NSImage {
+        let symbol: String
+        switch item.type {
+        case .image: symbol = "photo"
+        case .file: symbol = "doc"
+        default: symbol = item.displayKind.systemImage
+        }
+        let title = count > 1 ? "\(count) clips" : item.previewText
+        return make(title: title, count: count, symbolName: symbol)
+    }
+}

@@ -41,27 +41,4 @@ extension HistoryViewModel {
         keyCopy()
     }
 
-    // MARK: - Folders (3E-stub: replaced at merge by 3B)
-
-    /// `requestNewFolder()` already exists and drives the real inline
-    /// prompt, so this just wires the key to it.
-    func keyNewFolder() {
-        // 3E-stub: replaced at merge by 3B
-        guard !isEditing else { return }
-        requestNewFolder()
-    }
-
-    /// No rename-folder UI exists yet in this worktree; 3B wires the real
-    /// prompt here.
-    func keyRenameFolder() {
-        // 3E-stub: replaced at merge by 3B
-        guard !isEditing else { return }
-    }
-
-    /// No move-to-folder picker exists yet in this worktree; 3B wires the
-    /// real picker here.
-    func keyMoveToFolder() {
-        // 3E-stub: replaced at merge by 3B
-        guard !isEditing else { return }
-    }
 }
