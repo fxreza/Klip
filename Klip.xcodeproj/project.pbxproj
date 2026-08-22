@@ -23,7 +23,6 @@
 		AAA00016 /* TagChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB00018 /* TagChip.swift */; };
 		AAA00017 /* UpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB00019 /* UpdateService.swift */; };
 		D87736122F8ECC6B00392A0B /* ClickDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D87736112F8ECC6B00392A0B /* ClickDetector.swift */; };
-		AAA00020 /* PasteButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB00020 /* PasteButton.swift */; };
 		AF8CF958F8AA35FBFD97402A /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0F2EC35FC257D78C02CF032E /* SwiftUI.framework */; };
 		AC3DF6ECA58A708274822520 /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 319D0CEDD498100F4DA6A4E2 /* Carbon.framework */; };
 		06843B44734687CAEB469631 /* Vision.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D4D62C2C785B9A4F89209F1B /* Vision.framework */; };
@@ -115,7 +114,6 @@
 		BBB00019 /* UpdateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateService.swift; sourceTree = "<group>"; };
 		D57AA9E1A5E3E5C6ED5E9CDC /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		D87736112F8ECC6B00392A0B /* ClickDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClickDetector.swift; sourceTree = "<group>"; };
-		BBB00020 /* PasteButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteButton.swift; sourceTree = "<group>"; };
 		EB5F7ACF8D07ACEDB0B7217E /* BufferTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BufferTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0F2EC35FC257D78C02CF032E /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		319D0CEDD498100F4DA6A4E2 /* Carbon.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Carbon.framework; path = System/Library/Frameworks/Carbon.framework; sourceTree = SDKROOT; };
@@ -296,7 +294,6 @@
 				BBB00018 /* TagChip.swift */,
 				BBB00012 /* StatusBarController.swift */,
 				BBB00016 /* SettingsView.swift */,
-				BBB00020 /* PasteButton.swift */,
 				057CFEFE02DEF71DB609847F /* History */,
 				EC16B1E7E46539DF3A1F49B5 /* Permissions */,
 				6C8494E1F86493C81A7D4CDD /* Settings */,
@@ -502,7 +499,6 @@
 				AAA00015 /* OCRService.swift in Sources */,
 				AAA00016 /* TagChip.swift in Sources */,
 				AAA00017 /* UpdateService.swift in Sources */,
-				AAA00020 /* PasteButton.swift in Sources */,
 				8EE29C2012F92764D822C99F /* ContentKind.swift in Sources */,
 				A9A742CF75BF4F580EA140C7 /* FileAttachment.swift in Sources */,
 				C79B9B200101EC8BE6E365F2 /* Folder.swift in Sources */,

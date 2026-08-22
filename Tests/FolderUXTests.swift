@@ -43,7 +43,7 @@ enum FolderUXTests {
         ("reorderFolder_movesOntoTheTargetSlot", testReorderFolder),
         // review-2B test gaps #2 and #3.
         ("dragAndDrop_carriesImageAndFileClipsToo", testDragImageAndFileClips),
-        ("cycleScope_wrapsAroundInBothDirections", testCycleScopeWraparound),
+        ("orderedScopes_areAllFavoritesThenFoldersInSidebarOrder", testOrderedScopes),
     ]
 
     // MARK: - Harness
@@ -566,39 +566,22 @@ enum FolderUXTests {
         }
     }
 
-    /// review-2B test gap #3: ⌘[ / ⌘] walk All → Favorites → each folder and
-    /// wrap around at both ends.
-    static func testCycleScopeWraparound() throws {
+    /// 3.0.1 removed ⌘[ / ⌘] scope cycling, but the scope *order* is still
+    /// what the sidebar renders and what `validateScope` falls back through.
+    static func testOrderedScopes() throws {
         try withViewModel { vm, store in
             let work = store.createFolder(name: "Work")
             let home = store.createFolder(name: "Home")
             try expectEqual(vm.orderedScopes, [.all, .favorites, .folder(work.id), .folder(home.id)],
                             "scope order is All, Favorites, then folders in sidebar order")
 
-            vm.scope = .all
-            vm.cycleScope(by: 1)
-            try expectEqual(vm.scope, .favorites)
-            vm.cycleScope(by: 1)
-            try expectEqual(vm.scope, .folder(work.id))
-            vm.cycleScope(by: 1)
-            try expectEqual(vm.scope, .folder(home.id))
-            vm.cycleScope(by: 1)
-            try expectEqual(vm.scope, .all, "forwards past the last folder wraps to All")
-
-            vm.cycleScope(by: -1)
-            try expectEqual(vm.scope, .folder(home.id), "backwards from All wraps to the last folder")
-            vm.cycleScope(by: -1)
-            try expectEqual(vm.scope, .folder(work.id))
-            vm.cycleScope(by: -1)
-            try expectEqual(vm.scope, .favorites)
-            vm.cycleScope(by: -1)
-            try expectEqual(vm.scope, .all)
-
-            // A scope that is no longer in the list starts from the beginning
-            // rather than trapping.
-            vm.scope = .folder(UUID())
-            vm.cycleScope(by: 1)
-            try expectEqual(vm.scope, .favorites, "an unknown scope cycles from position 0")
+            // A folder that disappears drops the scope back to All rather
+            // than leaving a scope nothing can select.
+            vm.scope = .folder(work.id)
+            store.deleteFolder(id: work.id, mode: .moveItemsOut)
+            vm.validateScope()
+            try expectEqual(vm.scope, .all, "a deleted folder's scope falls back to All")
+            _ = home
         }
     }
 

@@ -140,6 +140,14 @@ final class HistoryViewModel: ObservableObject {
     /// Triggers scroll-to-selection in `ClipList` on keyboard navigation / scope changes.
     @Published var scrollTrigger = false
 
+    /// Whether the *next* selection change should animate (user item 4).
+    ///
+    /// Mouse clicks keep the spring; key-driven moves turn it off, because
+    /// holding an arrow key restarted the spring on every row and read as a
+    /// blinking highlight. `ClipList` passes this into `ClipRow` and also
+    /// uses it for the scroll animation.
+    @Published var animateSelection = true
+
     // MARK: - Detail pane
 
     @Published var previewImage: NSImage?
@@ -454,6 +462,9 @@ final class HistoryViewModel: ObservableObject {
     // MARK: - Scopes (sidebar)
 
     /// Every selectable scope in sidebar order: All, Favorites, then folders.
+    /// Keyboard scope cycling (⌘[ / ⌘]) was removed in 3.0.1 — the sidebar is
+    /// the only way to change scope — but the ordering is still what the
+    /// sidebar renders and what `validateScope` falls back through.
     var orderedScopes: [Scope] {
         [.all, .favorites] + store.folders.map { .folder($0.id) }
     }
@@ -469,16 +480,6 @@ final class HistoryViewModel: ObservableObject {
         case .favorites: return "Favorites"
         case .folder(let id): return store.folders.first(where: { $0.id == id })?.name ?? "Folder"
         }
-    }
-
-    /// ⌘] / ⌘[ — move to the next / previous sidebar scope, wrapping around.
-    func cycleScope(by delta: Int) {
-        let scopes = orderedScopes
-        guard !scopes.isEmpty else { return }
-        let current = scopes.firstIndex(of: scope) ?? 0
-        let count = scopes.count
-        let next = ((current + delta) % count + count) % count
-        scope = scopes[next]
     }
 
     /// Drop back to `.all` if the selected folder disappeared (deleted in 3B,
@@ -683,10 +684,20 @@ final class HistoryViewModel: ObservableObject {
         isExtractingText = false
     }
 
-    func copyOCRText(_ ocrText: String) {
-        NotificationCenter.default.post(name: .bufferIgnoreNextChange, object: nil)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(ocrText, forType: .string)
+    /// Copy button next to the OCR text under an image preview.
+    ///
+    /// User item 11: this wrote to `NSPasteboard.general` directly and said
+    /// nothing, so there was no way to tell a silent failure from a missed
+    /// click on the 12 pt glyph — people gave up and selected the text by
+    /// hand. It now goes through `PasteController.copyPlainText` (same
+    /// ignore-next-change handshake as every other copy) and confirms with a
+    /// toast; `PreviewPane` gives the button a real hit area to go with it.
+    ///
+    /// `pasteboard` is injectable so the test can assert the write without
+    /// clobbering the user's actual clipboard.
+    func copyOCRText(_ ocrText: String, to pasteboard: NSPasteboard = .general) {
+        guard PasteController.copyPlainText(ocrText, to: pasteboard) else { return }
+        showToast(text: "OCR text copied", systemImage: "doc.on.doc")
     }
 
     // MARK: - Tags
@@ -819,24 +830,28 @@ final class HistoryViewModel: ObservableObject {
 
     func keyUp() {
         guard !isEditing else { return }
+        animateSelection = false
         scrollTrigger = true
         navigateUp()
     }
 
     func keyDown() {
         guard !isEditing else { return }
+        animateSelection = false
         scrollTrigger = true
         navigateDown()
     }
 
     func keyExtendUp() {
         guard !isEditing else { return }
+        animateSelection = false
         scrollTrigger = true
         extendSelectionUp()
     }
 
     func keyExtendDown() {
         guard !isEditing else { return }
+        animateSelection = false
         scrollTrigger = true
         extendSelectionDown()
     }
@@ -909,18 +924,6 @@ final class HistoryViewModel: ObservableObject {
 
     func keyEdit() {
         toggleEditMode()
-    }
-
-    /// ⌘] — next sidebar scope.
-    func keyNextScope() {
-        guard !isEditing else { return }
-        cycleScope(by: 1)
-    }
-
-    /// ⌘[ — previous sidebar scope.
-    func keyPrevScope() {
-        guard !isEditing else { return }
-        cycleScope(by: -1)
     }
 
     /// Debug helper (`KLIP_SELECT_FIRST=1`): point the selection at the first

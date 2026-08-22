@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## 3.0.1 (2026-08-22)
+
+Fixes from the first live test of 3.0.0.
+
+### Fixed
+
+- **Crash when previewing a file clip** - Selecting a `.file` clip could abort the app. The preview pane embedded a live `QLPreviewView`, and setting its preview item from inside a SwiftUI layout pass trips a QuickLook assertion that calls `abort()` (three crash reports on 3.0.0). QuickLook *UI* classes are gone from the app entirely; the pane now renders a static QuickLook thumbnail instead, generated off the main thread and cached like the row badge. A build-time check in `scripts/gate.sh` fails if `QLPreviewView` ever reappears in the binary.
+- **Keyboard navigation without scrolling** - Arrow keys could move the highlight off screen. Every selection change now scrolls the list, synchronously and again on the next run loop, centring the row only when it is actually off screen so it never fights manual scrolling. A filter or delete that pushes the selection out of view re-scrolls too.
+- **OCR copy button did nothing** - The copy icon beside text extracted from an image wrote to the clipboard with no confirmation, and its hit area was the bare 12 pt glyph, so a miss and a failure looked identical. It now has a real hit target, goes through the same copy path as every other clip (so the watcher does not re-capture it), and confirms with an "OCR text copied" toast.
+- **Selection highlight blink** - Key-driven selection moves apply the highlight without the spring animation, which restarted on every row while an arrow key repeated. Mouse clicks still animate.
+
+### Changed
+
+- **Favorite is ⌘F** - The favorite shortcut moved from ⌘B to ⌘F. Nothing else uses ⌘F (the search field is focused automatically), and it is easier to reach. Anyone who already rebound the action keeps their own binding.
+- **"Star" is now "Favorite"** - The action is called Favorite / Unfavorite everywhere it is shown: the shortcut legend, the row context menu, the preview pane's button, Settings > Shortcuts and the Settings and Clear History wording. The sidebar section is still "Favorites".
+- **Preview pane is full height** - The preview is now a panel beside the list, like the sidebar, rather than a box between the filter chips and the action bar. All resizing and persistence behaviour is unchanged.
+- **Paste button removed** - The blue Paste button and its split menu are gone from the action bar. ↩ pastes and ⌥↩ pastes plain, both now shown in the legend; "Always paste as plain text" stays in Settings > General and the plain/rich alternate stays in the row context menu.
+- **Scope cycling removed** - ⌘[ / ⌘] no longer cycle sidebar scopes, and the two actions are gone from Settings > Shortcuts. Click the sidebar instead. A binding stored for either action before 3.0.1 is ignored without disturbing the rest of your shortcuts.
+- **File preview detail** - The file card now shows the file's kind alongside its name and size, and offers Open as well as Reveal in Finder.
+
+---
+
 ## 3.0.0 (2026-08-22)
 
 ### Added

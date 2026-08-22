@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 /// Right-click menu on a clip row (Phase 3D — full rewrite of the Phase 2A
-/// version, which only had Copy / Pin / Star / Edit / Save Image / Delete).
+/// version, which only had Copy / Pin / Favorite / Edit / Save Image / Delete).
 ///
 /// Right-clicking a row that isn't part of the current selection selects it
 /// first (`ClipList`'s `.contextMenu` calls `viewModel.selectForContextMenu`
@@ -50,7 +50,7 @@ struct RowContextMenu: View {
             viewModel.store.togglePin(for: item)
         }
 
-        Button(shortcutLabel(item.isBookmarked ? "Remove from Favorites" : "Add to Favorites", .star)) {
+        Button(shortcutLabel(item.isBookmarked ? "Unfavorite" : "Favorite", .star)) {
             viewModel.store.toggleBookmark(for: item)
         }
 
@@ -147,7 +147,7 @@ struct RowContextMenu: View {
 
 /// Labels for the entries that act on the whole selection (review 5A-30).
 ///
-/// Pin and Star are per-item everywhere — the row menu, ⌘P and ⌘B all act on
+/// Pin and Favorite are per-item everywhere — the row menu, ⌘P and ⌘F all act on
 /// the focused clip only — while Lock, Move to Folder, Save to Disk and
 /// Delete act on the entire selection. That difference was invisible:
 /// right-clicking inside a ten-row selection offered a plain "Lock" whose

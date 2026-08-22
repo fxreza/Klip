@@ -212,17 +212,6 @@ struct GlobalKeyMonitor: NSViewRepresentable {
             viewModel.keySaveImage()
             return nil
 
-        // MARK: ⌘[ / ⌘] scope cycling — passes through untouched
-        // while editing, same as the old cases.
-        case .previousScope:
-            if isEditing { return event }
-            viewModel.keyPrevScope()
-            return nil
-        case .nextScope:
-            if isEditing { return event }
-            viewModel.keyNextScope()
-            return nil
-
         // MARK: Fixed Tab — while editing, let it move focus instead
         // of tag-completing.
         case .tabComplete:
@@ -232,7 +221,7 @@ struct GlobalKeyMonitor: NSViewRepresentable {
 
         // MARK: New in 3E — organize/window actions with no prior
         // keycode case. Organize actions mirror the swallow-while-
-        // editing pattern of pin/star/addTag; window toggles run
+        // editing pattern of pin/favorite/addTag; window toggles run
         // unconditionally like edit, since they affect layout, not
         // the text being edited.
         case .newFolder:

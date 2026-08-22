@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import SwiftUI
 
 // Regressions from `docs/plan/review-5A.md` that live under `Views/`:
 // 5A-07 / 5A-10 (thumbnail rendering + cache), 5A-14 (the pinned-first
@@ -14,6 +15,10 @@ enum ViewRegressionTests {
         ("staleSelectionIndex_isClampedAndExtendSelectionIsSafe", testStaleSelectionIndex),
         ("rowMenuLabels_nameTheSelectionWideEntries", testRowMenuLabels),
         ("clearHistoryMessage_saysProtectedOrLocked", testClearHistoryMessage),
+        // 3.0.1 — the QLPreviewView crash.
+        ("filePreview_paneRendersAFileClipWithoutAborting", testFilePreviewPaneRenders),
+        ("filePreview_thumbnailIsCachedAndKindLabelled", testFileThumbnailAndKindLabel),
+        ("ocrCopyButton_writesPlainTextAndConfirms", testOCRCopy),
     ]
 
     // MARK: - Helpers
@@ -97,6 +102,126 @@ enum ViewRegressionTests {
             ImageThumbnailCache.evict(itemIDs: [item.id])
             let afterEvict = try thumbnail()
             try expect(afterEvict !== first, "eviction drops the cached copy")
+        }
+    }
+
+
+    // MARK: - 3.0.1: the file preview must not abort during layout
+
+    /// The 3.0.0 crash: `PreviewPane.fileBody` embedded a `QLPreviewView`
+    /// through an `NSViewRepresentable`, and `updateNSView` set its
+    /// `previewItem` — i.e. called `-[QLPreviewView setPreviewItem:]` from
+    /// inside `NSHostingView.layout()`. QuickLook raises an assertion there
+    /// and calls `abort()`, so the app died the moment a file clip was
+    /// selected (three user crash reports).
+    ///
+    /// This drives exactly that path: a real `.file` clip, selected, hosted
+    /// and laid out for real. Against 3.0.0's `PreviewPane` this test
+    /// aborts the whole runner; against 3.0.1 it renders a static thumbnail
+    /// and returns. `scripts/gate.sh` additionally fails the build if
+    /// `QLPreviewView` ever reappears as a symbol in the binary.
+    static func testFilePreviewPaneRenders() throws {
+        _ = NSApplication.shared
+
+        try ClipboardStoreTests.withStore { store, _ in
+            try withTempDir { sourceDir in
+                let url = sourceDir.appendingPathComponent("note.txt")
+                try Data("hello from a file clip".utf8).write(to: url)
+
+                guard let (item, _) = store.makeFileItem(from: [url], sourceApp: "Finder") else {
+                    throw TestFailure(message: "makeFileItem should capture a small file", file: #file, line: #line)
+                }
+                store.add(item)
+
+                let viewModel = HistoryViewModel(store: store)
+                viewModel.applyFilters(resetSelection: .defaultItem)
+                viewModel.selectSingle(item.id)
+                try expectEqual(viewModel.selectedItem?.id, item.id, "precondition: the file clip is selected")
+                try expectEqual(viewModel.selectedItem?.type, .file, "precondition: it is a .file clip")
+
+                let host = NSHostingView(rootView: FilePreviewHarness(store: store, viewModel: viewModel))
+                host.frame = NSRect(x: 0, y: 0, width: 320, height: 620)
+                let window = NSWindow(
+                    contentRect: host.frame,
+                    styleMask: [.borderless],
+                    backing: .buffered,
+                    defer: true
+                )
+                window.contentView = host
+                defer { window.contentView = nil }
+
+                // First layout — this is where 3.0.0 aborted.
+                host.layoutSubtreeIfNeeded()
+
+                // Let the async thumbnail land, then lay out again so the
+                // pane re-renders with an image in it.
+                pump(timeout: 2) { false }
+                host.layoutSubtreeIfNeeded()
+
+                try expect(host.frame.width > 0, "the hosted preview pane still has a frame after layout")
+                try expectEqual(viewModel.selectedItem?.id, item.id, "the selection survived the render")
+            }
+        }
+    }
+
+    /// The replacement rendering path: a real QuickLook *thumbnail* (not a UI
+    /// class), cached per item and size, plus the kind label the fallback
+    /// card shows next to the name.
+    static func testFileThumbnailAndKindLabel() throws {
+        try withTempDir { dir in
+            let url = dir.appendingPathComponent("swatch.png")
+            try pngData(width: 128, height: 96).write(to: url)
+            let itemID = UUID()
+            let size = CGSize(width: 240, height: 320)
+
+            func thumbnail(_ size: CGSize) throws -> NSImage {
+                var result: NSImage??
+                Task { result = await FilePreview.thumbnail(for: url, itemID: itemID, size: size) }
+                try expect(pump { result != nil }, "the thumbnail request should finish")
+                return try require(result ?? nil, "QuickLook should render a thumbnail for a PNG")
+            }
+
+            let first = try thumbnail(size)
+            let second = try thumbnail(size)
+            try expect(first === second, "a second request for the same item and size is a cache hit")
+
+            let wider = try thumbnail(CGSize(width: 400, height: 320))
+            try expect(wider !== first, "a different pane width is a different cache entry")
+
+            try expectEqual(FilePreview.kindLabel(for: url, name: "swatch.png"), "PNG image")
+            try expectEqual(FilePreview.kindLabel(for: nil, name: "gone.pdf"), "PDF file",
+                            "a missing file still names its kind from the extension")
+            try expectNil(FilePreview.kindLabel(for: nil, name: "noextension"))
+        }
+    }
+
+
+    // MARK: - 3.0.1 user item 11: the OCR copy button
+
+    /// The copy icon beside OCR-extracted text wrote to the pasteboard with
+    /// no feedback at all, so a missed click on the bare 12 pt glyph was
+    /// indistinguishable from a failed copy. It now goes through
+    /// `PasteController.copyPlainText` (ignore-next-change first, then the
+    /// write) and toasts on success.
+    ///
+    /// Runs against a private pasteboard, never `.general` — a test must not
+    /// touch the user's real clipboard.
+    static func testOCRCopy() throws {
+        try FolderUXTests.withViewModel { vm, _ in
+            let board = NSPasteboard(name: NSPasteboard.Name("KlipTests-ocr-\(UUID().uuidString)"))
+            defer { board.releaseGlobally() }
+
+            vm.copyOCRText("  Receipt total 42.00  ", to: board)
+            try expectEqual(board.string(forType: .string), "Receipt total 42.00",
+                            "the OCR text lands on the pasteboard, trimmed")
+            try expectEqual(vm.toast?.text, "OCR text copied", "a successful copy confirms itself")
+
+            // Nothing to copy: no write, and no toast claiming otherwise.
+            vm.toast = nil
+            board.clearContents()
+            vm.copyOCRText("   \n  ", to: board)
+            try expectNil(board.string(forType: .string), "an empty OCR string writes nothing")
+            try expectNil(vm.toast, "and does not claim to have copied")
         }
     }
 
@@ -202,5 +327,23 @@ enum ViewRegressionTests {
     private static func require<T>(_ value: T?, _ message: String, file: StaticString = #file, line: UInt = #line) throws -> T {
         guard let value else { throw TestFailure(message: message, file: file, line: line) }
         return value
+    }
+}
+
+/// Owns the `@FocusState` bindings `PreviewPane` requires — they can only
+/// live inside a `View`, so the test cannot construct the pane directly.
+private struct FilePreviewHarness: View {
+    @ObservedObject var store: ClipboardStore
+    @ObservedObject var viewModel: HistoryViewModel
+    @FocusState private var isTextEditorFocused: Bool
+    @FocusState private var isTagInputFocused: Bool
+
+    var body: some View {
+        PreviewPane(
+            store: store,
+            viewModel: viewModel,
+            isTextEditorFocused: $isTextEditorFocused,
+            isTagInputFocused: $isTagInputFocused
+        )
     }
 }

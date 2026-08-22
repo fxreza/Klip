@@ -20,7 +20,10 @@ enum ShortcutAction: String, CaseIterable, Codable {
     case toggleSidebar, togglePreview
 
     // Navigation
-    case nextScope, previousScope
+    //
+    // 3.0.1 removed `nextScope` / `previousScope` (⌘[ / ⌘]). The sidebar is
+    // the only way to change scope now; a stored override for either key is
+    // simply ignored when the table is decoded (see `init`).
     case moveUp, moveDown, extendUp, extendDown, tabComplete, escape
 
     enum Group: String, CaseIterable {
@@ -41,7 +44,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
             return .organize
         case .toggleSidebar, .togglePreview:
             return .window
-        case .nextScope, .previousScope, .moveUp, .moveDown, .extendUp, .extendDown, .tabComplete, .escape:
+        case .moveUp, .moveDown, .extendUp, .extendDown, .tabComplete, .escape:
             return .navigation
         }
     }
@@ -54,7 +57,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .copyPlain: return "Copy as Plain Text"
         case .delete: return "Delete"
         case .pin: return "Pin"
-        case .star: return "Star"
+        case .star: return "Favorite"
         case .lock: return "Lock"
         case .edit: return "Edit"
         case .addTag: return "Add Tag"
@@ -74,8 +77,6 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .moveToFolder: return "Move to Folder"
         case .toggleSidebar: return "Toggle Sidebar"
         case .togglePreview: return "Toggle Preview Pane"
-        case .nextScope: return "Next Scope"
-        case .previousScope: return "Previous Scope"
         case .moveUp: return "Move Selection Up"
         case .moveDown: return "Move Selection Down"
         case .extendUp: return "Extend Selection Up"
@@ -107,7 +108,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .copyPlain:      return KeyBinding(keyCode: 8,  modifiers: [.command, .option]) // ⌥⌘C
         case .delete:         return KeyBinding(keyCode: 51, modifiers: [.command])    // ⌘⌫
         case .pin:            return KeyBinding(keyCode: 35, modifiers: [.command])    // ⌘P
-        case .star:           return KeyBinding(keyCode: 11, modifiers: [.command])    // ⌘B
+        case .star:           return KeyBinding(keyCode: 3,  modifiers: [.command])    // ⌘F (was ⌘B before 3.0.1)
         case .lock:           return KeyBinding(keyCode: 37, modifiers: [.command])    // ⌘L
         case .edit:           return KeyBinding(keyCode: 14, modifiers: [.command])    // ⌘E
         case .addTag:         return KeyBinding(keyCode: 17, modifiers: [.command])    // ⌘T
@@ -127,8 +128,6 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .moveToFolder:   return KeyBinding(keyCode: 46, modifiers: [.command])    // ⌘M
         case .toggleSidebar:  return KeyBinding(keyCode: 1,  modifiers: [.command, .option]) // ⌥⌘S
         case .togglePreview:  return KeyBinding(keyCode: 35, modifiers: [.command, .option]) // ⌥⌘P
-        case .nextScope:      return KeyBinding(keyCode: 30, modifiers: [.command])    // ⌘]
-        case .previousScope:  return KeyBinding(keyCode: 33, modifiers: [.command])    // ⌘[
         case .moveUp:         return KeyBinding(keyCode: 126, modifiers: [])           // ↑
         case .moveDown:       return KeyBinding(keyCode: 125, modifiers: [])           // ↓
         case .extendUp:       return KeyBinding(keyCode: 126, modifiers: [.shift])     // ⇧↑
@@ -173,6 +172,10 @@ final class ShortcutManager: ObservableObject {
         if let data = defaults.data(forKey: Self.storageKey),
            let overrides = try? JSONDecoder().decode([String: KeyBinding].self, from: data) {
             for (rawKey, binding) in overrides {
+                // Unknown keys are skipped rather than treated as corruption,
+                // so an override stored for an action that no longer exists
+                // (`nextScope` / `previousScope`, removed in 3.0.1) does not
+                // throw away the rest of the user's rebinds.
                 if let action = ShortcutAction(rawValue: rawKey) {
                     resolved[action] = binding
                 }

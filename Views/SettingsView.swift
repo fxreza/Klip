@@ -105,13 +105,13 @@ private struct HistorySettingsTab: View {
                         tierButton(tier)
                     }
                 }
-                Text("Older unpinned, unbookmarked, untagged items are removed once the limit is reached.")
+                Text("Older unpinned, unfavorited, untagged items are removed once the limit is reached.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Section("Lock / Protect") {
-                Text("Locked clips can't be deleted until you unlock them. Clips inside folders are locked automatically. Pinned, starred, tagged, locked and folder clips never count toward the history limit.")
+                Text("Locked clips can't be deleted until you unlock them. Clips inside folders are locked automatically. Pinned, favorited, tagged, locked and folder clips never count toward the history limit.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -150,7 +150,7 @@ private struct HistorySettingsTab: View {
                 pendingTier = nil
             }
         } message: {
-            Text("This will permanently delete your oldest unbookmarked items to fit the new size. This action cannot be undone.")
+            Text("This will permanently delete your oldest unfavorited items to fit the new size. This action cannot be undone.")
         }
     }
 

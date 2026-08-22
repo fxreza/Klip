@@ -107,6 +107,11 @@ struct SidebarDropTarget: NSViewRepresentable {
         return view
     }
 
+    /// 3.0.1 audit (the `QLPreviewView` crash): everything this does during a
+    /// SwiftUI update is assignment plus a drag-type registration that is
+    /// idempotent and guarded by `refreshRegistration`'s early return. No
+    /// framework call here can assert or block while the layout pass is in
+    /// flight — unlike `-[QLPreviewView setPreviewItem:]`, which did both.
     func updateNSView(_ nsView: DropView, context: Context) {
         apply(to: nsView)
         nsView.refreshRegistration()
