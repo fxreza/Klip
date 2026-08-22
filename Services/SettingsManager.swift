@@ -2,25 +2,55 @@ import Foundation
 import ServiceManagement
 import Combine
 
-/// Define the tiers as a type
+/// How many items the history keeps before the oldest unprotected one is evicted.
+///
+/// The raw value is the item cap and is what lands in the `historyLimit`
+/// UserDefaults key; `0` means no cap at all. Buffer 2.x stored 100/500/1000
+/// here, so always read stored values through `from(storedRaw:)`.
 enum HistoryLimit: Int, CaseIterable, Codable {
-    case essential  = 100
-    case deep       = 500
-    case unlimited  = 1000
-    
+    case k1        = 1000
+    case k5        = 5000
+    case k10       = 10000
+    case unlimited = 0
+
+    static let `default`: HistoryLimit = .k10
+
+    /// Item cap, or `nil` when unlimited (never evict).
+    var maxItems: Int? { self == .unlimited ? nil : rawValue }
+
+    var isUnlimited: Bool { self == .unlimited }
+
     var label: String {
         switch self {
-        case .essential: return "Essential"
-        case .deep:      return "Deep"
+        case .k1:        return "1,000"
+        case .k5:        return "5,000"
+        case .k10:       return "10,000"
         case .unlimited: return "Unlimited"
         }
     }
-    
+
     var subtitle: String {
         switch self {
-        case .essential: return "100 items"
-        case .deep:      return "500 items"
-        case .unlimited: return "1,000 items"
+        case .k1:        return "Lightest footprint"
+        case .k5:        return "Balanced"
+        case .k10:       return "Recommended"
+        case .unlimited: return "Keep everything"
+        }
+    }
+
+    /// Maps a stored raw value onto a tier, absorbing the legacy Buffer 2.x
+    /// values (100 / 500 / 1000) and anything unrecognised.
+    ///
+    /// nil or absent -> `.default`; 100/500/1000 -> `.k1`; 5000 -> `.k5`;
+    /// 10000 -> `.k10`; 0 -> `.unlimited`; anything else -> `.default`.
+    static func from(storedRaw: Int?) -> HistoryLimit {
+        guard let raw = storedRaw else { return .default }
+        switch raw {
+        case 100, 500, 1000: return .k1
+        case 5000:           return .k5
+        case 10000:          return .k10
+        case 0:              return .unlimited
+        default:             return .default
         }
     }
 }
@@ -38,7 +68,7 @@ class SettingsManager: ObservableObject {
     @Published var hotkeyModifiers: HotkeyModifiers
     @Published var hotkeyKeyCode: UInt16
     @Published var launchAtLogin: Bool = false
-    @Published var historyLimit: HistoryLimit = .essential
+    @Published var historyLimit: HistoryLimit = .default
     @Published var includePrereleases: Bool = false
     @Published var hideStatusBar: Bool = false
     
@@ -63,9 +93,9 @@ class SettingsManager: ObservableObject {
             self.launchAtLogin = SMAppService.mainApp.status == .enabled
         }
         
-        // Load history limit
-        let rawLimit = defaults.integer(forKey: "historyLimit")
-        self.historyLimit = HistoryLimit(rawValue: rawLimit) ?? .essential
+        // Load history limit. Read as an object, not `integer(forKey:)`, so an
+        // absent key is distinguishable from a stored 0 (= unlimited).
+        self.historyLimit = HistoryLimit.from(storedRaw: defaults.object(forKey: "historyLimit") as? Int)
         
         // Load pre-release updates toggle
         self.includePrereleases = defaults.bool(forKey: "includePrereleases")

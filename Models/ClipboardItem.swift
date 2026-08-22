@@ -2,21 +2,26 @@ import Foundation
 import AppKit
 
 /// Represents a single item in the clipboard history
+///
+/// Every field added after v2.5.0 is optional or defaulted and decoded with
+/// `decodeIfPresent`, so an existing `history.json` loads unchanged. Unknown
+/// keys are ignored by `JSONDecoder`, so removed fields (`isTruncated`,
+/// `originalSizeBytes`) do not break old files either.
 struct ClipboardItem: Identifiable, Codable, Equatable {
     let id: UUID
     let type: ClipboardItemType
     let timestamp: Date
     let sourceApp: String?
-    
+
     // For text items — inline content (nil for file-backed large text)
     var textContent: String?
-    
+
     // For large text items — filename reference (stored separately, like images)
     let textFilename: String?
-    
+
     // For image items — filename reference (stored separately)
     let imageFilename: String?
-    
+
     // Pin state (protected + floats to top)
     var isPinned: Bool = false
 
@@ -28,14 +33,46 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
 
     // Extracted OCR text (persisted after first extraction)
     var ocrText: String?
-    
-    // For extreme text items — true if content exceeded storage limit and only preview is saved
-    let isTruncated: Bool
-    
-    // For large/extreme text items — original size in bytes (for display purposes)
-    let originalSizeBytes: Int?
-    
-    init(id: UUID = UUID(), type: ClipboardItemType, timestamp: Date = Date(), sourceApp: String? = nil, textContent: String? = nil, textFilename: String? = nil, imageFilename: String? = nil, isPinned: Bool = false, isBookmarked: Bool = false, tags: [String] = [], ocrText: String? = nil, isTruncated: Bool = false, originalSizeBytes: Int? = nil) {
+
+    /// Lock state — a locked item can never be deleted or evicted.
+    var isLocked: Bool = false
+
+    /// Folder membership, `nil` when the item is loose in the history.
+    var folderID: UUID? = nil
+
+    /// Detected semantic kind. `nil` means "not yet detected" (detection is
+    /// Phase 3C), not "plain text".
+    var kind: ContentKind? = nil
+
+    /// File payload, when this item came from copied files.
+    var fileAttachment: FileAttachment? = nil
+
+    /// Filename of the RTF flavor under `texts/` (reserved for Phase 3D).
+    var rtfFilename: String? = nil
+
+    /// Filename of the archived pasteboard flavors under `flavors/`
+    /// (reserved for Phase 3D).
+    var flavorsFilename: String? = nil
+
+    init(
+        id: UUID = UUID(),
+        type: ClipboardItemType,
+        timestamp: Date = Date(),
+        sourceApp: String? = nil,
+        textContent: String? = nil,
+        textFilename: String? = nil,
+        imageFilename: String? = nil,
+        isPinned: Bool = false,
+        isBookmarked: Bool = false,
+        tags: [String] = [],
+        ocrText: String? = nil,
+        isLocked: Bool = false,
+        folderID: UUID? = nil,
+        kind: ContentKind? = nil,
+        fileAttachment: FileAttachment? = nil,
+        rtfFilename: String? = nil,
+        flavorsFilename: String? = nil
+    ) {
         self.id = id
         self.type = type
         self.timestamp = timestamp
@@ -47,13 +84,18 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.isBookmarked = isBookmarked
         self.tags = tags
         self.ocrText = ocrText
-        self.isTruncated = isTruncated
-        self.originalSizeBytes = originalSizeBytes
+        self.isLocked = isLocked
+        self.folderID = folderID
+        self.kind = kind
+        self.fileAttachment = fileAttachment
+        self.rtfFilename = rtfFilename
+        self.flavorsFilename = flavorsFilename
     }
-    
+
     enum CodingKeys: String, CodingKey {
         case id, type, timestamp, sourceApp, textContent, textFilename, imageFilename
-        case isPinned, isBookmarked, tags, ocrText, isTruncated, originalSizeBytes
+        case isPinned, isBookmarked, tags, ocrText
+        case isLocked, folderID, kind, fileAttachment, rtfFilename, flavorsFilename
     }
 
     init(from decoder: Decoder) throws {
@@ -69,10 +111,14 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.isBookmarked = try container.decodeIfPresent(Bool.self, forKey: .isBookmarked) ?? false
         self.tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
         self.ocrText = try container.decodeIfPresent(String.self, forKey: .ocrText)
-        self.isTruncated = try container.decodeIfPresent(Bool.self, forKey: .isTruncated) ?? false
-        self.originalSizeBytes = try container.decodeIfPresent(Int.self, forKey: .originalSizeBytes)
+        self.isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
+        self.folderID = try container.decodeIfPresent(UUID.self, forKey: .folderID)
+        self.kind = try container.decodeIfPresent(ContentKind.self, forKey: .kind)
+        self.fileAttachment = try container.decodeIfPresent(FileAttachment.self, forKey: .fileAttachment)
+        self.rtfFilename = try container.decodeIfPresent(String.self, forKey: .rtfFilename)
+        self.flavorsFilename = try container.decodeIfPresent(String.self, forKey: .flavorsFilename)
     }
-    
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
@@ -86,10 +132,14 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         try container.encode(isBookmarked, forKey: .isBookmarked)
         try container.encode(tags, forKey: .tags)
         try container.encodeIfPresent(ocrText, forKey: .ocrText)
-        try container.encode(isTruncated, forKey: .isTruncated)
-        try container.encodeIfPresent(originalSizeBytes, forKey: .originalSizeBytes)
+        try container.encode(isLocked, forKey: .isLocked)
+        try container.encodeIfPresent(folderID, forKey: .folderID)
+        try container.encodeIfPresent(kind, forKey: .kind)
+        try container.encodeIfPresent(fileAttachment, forKey: .fileAttachment)
+        try container.encodeIfPresent(rtfFilename, forKey: .rtfFilename)
+        try container.encodeIfPresent(flavorsFilename, forKey: .flavorsFilename)
     }
-    
+
     /// Create a text clipboard item
     static func text(_ content: String, sourceApp: String? = nil) -> ClipboardItem {
         ClipboardItem(
@@ -98,7 +148,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
             textContent: content
         )
     }
-    
+
     /// Create an image clipboard item
     static func image(filename: String, sourceApp: String? = nil) -> ClipboardItem {
         ClipboardItem(
@@ -107,7 +157,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
             imageFilename: filename
         )
     }
-    
+
     /// Create a large text clipboard item (file-backed with inline preview)
     static func largeText(preview: String, filename: String, sourceApp: String? = nil) -> ClipboardItem {
         ClipboardItem(
@@ -117,30 +167,46 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
             textFilename: filename
         )
     }
-    
-    /// Create an extremely large text item where only the preview is saved
-    static func truncatedText(_ preview: String, originalSizeBytes: Int, sourceApp: String?) -> ClipboardItem {
-        ClipboardItem(
-            type: .text,
-            sourceApp: sourceApp,
-            textContent: preview,
-            isTruncated: true,
-            originalSizeBytes: originalSizeBytes
-        )
-    }
-    
+
     /// Whether this item's full text is stored in a separate file
     var isFileBacked: Bool {
         textFilename != nil
     }
-    
+
+    /// Whether this item carries a file payload.
+    ///
+    /// `ClipboardItemType.file` is deliberately not added yet — it would break
+    /// exhaustive switches in the view files currently being split. The enum
+    /// case arrives at integration; until then this is the check to use.
+    var isFile: Bool {
+        fileAttachment != nil
+    }
+
+    /// Protected from **eviction** (the history-limit trim). Deletion is a
+    /// separate, stricter rule: only `isLocked` blocks an explicit delete.
+    var isProtected: Bool {
+        isPinned || isBookmarked || !tags.isEmpty || isLocked || folderID != nil
+    }
+
+    // 1B-compat: `isTruncated` / `originalSizeBytes` were dead storage fields
+    // and are gone from the model and from history.json. These read-only shims
+    // exist only so `Views/HistoryWindow.swift` (owned by another agent this
+    // phase) keeps compiling; delete both, and the banner at HistoryWindow's
+    // `itemContent`, at integration.
+    var isTruncated: Bool { false }
+    var originalSizeBytes: Int? { nil }
+
     /// Whether this item is editable inline
     var isEditable: Bool {
-        type == .text && !isFileBacked && !isTruncated && (textContent?.count ?? 0) <= 5000
+        type == .text && !isFileBacked && !isFile && (textContent?.count ?? 0) <= 5000
     }
-    
+
     /// Preview text for display (truncated for long content)
     var previewText: String {
+        if let attachment = fileAttachment {
+            let extra = attachment.additionalNames.count
+            return extra > 0 ? "\(attachment.originalName) +\(extra)" : attachment.originalName
+        }
         switch type {
         case .text:
             let text = textContent ?? ""
@@ -152,9 +218,12 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
             return "Image"
         }
     }
-    
+
     /// Content hash for duplicate detection
     var contentHash: Int {
+        if let attachment = fileAttachment {
+            return (attachment.storedRelativePath ?? attachment.referencePath ?? attachment.originalName).hashValue
+        }
         switch type {
         case .text:
             return textContent?.hashValue ?? 0
@@ -162,7 +231,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
             return imageFilename?.hashValue ?? 0
         }
     }
-    
+
 
 }
 
