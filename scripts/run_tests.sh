@@ -45,6 +45,7 @@ swiftc \
     -sdk "$(xcrun --show-sdk-path --sdk macosx)" \
     -target arm64-apple-macosx13.0 \
     -parse-as-library \
+    -default-isolation MainActor \
     -framework Cocoa \
     -framework SwiftUI \
     -framework Carbon \

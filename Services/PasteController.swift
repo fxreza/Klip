@@ -172,15 +172,6 @@ class PasteController {
         keyUp?.post(tap: .cgAnnotatedSessionEventTap)
     }
     
-    /// Simulate Command + V keystroke with delay to ensure pasteboard is ready
-    private static func simulatePasteWithDelay() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            // Post ignore notification right before paste
-            NotificationCenter.default.post(name: .bufferIgnoreNextChange, object: nil)
-            simulatePaste()
-        }
-    }
-    
     /// Simulate Command + V keystroke with custom delay
     private static func simulatePasteWithCustomDelay(_ delay: TimeInterval) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {

@@ -101,6 +101,7 @@ for CURRENT_ARCH in "${ARCHS[@]}"; do
         -sdk "$(xcrun --show-sdk-path --sdk macosx)" \
         -target "${CURRENT_ARCH}-apple-macosx${DEPLOY_TARGET}" \
         -parse-as-library \
+        -default-isolation MainActor \
         -framework Cocoa \
         -framework SwiftUI \
         -framework Carbon \

@@ -7,7 +7,7 @@ enum HistoryLimit: Int, CaseIterable, Codable {
     case essential  = 100
     case deep       = 500
     case unlimited  = 1000
-    
+
     var label: String {
         switch self {
         case .essential: return "Essential"
@@ -15,7 +15,7 @@ enum HistoryLimit: Int, CaseIterable, Codable {
         case .unlimited: return "Unlimited"
         }
     }
-    
+
     var subtitle: String {
         switch self {
         case .essential: return "100 items"
@@ -25,63 +25,199 @@ enum HistoryLimit: Int, CaseIterable, Codable {
     }
 }
 
-/// Manages user preferences for Buffer
-class SettingsManager: ObservableObject {
+/// Manages user preferences for Klip. Single source of truth: every setting
+/// is a `@Published` property that writes its UserDefaults key immediately
+/// (via `didSet`) and posts the notification the rest of the app relies on
+/// (`.bufferHotkeyChanged`, `.bufferHistoryLimitChanged`,
+/// `.bufferStatusBarVisibilityChanged`) exactly when the value actually
+/// changes. Views bind to `SettingsManager.shared` directly (`@ObservedObject`)
+/// — there is no separate view-model layer and no explicit "Save" step;
+/// settings apply immediately, the same way native macOS Settings behave.
+///
+/// `isLoaded` suppresses persistence/notifications while `init` is populating
+/// properties from previously-saved values, so loading a setting is never
+/// mistaken for the user changing it.
+@MainActor
+final class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
-    
+
     private let defaults = UserDefaults.standard
-    
+    private var isLoaded = false
+
     // Keys
     private let hotkeyModifiersKey = "hotkeyModifiers"
     private let hotkeyKeyCodeKey = "hotkeyKeyCode"
-    
-    @Published var hotkeyModifiers: HotkeyModifiers
-    @Published var hotkeyKeyCode: UInt16
+
+    @Published var hotkeyModifiers: HotkeyModifiers {
+        didSet {
+            guard isLoaded, hotkeyModifiers != oldValue else { return }
+            defaults.set(hotkeyModifiers.toArray(), forKey: hotkeyModifiersKey)
+            NotificationCenter.default.post(name: .bufferHotkeyChanged, object: nil)
+        }
+    }
+    @Published var hotkeyKeyCode: UInt16 {
+        didSet {
+            guard isLoaded, hotkeyKeyCode != oldValue else { return }
+            defaults.set(Int(hotkeyKeyCode), forKey: hotkeyKeyCodeKey)
+            NotificationCenter.default.post(name: .bufferHotkeyChanged, object: nil)
+        }
+    }
     @Published var launchAtLogin: Bool = false
     @Published var historyLimit: HistoryLimit = .essential
-    @Published var includePrereleases: Bool = false
-    @Published var hideStatusBar: Bool = false
-    
+    @Published var includePrereleases: Bool = false {
+        didSet {
+            guard isLoaded, includePrereleases != oldValue else { return }
+            defaults.set(includePrereleases, forKey: "includePrereleases")
+        }
+    }
+    @Published var hideStatusBar: Bool = false {
+        didSet {
+            guard isLoaded, hideStatusBar != oldValue else { return }
+            defaults.set(hideStatusBar, forKey: "hideStatusBar")
+            NotificationCenter.default.post(name: .bufferStatusBarVisibilityChanged, object: nil)
+        }
+    }
+
+    // MARK: - Appearance / layout (new in Phase 1C; consumed by Phase 2+)
+
+    /// Scales list-row fonts (`fontScale.list`), range 0.8...1.6.
+    @Published var listFontScale: Double = 1.0 {
+        didSet {
+            guard isLoaded, listFontScale != oldValue else { return }
+            defaults.set(listFontScale, forKey: "fontScale.list")
+        }
+    }
+    /// Scales preview-pane fonts (`fontScale.preview`), range 0.8...1.6.
+    @Published var previewFontScale: Double = 1.0 {
+        didSet {
+            guard isLoaded, previewFontScale != oldValue else { return }
+            defaults.set(previewFontScale, forKey: "fontScale.preview")
+        }
+    }
+    @Published var accentTheme: AccentTheme = .system {
+        didSet {
+            guard isLoaded, accentTheme != oldValue else { return }
+            defaults.set(accentTheme.rawValue, forKey: "appearance.accent")
+        }
+    }
+    @Published var colorScheme: AppColorScheme = .system {
+        didSet {
+            guard isLoaded, colorScheme != oldValue else { return }
+            defaults.set(colorScheme.rawValue, forKey: "appearance.colorScheme")
+        }
+    }
+    @Published var showPreviewPane: Bool = true {
+        didSet {
+            guard isLoaded, showPreviewPane != oldValue else { return }
+            defaults.set(showPreviewPane, forKey: "appearance.showPreview")
+        }
+    }
+    @Published var sidebarCollapsed: Bool = false {
+        didSet {
+            guard isLoaded, sidebarCollapsed != oldValue else { return }
+            defaults.set(sidebarCollapsed, forKey: "sidebarCollapsed")
+        }
+    }
+    @Published var sidebarWidth: Double = 180 {
+        didSet {
+            guard isLoaded, sidebarWidth != oldValue else { return }
+            defaults.set(sidebarWidth, forKey: "sidebarWidth")
+        }
+    }
+    @Published var previewWidth: Double = 300 {
+        didSet {
+            guard isLoaded, previewWidth != oldValue else { return }
+            defaults.set(previewWidth, forKey: "previewWidth")
+        }
+    }
+    @Published var windowWidth: Double? = nil {
+        didSet {
+            guard isLoaded, windowWidth != oldValue else { return }
+            if let windowWidth {
+                defaults.set(windowWidth, forKey: "windowWidth")
+            } else {
+                defaults.removeObject(forKey: "windowWidth")
+            }
+        }
+    }
+    @Published var windowHeight: Double? = nil {
+        didSet {
+            guard isLoaded, windowHeight != oldValue else { return }
+            if let windowHeight {
+                defaults.set(windowHeight, forKey: "windowHeight")
+            } else {
+                defaults.removeObject(forKey: "windowHeight")
+            }
+        }
+    }
+
     private init() {
         // Initialize with defaults first, then load saved values
         let defaultMods = HotkeyModifiers(shift: true, command: true, option: false, control: false)
         let defaultKeyCode: UInt16 = 9  // V key
-        
+
         // Load saved modifiers or use default
         if let savedMods = defaults.array(forKey: hotkeyModifiersKey) as? [String] {
             self.hotkeyModifiers = HotkeyModifiers(from: savedMods)
         } else {
             self.hotkeyModifiers = defaultMods
         }
-        
+
         // Load saved keycode or use default (V key)
         let savedKeyCode = defaults.integer(forKey: hotkeyKeyCodeKey)
         self.hotkeyKeyCode = savedKeyCode > 0 ? UInt16(savedKeyCode) : defaultKeyCode
-        
+
         // Load launch at login status
         if #available(macOS 13.0, *) {
             self.launchAtLogin = SMAppService.mainApp.status == .enabled
         }
-        
+
         // Load history limit
         let rawLimit = defaults.integer(forKey: "historyLimit")
         self.historyLimit = HistoryLimit(rawValue: rawLimit) ?? .essential
-        
+
         // Load pre-release updates toggle
         self.includePrereleases = defaults.bool(forKey: "includePrereleases")
 
         // Load hide status bar
         self.hideStatusBar = defaults.bool(forKey: "hideStatusBar")
+
+        // Load appearance / layout settings
+        if let raw = defaults.object(forKey: "fontScale.list") as? Double {
+            self.listFontScale = raw
+        }
+        if let raw = defaults.object(forKey: "fontScale.preview") as? Double {
+            self.previewFontScale = raw
+        }
+        self.accentTheme = AccentTheme(rawValue: defaults.string(forKey: "appearance.accent") ?? "") ?? .system
+        self.colorScheme = AppColorScheme(rawValue: defaults.string(forKey: "appearance.colorScheme") ?? "") ?? .system
+        if defaults.object(forKey: "appearance.showPreview") != nil {
+            self.showPreviewPane = defaults.bool(forKey: "appearance.showPreview")
+        }
+        if defaults.object(forKey: "sidebarCollapsed") != nil {
+            self.sidebarCollapsed = defaults.bool(forKey: "sidebarCollapsed")
+        }
+        if let raw = defaults.object(forKey: "sidebarWidth") as? Double {
+            self.sidebarWidth = raw
+        }
+        if let raw = defaults.object(forKey: "previewWidth") as? Double {
+            self.previewWidth = raw
+        }
+        self.windowWidth = defaults.object(forKey: "windowWidth") as? Double
+        self.windowHeight = defaults.object(forKey: "windowHeight") as? Double
+
+        isLoaded = true
     }
-    
+
+    /// Legacy explicit-save hook, kept only for `historyLimit` (owned by a
+    /// concurrent task that is replacing this enum/property with a richer
+    /// API and will fold its persistence into a `didSet` of its own). Every
+    /// other setting above now persists immediately via `didSet`, so callers
+    /// no longer need to call this for them.
     func save() {
-        defaults.set(hotkeyModifiers.toArray(), forKey: hotkeyModifiersKey)
-        defaults.set(Int(hotkeyKeyCode), forKey: hotkeyKeyCodeKey)
         defaults.set(historyLimit.rawValue, forKey: "historyLimit")
-        defaults.set(includePrereleases, forKey: "includePrereleases")
-        defaults.set(hideStatusBar, forKey: "hideStatusBar")
     }
-    
+
     func toggleLaunchAtLogin(_ enabled: Bool) {
         if #available(macOS 13.0, *) {
             do {
@@ -108,21 +244,21 @@ struct HotkeyModifiers: Equatable {
     var command: Bool
     var option: Bool
     var control: Bool
-    
+
     init(shift: Bool = false, command: Bool = false, option: Bool = false, control: Bool = false) {
         self.shift = shift
         self.command = command
         self.option = option
         self.control = control
     }
-    
+
     init(from array: [String]) {
         self.shift = array.contains("shift")
         self.command = array.contains("command")
         self.option = array.contains("option")
         self.control = array.contains("control")
     }
-    
+
     func toArray() -> [String] {
         var result: [String] = []
         if shift { result.append("shift") }
@@ -131,7 +267,7 @@ struct HotkeyModifiers: Equatable {
         if control { result.append("control") }
         return result
     }
-    
+
     var displayString: String {
         var parts: [String] = []
         if control { parts.append("⌃") }
