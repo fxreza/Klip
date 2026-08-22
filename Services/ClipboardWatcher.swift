@@ -133,7 +133,9 @@ class ClipboardWatcher: ObservableObject {
                 // flavors bundle. Applies regardless of inline-vs-file-backed
                 // text size — a large plain-text clip can still carry a small
                 // RTF/flavors payload worth keeping.
-                let rtfData = pasteboard.data(forType: .rtf)
+                // Cap the RTF blob like the raw-flavors bundle (review-2B M1): an
+                // oversized RTF representation is dropped, the plain text is kept.
+                let rtfData = pasteboard.data(forType: .rtf).flatMap { $0.count <= PasteboardFlavors.maxRawBytes ? $0 : nil }
                 let htmlData = pasteboard.data(forType: .html)
                 let isRich = rtfData != nil || htmlData != nil
                 let flavorsData = PasteboardFlavors.capture(pasteboard)
