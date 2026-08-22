@@ -1,0 +1,23 @@
+# Pesty sync analysis (reference/pesty, MIT)
+
+Purpose: port iCloud sync into Buffer. Produced 2026-08-22 by an analysis subagent.
+
+## Executive summary
+Pesty ships **two mutually exclusive sync mechanisms**:
+
+1. **Direct-download / Homebrew build** (no compiler flag): **iCloud Drive file sync** implemented inside `Sources/Pesty/Store/ClipboardStore.swift`. It relocates the JSON snapshot + `images/` folder to `~/Library/Mobile Documents/com~apple~CloudDocs/Pesty/` and lets the iCloud Drive daemon replicate it; a `DispatchSource` file watcher re-merges `store.json` when it changes externally (last-write/newest-`createdAt`-wins, content-hash dedupe). **No CloudKit, no entitlements, no sandbox** (`packaging/Pesty.entitlements` = app-sandbox false). Only works UNsandboxed. Key code: `ClipboardStore.swift:50-78` (iCloudBase, iCloudAvailable), `:656-678` (`setICloudSync` migrate local<->iCloud), `:698-724` (`mergeExternal`), `:726-744` (`startWatching`). UI entry `AppController.toggleICloudSync()` (`AppController.swift:226-237`). Setting `Settings.iCloudSync` (`Settings.swift:189-191`).
+2. **Mac App Store build** (`swift build -Xswiftc -DMAS`): real **CloudKit** via `CKSyncEngine`, private DB, custom zone `PestyZone`, container `iCloud.com.greycorelabs.pesty`. Entire `Sync/CloudSyncService.swift` is `#if MAS`. Requires `packaging/Pesty-MAS.entitlements`: app-sandbox true, network.client, icloud-services [CloudKit], icloud-container-identifiers, icloud-container-environment Production, aps-environment production, team/application identifiers. Needs paid Apple Developer Program, provisioning profile with iCloud capability, Apple Distribution signing, CloudKit container registered in the developer portal. **A plain swiftc + Developer ID flow without a provisioning profile cannot use CloudKit.**
+
+Buffer today = Pesty's non-MAS configuration (app-sandbox false, no iCloud keys). So:
+- **Recommended for Buffer: iCloud Drive file sync** (option 1). Port effort well under a day, zero account/entitlement work. Weaker guarantees (no push, coarse snapshot merge).
+- CloudKit (option 2) only if the user has/wants a paid developer account and a provisioned, sandboxed build: ~5-8 engineering days + 1-3 elapsed days for portal setup, plus sandboxing would break the unsandboxed file-sync and may affect other features.
+
+## CloudKit design details (for the optional path)
+- `CloudKitSchema.swift`: record types `Clip`, `Pinboard`; `container` string field = "history" or pinboard UUID (membership derived from clips, not stored on Pinboard). Fields: type, text/textAsset (inline until 200,000 bytes then CKAsset), rtf/rtfAsset, image (CKAsset from on-disk PNG), imageHash, fileURLs [String], colorHex, sourceBundleID, sourceAppName, customTitle, createdAt. Record name = item UUID. Temp asset staging `ck-tmp` (`:67-83`), purged on start and after sends.
+- `CloudSyncService.swift`: `start/stop` (`:33-61`), `enable` drops shadow for full reconcile (`:65-69`), `resetAfterAccountChange` never merges two accounts (`:71-82`), `refreshAccountStatus` (`:99-115`), `retainRemoteRecords` so retention-pruned items are not deleted from cloud (`:124-130`), `diffAndEnqueue` shadow-map diff (`:132-155`), `desiredRecords` (`:159-173`), `record(for:)` (`:187-202`), fetched changes -> `store.applyRemote*` (`:218-227`), conflict = **server wins** (`:260-275`), zone recreate (`:279-288`), fingerprints SHA-256 (`:290-321`), state/shadow/system-fields persistence (`:329-377`), `handleEvent` (`:383-448`), `nextRecordZoneChangeBatch` (`:451-459`). Push via `registerForRemoteNotifications` (`AppController.swift:56-60`). Local save posts `.pestyStoreDidSave` (0.4s debounce) to trigger immediate send.
+- Generic, copy-able verbatim: engine lifecycle, account status, state/shadow/system-fields persistence, temp asset staging, delegate skeleton. Needs rewrite: populate/decode for Buffer's `ClipboardItem`, `desiredRecords`, fingerprints, `applyRemote*` on Buffer's store.
+- Not synced in Pesty: settings, per-app exclusion list (deliberately local; re-checked on receive).
+
+## Bonus: Pinboard + drag
+- `Models/Pinboard.swift`: `struct Pinboard { id, name, colorHex, items: [ClipItem] }`, flat, no nesting. Saving a clip to a pinboard **copies it with a new UUID** (content forks from history). `Color(hex:)` / `hexString` helpers (`:19-48`) portable.
+- `Util/ClipDragProvider.swift`: `make(for:) -> NSItemProvider` per type (image PNG lazy from disk, file NSURL, link URL+text, color archived NSColor+hex, richText RTF+text, text). Drag OUT of app only; drag-into-folder is UI drop-target code calling `saveToPinboard`, not in this file.

@@ -79,3 +79,11 @@ fastlane/test_output
 build_test/
 
 *.zip
+# --- fork additions ---
+# reference clones of other projects (have their own .git)
+reference/
+# keep built artifacts under releases/ and dist/ (globally ignored above)
+!releases/**/*.dmg
+!releases/**/*.zip
+!dist/*.dmg
+!dist/*.zip
