@@ -233,7 +233,7 @@ fi
 # Print authority line
 echo ""
 echo "✅ Codesign verification:"
-codesign -dv "${APP_DIR}" 2>&1 | grep "Authority" || echo "  (ad-hoc signature)"
+codesign -dvv "${APP_DIR}" 2>&1 | grep "Authority" || echo "  (ad-hoc signature)"
 
 # Copy to dist if requested
 if [[ "$DIST_FLAG" == true ]]; then
