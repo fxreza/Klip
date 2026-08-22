@@ -76,6 +76,8 @@ let allSuites: [(String, [(String, () throws -> Void)])] = [
     ("LockTests", LockTests.tests),
     ("FileClipTests", FileClipTests.tests),
     ("RichCaptureTests", RichCaptureTests.tests),
+    ("SyncMergeTests", SyncMergeTests.tests),
+    ("CloudDriveSyncTests", CloudDriveSyncTests.tests),
 ]
 
 // MARK: - Runner

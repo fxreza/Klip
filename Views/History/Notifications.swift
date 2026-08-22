@@ -9,4 +9,7 @@ extension Notification.Name {
     static let bufferWindowDidOpen = Notification.Name("bufferWindowDidOpen")
     static let bufferHistoryLimitChanged = Notification.Name("bufferHistoryLimitChanged")
     static let bufferStatusBarVisibilityChanged = Notification.Name("bufferStatusBarVisibilityChanged")
+    /// Posted when any `sync.*` setting changes (Phase 4A); `CloudDriveSync`
+    /// observes it to start/stop watching and to re-read the size cap.
+    static let klipSyncSettingsChanged = Notification.Name("klipSyncSettingsChanged")
 }

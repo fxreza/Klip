@@ -35,6 +35,13 @@ struct FileAttachment: Codable, Equatable {
     /// Total size in bytes of the attachment (all files).
     var byteSize: Int64
 
+    // --- Phase 4A (iCloud Drive sync) ---
+    /// Set when the payload was too large for the sync attachment cap
+    /// (`sync.maxAttachmentMB`) and was therefore left local-only. The clip
+    /// itself still syncs; only its bytes stay on this Mac.
+    var syncSkippedLarge: Bool = false
+    // --- end Phase 4A ---
+
     /// True when the bytes were left in place rather than copied into storage.
     var isReference: Bool { storedRelativePath == nil }
 
@@ -45,7 +52,8 @@ struct FileAttachment: Codable, Equatable {
         referencePath: String? = nil,
         bookmark: Data? = nil,
         uti: String? = nil,
-        byteSize: Int64 = 0
+        byteSize: Int64 = 0,
+        syncSkippedLarge: Bool = false
     ) {
         self.originalName = originalName
         self.additionalNames = additionalNames
@@ -54,10 +62,12 @@ struct FileAttachment: Codable, Equatable {
         self.bookmark = bookmark
         self.uti = uti
         self.byteSize = byteSize
+        self.syncSkippedLarge = syncSkippedLarge
     }
 
     enum CodingKeys: String, CodingKey {
         case originalName, additionalNames, storedRelativePath, referencePath, bookmark, uti, byteSize
+        case syncSkippedLarge
     }
 
     init(from decoder: Decoder) throws {
@@ -69,6 +79,7 @@ struct FileAttachment: Codable, Equatable {
         self.bookmark = try container.decodeIfPresent(Data.self, forKey: .bookmark)
         self.uti = try container.decodeIfPresent(String.self, forKey: .uti)
         self.byteSize = try container.decodeIfPresent(Int64.self, forKey: .byteSize) ?? 0
+        self.syncSkippedLarge = try container.decodeIfPresent(Bool.self, forKey: .syncSkippedLarge) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -80,5 +91,6 @@ struct FileAttachment: Codable, Equatable {
         try container.encodeIfPresent(bookmark, forKey: .bookmark)
         try container.encodeIfPresent(uti, forKey: .uti)
         try container.encode(byteSize, forKey: .byteSize)
+        try container.encode(syncSkippedLarge, forKey: .syncSkippedLarge)
     }
 }

@@ -79,6 +79,9 @@
 		5F4C640276CE69AF0918C862 /* HistoryViewModel+Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06B8D3DFF6742AF6DD334273 /* HistoryViewModel+Shortcuts.swift */; };
 		F98CC5EA3333E08542C07B53 /* PasteboardFlavors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08370ACDDE3F89166CCA7642 /* PasteboardFlavors.swift */; };
 		F46E13F8FD2BE823669ED78B /* HistoryViewModel+Paste.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC3A99ECEC67DA2B442C6562 /* HistoryViewModel+Paste.swift */; };
+		D6556DF7C0FED443DBBFE3BF /* CloudDriveSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = B71BAB98875A972B309F3867 /* CloudDriveSync.swift */; };
+		1606CE65A78E28B45FFF3DC7 /* SyncMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6DE8D7057DF5453F95F8D41 /* SyncMerge.swift */; };
+		32429272B49AE643B8075190 /* SyncTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5D76B3E376400DA5A05EEF /* SyncTab.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -168,6 +171,9 @@
 		06B8D3DFF6742AF6DD334273 /* HistoryViewModel+Shortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HistoryViewModel+Shortcuts.swift"; sourceTree = "<group>"; };
 		08370ACDDE3F89166CCA7642 /* PasteboardFlavors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardFlavors.swift; sourceTree = "<group>"; };
 		EC3A99ECEC67DA2B442C6562 /* HistoryViewModel+Paste.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HistoryViewModel+Paste.swift"; sourceTree = "<group>"; };
+		B71BAB98875A972B309F3867 /* CloudDriveSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveSync.swift; sourceTree = "<group>"; };
+		F6DE8D7057DF5453F95F8D41 /* SyncMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncMerge.swift; sourceTree = "<group>"; };
+		6D5D76B3E376400DA5A05EEF /* SyncTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncTab.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -275,6 +281,8 @@
 				CA00D147AE2F2208BD020E46 /* PermissionsState.swift */,
 				21E1603736DA17D63541CE68 /* ShortcutManager.swift */,
 				08370ACDDE3F89166CCA7642 /* PasteboardFlavors.swift */,
+				B71BAB98875A972B309F3867 /* CloudDriveSync.swift */,
+				F6DE8D7057DF5453F95F8D41 /* SyncMerge.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -360,6 +368,7 @@
 			children = (
 				444A289530F1E70F120E9315 /* HotkeyRecorder.swift */,
 				35C6097CD82BD74B33E36315 /* ShortcutsTab.swift */,
+				6D5D76B3E376400DA5A05EEF /* SyncTab.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -541,6 +550,9 @@
 				5F4C640276CE69AF0918C862 /* HistoryViewModel+Shortcuts.swift in Sources */,
 				F98CC5EA3333E08542C07B53 /* PasteboardFlavors.swift in Sources */,
 				F46E13F8FD2BE823669ED78B /* HistoryViewModel+Paste.swift in Sources */,
+				D6556DF7C0FED443DBBFE3BF /* CloudDriveSync.swift in Sources */,
+				1606CE65A78E28B45FFF3DC7 /* SyncMerge.swift in Sources */,
+				32429272B49AE643B8075190 /* SyncTab.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

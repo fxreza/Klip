@@ -12,15 +12,23 @@ struct Folder: Identifiable, Codable, Equatable {
     /// Position in the sidebar; lower sorts first. Duplicates are tolerated.
     var sortIndex: Int
 
-    init(id: UUID = UUID(), name: String, createdAt: Date = Date(), sortIndex: Int = 0) {
+    // --- Phase 4A (iCloud Drive sync) ---
+    /// Last local change to this folder (rename, reorder). Seeded from
+    /// `createdAt` for folders written before sync existed; the sync merge
+    /// keeps the newest record for a given `id`.
+    var updatedAt: Date
+    // --- end Phase 4A ---
+
+    init(id: UUID = UUID(), name: String, createdAt: Date = Date(), sortIndex: Int = 0, updatedAt: Date? = nil) {
         self.id = id
         self.name = name
         self.createdAt = createdAt
         self.sortIndex = sortIndex
+        self.updatedAt = updatedAt ?? createdAt
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, createdAt, sortIndex
+        case id, name, createdAt, sortIndex, updatedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -29,5 +37,6 @@ struct Folder: Identifiable, Codable, Equatable {
         self.name = try container.decode(String.self, forKey: .name)
         self.createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         self.sortIndex = try container.decodeIfPresent(Int.self, forKey: .sortIndex) ?? 0
+        self.updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? self.createdAt
     }
 }

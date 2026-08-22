@@ -20,6 +20,8 @@ struct SettingsView: View {
                     .tabItem { Label("Appearance", systemImage: "paintbrush") }
                 ShortcutsTab()
                     .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+                SyncTab()
+                    .tabItem { Label("Sync", systemImage: "icloud") }
                 PermissionsView()
                     .tabItem { Label("Permissions", systemImage: "lock.shield") }
             }
