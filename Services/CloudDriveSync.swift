@@ -136,6 +136,10 @@ final class CloudDriveSync: ObservableObject {
     /// "present" can never go stale within a run. `ioQueue` only.
     private var knownCloudAssets: Set<String> = []
 
+    /// Serialises `performPush` (5A-16). `pushSynchronously(budget:)` uses the
+    /// bounded `lock(before:)` so quitting can never wait on a slow cycle.
+    private let pushLock = NSLock()
+
     private var pushDebounce: DispatchWorkItem?
     private var pullDebounce: DispatchWorkItem?
     private var watcher: DispatchSourceFileSystemObject?
@@ -443,16 +447,40 @@ final class CloudDriveSync: ObservableObject {
 
     /// Writes this device's three files and copies any asset the cloud does not
     /// have yet. Safe to call from any thread; store access hops to main.
+    ///
+    /// `budget` bounds the whole call (used by `applicationWillTerminate`):
+    /// once it passes, remaining attachment copies are left for the next
+    /// launch rather than blocking quit — `copyWithTimeout`'s 20 s *per file*
+    /// could otherwise hold the main thread for minutes (5A-16).
+    ///
+    /// 4B #10: returns immediately when sync is off or iCloud Drive is not
+    /// there. It used to call `ensureCloudDirectories()` unconditionally, which
+    /// recreated the whole `Klip/` tree — and, on a Mac with iCloud Drive
+    /// switched off, the container path itself — at quit time.
     @discardableResult
-    func pushSynchronously() -> Bool {
+    func pushSynchronously(budget: TimeInterval? = nil) -> Bool {
+        guard isEnabled, isAvailable, store != nil else { return false }
+        let deadline = budget.map { Date().addingTimeInterval($0) }
         ensureCloudDirectories()
-        return performPush()
+        return performPush(deadline: deadline)
     }
 
     @discardableResult
-    private func performPush() -> Bool {
+    private func performPush(deadline: Date? = nil) -> Bool {
         guard let store = store, let deviceDir = ownDeviceDir else { return false }
         guard isAvailable else { return false }
+
+        // Serialises pushes so two cycles can never write one device file — or
+        // mutate `knownCloudAssets` — at the same time (5A-16). A caller with a
+        // deadline gives up rather than queueing behind an in-flight cycle, and
+        // a main-thread caller never waits unboundedly: an in-flight `ioQueue`
+        // push can be parked in `onMainSync`, which would otherwise deadlock.
+        let lockDeadline = deadline ?? (Thread.isMainThread ? Date().addingTimeInterval(5) : Date.distantFuture)
+        guard pushLock.lock(before: lockDeadline) else {
+            report("Skipped the quit-time push: another sync cycle is still running.")
+            return false
+        }
+        defer { pushLock.unlock() }
 
         let now = Date()
         let snapshot: (items: [ClipboardItem], folders: [Folder]) = onMainSync {
@@ -469,7 +497,7 @@ final class CloudDriveSync: ObservableObject {
 
         // Assets first: an item must never be visible on another Mac before the
         // bytes it points at are there.
-        let skipped = pushAssets(for: snapshot.items)
+        let skipped = pushAssets(for: snapshot.items, deadline: deadline)
         if !skipped.isEmpty {
             let ids = skipped
             onMain { store.markSyncSkippedLarge(ids: ids) }
@@ -517,10 +545,11 @@ final class CloudDriveSync: ObservableObject {
 
     /// Copies every asset that is not in the cloud yet. Returns the ids whose
     /// file attachment was skipped for being over the size cap.
-    private func pushAssets(for items: [ClipboardItem]) -> Set<UUID> {
+    private func pushAssets(for items: [ClipboardItem], deadline: Date? = nil) -> Set<UUID> {
         guard let store = store else { return [] }
         var skipped: Set<UUID> = []
         let cap = maxAttachmentBytes
+        var abandoned = 0
 
         for item in items {
             for asset in assets(for: item, store: store) {
@@ -534,13 +563,24 @@ final class CloudDriveSync: ObservableObject {
                     knownCloudAssets.insert(asset.cloud.path)
                     continue
                 }
+                // 5A-16: out of budget (quit time). The metadata write below
+                // still happens; these assets go up on the next launch.
+                let remaining = deadline.map { $0.timeIntervalSinceNow }
+                if let remaining = remaining, remaining <= 0 {
+                    abandoned += 1
+                    continue
+                }
                 try? createDirectory(asset.cloud.deletingLastPathComponent())
-                if copyWithTimeout(from: asset.local, to: asset.cloud) {
+                let timeout = min(Self.fileTimeout, remaining ?? Self.fileTimeout)
+                if copyWithTimeout(from: asset.local, to: asset.cloud, timeout: timeout) {
                     knownCloudAssets.insert(asset.cloud.path)
                 } else {
                     report("Timed out copying \(asset.local.lastPathComponent) to iCloud Drive; will retry.")
                 }
             }
+        }
+        if abandoned > 0 {
+            print("[Klip] Sync: quit-time budget spent; \(abandoned) attachment(s) will sync on the next launch")
         }
         return skipped
     }
@@ -551,6 +591,9 @@ final class CloudDriveSync: ObservableObject {
     /// new, and applies the result. Safe to call from any thread.
     @discardableResult
     func pullSynchronously() -> Bool {
+        // 4B #10: same gate as `pushSynchronously` — never touch (or create)
+        // the cloud tree when sync is off or iCloud Drive is unavailable.
+        guard isEnabled, isAvailable, store != nil else { return false }
         ensureCloudDirectories()
         return performPull()
     }
@@ -714,18 +757,24 @@ final class CloudDriveSync: ObservableObject {
         var lastPush: Date
     }
 
-    struct HistoryFile: Codable {
+    /// Every cloud file carries the schema version it was written with, and
+    /// every read enforces it (4B #7).
+    protocol CloudFile: Decodable {
+        var version: Int { get }
+    }
+
+    struct HistoryFile: Codable, CloudFile {
         var version: Int
         var device: DeviceStamp
         var items: [ClipboardItem]
     }
 
-    struct FoldersFile: Codable {
+    struct FoldersFile: Codable, CloudFile {
         var version: Int
         var folders: [Folder]
     }
 
-    struct TombstonesFile: Codable {
+    struct TombstonesFile: Codable, CloudFile {
         var version: Int
         var deleted: [SyncTombstone]
         var deletedFolders: [SyncTombstone]
@@ -738,23 +787,43 @@ final class CloudDriveSync: ObservableObject {
     /// Reads and decodes a cloud file. A missing file is `nil` without noise; a
     /// corrupt one is `nil` **with** a warning and is otherwise ignored, so one
     /// bad file never takes sync down.
-    private func decodeCloudFile<T: Decodable>(_ url: URL, label: String) -> T? {
+    private func decodeCloudFile<T: CloudFile>(_ url: URL, label: String) -> T? {
         guard cloudFileExists(url) else { return nil }
         guard let data = readCoordinated(url) else {
             report("Could not read \(label) from iCloud Drive; will retry.")
             return nil
         }
         do {
-            return try JSONDecoder().decode(T.self, from: data)
+            let decoded = try JSONDecoder().decode(T.self, from: data)
+            // 4B #7: a snapshot written by a newer Klip is ignored rather than
+            // half-decoded. Logged once per run so a Mac that upgraded first
+            // does not spam the console on every poll.
+            guard decoded.version <= Self.schemaVersion else {
+                if !didWarnAboutNewerSchema {
+                    didWarnAboutNewerSchema = true
+                    report("Ignoring \(label): it was written by a newer version of Klip (schema v\(decoded.version)). Update Klip on this Mac to sync it.")
+                }
+                return nil
+            }
+            return decoded
         } catch {
             report("Ignoring unreadable \(label) in iCloud Drive: \(error.localizedDescription)")
             return nil
         }
     }
 
+    /// One "a newer Klip wrote this" warning per run.
+    private var didWarnAboutNewerSchema = false
+
     // MARK: - Coordinated file I/O
 
+    /// Creates `Klip/` and its subdirectories **inside an existing** iCloud
+    /// Drive container. Never creates the container itself (4B #10): when
+    /// `com~apple~CloudDocs` is not there, iCloud Drive is off and a
+    /// `withIntermediateDirectories` create would silently manufacture a
+    /// look-alike local folder that is not synced by anything.
     private func ensureCloudDirectories() {
+        guard isAvailable else { return }
         guard let klipRoot = klipRoot, let devicesRoot = devicesRoot, let ownDeviceDir = ownDeviceDir else { return }
         try? createDirectory(klipRoot)
         try? createDirectory(devicesRoot)
@@ -839,7 +908,8 @@ final class CloudDriveSync: ObservableObject {
     /// finished in `fileTimeout` is abandoned and retried on the next cycle —
     /// reading a file iCloud has not materialised can otherwise block for
     /// minutes, and this queue must stay responsive.
-    private func copyWithTimeout(from source: URL, to destination: URL) -> Bool {
+    private func copyWithTimeout(from source: URL, to destination: URL, timeout: TimeInterval? = nil) -> Bool {
+        let limit = timeout ?? Self.fileTimeout
         let semaphore = DispatchSemaphore(value: 0)
         var succeeded = false
         copyQueue.async {
@@ -863,7 +933,7 @@ final class CloudDriveSync: ObservableObject {
             }
             semaphore.signal()
         }
-        if semaphore.wait(timeout: .now() + Self.fileTimeout) == .timedOut {
+        if semaphore.wait(timeout: .now() + limit) == .timedOut {
             return false
         }
         return succeeded

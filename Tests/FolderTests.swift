@@ -222,6 +222,10 @@ enum FolderTests {
             let work = store.createFolder(name: "Work")
             _ = store.createFolder(name: "Home")
 
+            // `saveFolders()` writes asynchronously on `saveQueue` (5A-24), so
+            // drain the queue before reading the bytes back.
+            store.flushPendingSave()
+
             let url = dir.appendingPathComponent("folders.json")
             try expect(FileManager.default.fileExists(atPath: url.path), "folders.json should be written")
 

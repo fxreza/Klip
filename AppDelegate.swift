@@ -121,9 +121,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Phase 4A: stop watching, then get this session's clips into iCloud
         // Drive before the process goes away (the 2 s push debounce may not
         // have fired yet).
+        //
+        // 5A-16: bounded to 3 s in total. `pushSynchronously` runs on the main
+        // thread and its per-file copy timeout is 20 s, so an unbounded quit
+        // push could beachball for minutes (and be SIGKILLed anyway) when
+        // iCloud has not materialised the assets. Anything that does not fit
+        // in the budget is left for the next launch — the metadata write still
+        // happens, and assets are write-once so the retry is free.
         if CloudDriveSync.shared.isActive {
             CloudDriveSync.shared.stop()
-            CloudDriveSync.shared.pushSynchronously()
+            CloudDriveSync.shared.pushSynchronously(budget: 3.0)
         }
         print("[AppDelegate] applicationWillTerminate — call stack:")
         Thread.callStackSymbols.forEach { print($0) }

@@ -39,6 +39,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Invalid sort predicate in history list (was causing undefined sort order); replaced with stable pinned-first partition
 - Decode failures silently discard history; now renamed to `history.corrupt-<date>.json` for recovery
 - Settings panel had multiple sources of truth; consolidated into `SettingsManager`
+- **Copying froze the app when the history was over its limit** (5A-02) - eviction ids are now batched into a single `sync-ignore.json` write, and a history that is already over the limit is trimmed once at launch instead of inside the next copy. One `add()` on a 10,000-item store over cap: 162 s → 1.3 ms
+- **Every copy rewrote `sync-ignore.json` even with sync switched off** (5A-03) - the bookkeeping is skipped entirely when iCloud sync has never been enabled, and debounced when it has. Copy at the cap: 24 ms → 0.4 ms with 9,240 entries, 0.2 ms with sync off
+- **One unreadable record lost the entire history** (5A-05) - `history.json` and `folders.json` now decode record by record: bad records are skipped and logged, a copy of the raw file is kept as `history.corrupt-<date>.json`, and every good clip (including every locked one) still loads
+- **A delete on another Mac could remove a locked clip** (5A-06 / 4B #3) - a remote tombstone never deletes a locked record; the locked copy is kept and republished, an older tombstone stays inert after an unlock, and a delete made after an unlock still propagates. `applyRemoteMerge` re-checks this locally as well
+- **Re-copying the same files left a full second copy on disk** (5A-08) - the capture fingerprint is computed before anything is copied, and unreferenced assets under `images/`, `texts/`, `files/` and `flavors/` are swept once per launch
+- **Copying two files with the same name kept only the first** (5A-09) - duplicate basenames are uniquified (`report (2).pdf`) instead of failing the copy and degrading the clip to a reference
+- **A fast burst of changes could postpone saving indefinitely** (5A-13) - the 300 ms save debounce now also has a 2 s maximum delay, so an unexpected quit can lose at most the last two seconds
+- **Quitting could hang for minutes while iCloud caught up** (5A-16) - the quit-time push is bounded to 3 s in total (attachments that do not fit sync on the next launch) and can no longer race an in-flight sync cycle
+- **The same file synced from two Macs stayed two clips forever** (5A-17) - cross-device file dedupe now keys on the file names and size instead of the per-device storage path
+- **A merge could delete a file that a surviving clip still pointed at** (5A-18) - assets referenced by a surviving (or content-identical) clip are never deleted while applying a pull
+- **Folder changes could stall the window** (5A-24) - `folders.json` is written asynchronously instead of blocking on the history write queue
+- Large text whose backing file went missing showed an empty preview pane; it now falls back to the inline preview (5A-28)
+- A repeat file capture compared its fingerprint across threads (5A-29); the comparison value is now captured on the main thread
+- An oversized pasteboard was fully materialised in memory before being rejected; capture now stops at the 16 MB cap (5A-31)
+- **Quitting with iCloud Drive unavailable recreated the cloud folders** (4B #10) - `pushSynchronously()`/`pullSynchronously()` return immediately when sync is off or the container is missing, and `Klip/` is only ever created inside an existing iCloud Drive container
+- Cloud snapshots written by a newer version of Klip are now ignored with one clear message instead of being decoded on a best-effort basis (4B #7)
 
 ### Internal
 
@@ -46,7 +62,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Model Enhancement** - Added `isLocked`, `folderID`, `kind: ContentKind`, `FileAttachment` to `ClipboardItem`; added `Folder` model; v2 schema with migration support
 - **Atomic Storage** - History/folders/settings writes now atomic (`.atomic` flag) and debounced (300ms); survives interruptions
 - **Build System** - Canonical build via `scripts/build_local.sh` (ad-hoc) and `build_dmg.sh` (notarized if .env present); Xcode project synced automatically via `scripts/sync_xcodeproj.py`; test suite with swiftc-based runner (no XCTest dependency)
-- **Test Coverage** - 215+ tests covering models, store, UI state, sync, permissions, shortcuts; offscreen rendering harnesses for view testing
+- **Test Coverage** - 240+ tests covering models, store, UI state, sync, permissions, shortcuts; offscreen rendering harnesses for view testing
 
 ---
 

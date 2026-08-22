@@ -60,7 +60,8 @@ struct SyncDeviceSnapshot: Equatable {
 ///     **whole-record**; `tags` are the union across all copies.
 ///  3. A tombstone newer than the surviving record's `updatedAt` deletes it.
 ///     An older tombstone loses — the item was edited (or re-created) after the
-///     delete, so the edit wins.
+///     delete, so the edit wins. A **locked** surviving record is never deleted
+///     by a tombstone at all: unlock first, then delete (5A-06 / 4B #3).
 ///  4. Ids in this device's sync-ignore list (evicted here) are dropped when
 ///     they only exist remotely, so a cap-evicted clip never resurrects.
 ///  5. Content dedupe: a remote item whose content matches a local item's
@@ -203,8 +204,17 @@ enum SyncMerge {
             // alone — tagging on two Macs at once must not lose either tag.
             winner.tags = unionTags(of: versions.map { $0.item }, startingWith: winner.tags)
 
-            // 3. A newer tombstone deletes; an older one is outranked by the edit.
-            if let tomb = itemTombstones[id], tomb.deletedAt > winner.updatedAt { continue }
+            // 3. A newer tombstone deletes; an older one is outranked by the
+            //    edit — **unless the surviving record is locked** (5A-06,
+            //    4B #3). "A locked item can never be deleted or evicted" is
+            //    enforced locally by `ClipboardStore.delete`; a delete that
+            //    arrived from another Mac must not be able to go around it.
+            //    The locked copy stays and is republished on the next push, so
+            //    the deleting Mac gets it back. Unlocking bumps `updatedAt`
+            //    past the old tombstone, so that tombstone stays inert; a
+            //    delete made *after* the unlock carries a newer `deletedAt` and
+            //    removes the record as usual.
+            if let tomb = itemTombstones[id], tomb.deletedAt > winner.updatedAt, !winner.isLocked { continue }
 
             let origins = Set(versions.map { $0.origin })
 
@@ -288,9 +298,14 @@ enum SyncMerge {
     /// caught by `sameContent` before anything is folded.
     static func dedupeKey(_ item: ClipboardItem) -> String? {
         if let attachment = item.fileAttachment {
-            let name = attachment.storedRelativePath ?? attachment.referencePath ?? attachment.originalName
-            guard !name.isEmpty else { return nil }
-            return "file:\(item.contentHash):\(attachment.byteSize)"
+            // 5A-17: keyed on what `sameContent` actually compares. It used to
+            // be `contentHash`, which for a copied-in attachment hashes
+            // `files/<item-uuid>` — unique by construction, so the same file
+            // copied on two Macs never folded and every synced file
+            // accumulated one record (and one payload) per device.
+            guard !attachment.originalName.isEmpty else { return nil }
+            let names = ([attachment.originalName] + attachment.additionalNames).joined(separator: "\u{1}")
+            return "file:\(names):\(attachment.byteSize)"
         }
         switch item.type {
         case .text:
@@ -300,6 +315,9 @@ enum SyncMerge {
             guard let filename = item.imageFilename else { return nil }
             return "img:\(filename)"
         case .file:
+            // Unreachable in practice: a `.file` item always carries an
+            // attachment and is keyed above. Kept as the defensive answer for
+            // a malformed record — never dedupe something with no content.
             return nil
         }
     }
