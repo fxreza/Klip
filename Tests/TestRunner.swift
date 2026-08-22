@@ -64,6 +64,7 @@ func withTempDir<R>(_ body: (URL) throws -> R) rethrows -> R {
 
 let allSuites: [(String, [(String, () throws -> Void)])] = [
     ("ClipboardItemTests", ClipboardItemTests.tests),
+    ("FilterStateTests", FilterStateTests.tests),
     // Store tests: Phase 1B
 ]
 
