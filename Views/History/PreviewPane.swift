@@ -304,11 +304,66 @@ struct PreviewPane: View {
         }
     }
 
-    /// Placeholder shown for `.file` items. Phase 3F replaces this with a
-    /// `QLPreviewView` / `QLThumbnailGenerator` preview.
+    /// `.file` item preview: a live `QLPreviewView` for the first file when it
+    /// exists on disk (pdf, csv, txt, code, images and office docs all
+    /// preview natively), else a fallback card — icon, name(s), size, a
+    /// "Reference" badge for files that were only referenced (not copied in),
+    /// and a "Reveal in Finder" button.
+    @ViewBuilder
     private func fileBody(_ item: ClipboardItem) -> some View {
         let attachment = item.fileAttachment
-        return VStack(spacing: 10) {
+        let fileURL = store.fileURLs(for: item).first
+        let isMissing = store.fileIsMissing(item)
+
+        VStack(alignment: .leading, spacing: 10) {
+            if let fileURL {
+                FileQuickLookView(url: fileURL)
+                    .frame(minHeight: 220, maxHeight: 320)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.hairline, lineWidth: 1))
+            } else {
+                fileFallbackCard(item, attachment: attachment, isMissing: isMissing)
+            }
+
+            HStack(spacing: 8) {
+                if attachment?.isReference == true {
+                    Text("Reference — original file")
+                        .font(.klip(.badge))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Theme.chipInactive))
+                }
+                if isMissing {
+                    Text("File not found")
+                        .font(.klip(.badge))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Theme.destructive)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Theme.destructive.opacity(0.12)))
+                }
+
+                Spacer(minLength: 0)
+
+                if let fileURL {
+                    Button(action: { NSWorkspace.shared.activateFileViewerSelecting([fileURL]) }) {
+                        Label("Reveal in Finder", systemImage: "folder")
+                            .font(.klip(.caption))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func fileFallbackCard(_ item: ClipboardItem, attachment: FileAttachment?, isMissing: Bool) -> some View {
+        VStack(spacing: 10) {
             Group {
                 if let icon = item.fileIcon(store: store) {
                     Image(nsImage: icon)
@@ -322,6 +377,7 @@ struct PreviewPane: View {
                 }
             }
             .frame(width: 72, height: 72)
+            .opacity(isMissing ? 0.5 : 1)
 
             Text(attachment?.originalName ?? "File")
                 .font(.klip(.preview))

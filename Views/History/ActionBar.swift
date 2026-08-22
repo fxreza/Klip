@@ -143,7 +143,7 @@ struct ActionBar: View {
             items.append((shortcuts.displayString(for: .edit), "edit"))
         }
         if viewModel.selectedItem?.type == .image {
-            items.append((shortcuts.displayString(for: .saveToDisk), "save"))
+            items.append((shortcuts.displayString(for: .saveToDisk), "save to disk"))
         }
         return items
     }

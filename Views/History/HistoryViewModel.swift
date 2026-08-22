@@ -591,6 +591,9 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func copy(_ item: ClipboardItem) {
+        if store.fileIsMissing(item) {
+            showToast("Some files are missing from disk")
+        }
         onCopyToClipboard(item)
     }
 
@@ -690,48 +693,6 @@ final class HistoryViewModel: ObservableObject {
         activeTagFilter = tag
         searchText = ""
         showTagAutocomplete = false
-    }
-
-    // MARK: - Download all images
-
-    func downloadAllImages() {
-        let openPanel = NSOpenPanel()
-        openPanel.canChooseDirectories = true
-        openPanel.canChooseFiles = false
-        openPanel.canCreateDirectories = true
-        openPanel.title = "Select Folder to Save Images"
-        openPanel.prompt = "Select"
-
-        // Use the newer sheet modal approach
-        if let window = NSApplication.shared.windows.first {
-            openPanel.beginSheetModal(for: window) { response in
-                if response == .OK, let folderURL = openPanel.url {
-                    // Read main-actor state before hopping off the main thread.
-                    let imageItems = self.selectedItems.filter { $0.type == .image }
-                    let store = self.store
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        for (index, item) in imageItems.enumerated() {
-                            if let image = store.image(for: item) {
-                                let paddedNumber = String(format: "%04d", index + 1)
-                                let fileName = "image-\(paddedNumber).png"
-                                let fileURL = folderURL.appendingPathComponent(fileName)
-
-                                if let tiffData = image.tiffRepresentation,
-                                   let bitmapImage = NSBitmapImageRep(data: tiffData),
-                                   let pngData = bitmapImage.representation(using: .png, properties: [:]) {
-                                    do {
-                                        try pngData.write(to: fileURL)
-                                        print("✅ Saved image to \(fileURL.lastPathComponent)")
-                                    } catch {
-                                        print("❌ Error saving image to \(fileURL): \(error)")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     // MARK: - Preview loading
@@ -899,9 +860,12 @@ final class HistoryViewModel: ObservableObject {
         toggleBookmarkOnSelection()
     }
 
+    /// ⌘S — "Save to Disk". Generalized in Phase 3F to any selected item
+    /// (image/text/file), not just images; the name stays `keySaveImage` so
+    /// `GlobalKeyMonitor`'s existing wiring doesn't need to change.
     func keySaveImage() {
         guard !isEditing else { return }
-        saveSelectedImage()
+        saveSelectedToDisk()
     }
 
     func keyAddTag() {

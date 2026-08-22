@@ -1,6 +1,8 @@
 import Foundation
 import AppKit
 import Combine
+import CryptoKit
+import UniformTypeIdentifiers
 
 /// Manages persistent storage of clipboard history
 class ClipboardStore: ObservableObject {
@@ -47,12 +49,17 @@ class ClipboardStore: ObservableObject {
 
     // MARK: - Locations
 
-    private var storageDirectory: URL {
+    private var storageDirectory: URL { Self.storageDirectoryURL }
+
+    /// Same computation as the private `storageDirectory`, exposed as a
+    /// `static` so Settings' "Open Storage Folder in Finder" button doesn't
+    /// need a `ClipboardStore` instance to find it.
+    static var storageDirectoryURL: URL {
         if let override = ProcessInfo.processInfo.environment["KLIP_DATA_DIR"], !override.isEmpty {
             let expanded = (override as NSString).expandingTildeInPath
             return URL(fileURLWithPath: expanded, isDirectory: true)
         }
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("Klip", isDirectory: true)
     }
 
@@ -673,20 +680,205 @@ class ClipboardStore: ObservableObject {
 
     /// Absolute on-disk URLs for a `.file` item's payload.
     ///
-    /// Provisional: copied-in files resolve under the storage directory,
-    /// reference attachments use the original path. Phase 3F owns the final
-    /// version (security-scoped bookmark resolution, multi-file copies with
-    /// their own stored paths); until then this is what the row badge, the
-    /// preview pane and `PasteController` use.
+    /// Copied-in attachments resolve every name (`originalName` +
+    /// `additionalNames`) under `files/<uuid>/`; reference attachments resolve
+    /// the security-scoped bookmark first (it survives the original file being
+    /// moved, as long as it's still on the same volume) and fall back to the
+    /// plain `referencePath`. Anything that no longer exists on disk is
+    /// silently skipped rather than returned as a dangling URL — callers that
+    /// care whether something was dropped should check `fileIsMissing(_:)`.
     func fileURLs(for item: ClipboardItem) -> [URL] {
         guard let attachment = item.fileAttachment else { return [] }
+
         if let relative = attachment.storedRelativePath {
-            return [storageDirectory.appendingPathComponent(relative)]
+            let dir = storageDirectory.appendingPathComponent(relative, isDirectory: true)
+            let names = [attachment.originalName] + attachment.additionalNames
+            return names.compactMap { name in
+                let url = dir.appendingPathComponent(name)
+                return fileManager.fileExists(atPath: url.path) ? url : nil
+            }
         }
-        if let path = attachment.referencePath {
+
+        if let bookmark = attachment.bookmark {
+            var isStale = false
+            if let resolved = try? URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale),
+               fileManager.fileExists(atPath: resolved.path) {
+                return [resolved]
+            }
+        }
+
+        if let path = attachment.referencePath, fileManager.fileExists(atPath: path) {
             return [URL(fileURLWithPath: path)]
         }
+
         return []
+    }
+
+    /// True when a `.file` item's payload can no longer be found on disk —
+    /// the reference was moved/deleted, or a copied-in file was removed from
+    /// storage out of band. Callers use this to show a "file is missing"
+    /// notice instead of silently doing nothing on paste/save.
+    func fileIsMissing(_ item: ClipboardItem) -> Bool {
+        guard item.fileAttachment != nil else { return false }
+        return fileURLs(for: item).isEmpty
+    }
+
+    // MARK: - File capture (Phase 3F)
+
+    /// Everything needed to decide copy-vs-reference and detect a repeat
+    /// capture of the same files.
+    private struct FileCaptureEntry {
+        let url: URL
+        let size: Int64
+        let modificationDate: Date
+        let isDirectory: Bool
+    }
+
+    /// Build a `.file` clipboard item from one or more file-system URLs found
+    /// on the pasteboard (a Finder copy of any type/count — the single-image
+    /// case is intercepted earlier by `ClipboardWatcher` and becomes an
+    /// `.image` item instead).
+    ///
+    /// Copy policy: when the total size is within `SettingsManager.fileCopyCapMB`
+    /// (`0` = unlimited) every file is copied into `files/<uuid>/<name>`,
+    /// preserving original names (directories copied recursively). Above the
+    /// cap — or if the copy fails for any reason — only a reference is kept:
+    /// the first file's path plus a bookmark, so it survives a move as long as
+    /// it stays on the same volume.
+    ///
+    /// Returns the item together with a stable fingerprint (SHA-256 of every
+    /// path + size + modification date) so the caller can dedupe a repeat
+    /// capture of the same files, the same way text/image content is deduped.
+    func makeFileItem(from urls: [URL], sourceApp: String?) -> (item: ClipboardItem, fingerprint: String)? {
+        guard !urls.isEmpty else { return nil }
+
+        var entries: [FileCaptureEntry] = []
+        var totalSize: Int64 = 0
+        for url in urls {
+            var isDir: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDir) else { continue }
+            let size = isDir.boolValue ? directorySize(url) : fileSize(url)
+            let mtime = modificationDate(url)
+            entries.append(FileCaptureEntry(url: url, size: size, modificationDate: mtime, isDirectory: isDir.boolValue))
+            totalSize += size
+        }
+        guard !entries.isEmpty else { return nil }
+
+        let fingerprint = Self.fingerprint(for: entries.map { ($0.url.path, $0.size, $0.modificationDate) })
+
+        let names = entries.map { $0.url.lastPathComponent }
+        let firstName = names[0]
+        let restNames = Array(names.dropFirst())
+        let ext = (firstName as NSString).pathExtension
+        let uti = ext.isEmpty ? nil : UTType(filenameExtension: ext)?.identifier
+
+        let capMB = SettingsManager.shared.fileCopyCapMB
+        let withinCap = capMB <= 0 ? true : totalSize <= Int64(capMB) * 1_048_576
+
+        // Generated up front and threaded through to `copyIntoStorage` so the
+        // `files/<uuid>/` directory name matches the item's own `id` — the
+        // row badge, preview pane and `deleteAssociatedFiles` all key off
+        // `item.id`, not a separately-generated one.
+        let itemID = UUID()
+
+        if withinCap, let attachment = copyIntoStorage(id: itemID, entries: entries, firstName: firstName, restNames: restNames, uti: uti, totalSize: totalSize) {
+            let item = ClipboardItem(id: itemID, type: .file, sourceApp: sourceApp, kind: .file, fileAttachment: attachment)
+            return (item, fingerprint)
+        }
+
+        // Above the cap, or the copy failed: keep only a reference to the
+        // first file (the model has room for one reference path).
+        guard let primary = entries.first else { return nil }
+        let bookmark = try? primary.url.bookmarkData()
+        let attachment = FileAttachment(
+            originalName: firstName,
+            additionalNames: restNames,
+            storedRelativePath: nil,
+            referencePath: primary.url.path,
+            bookmark: bookmark,
+            uti: uti,
+            byteSize: totalSize
+        )
+        let item = ClipboardItem(id: itemID, type: .file, sourceApp: sourceApp, kind: .file, fileAttachment: attachment)
+        return (item, fingerprint)
+    }
+
+    /// Copies every entry into a fresh `files/<id>/` directory (named after
+    /// the item's own id, passed in by the caller), preserving original
+    /// names. Returns `nil` (leaving nothing behind) if any copy fails, so
+    /// the caller can fall back to a reference instead of leaving a
+    /// half-copied directory around.
+    private func copyIntoStorage(
+        id uuid: UUID,
+        entries: [FileCaptureEntry],
+        firstName: String,
+        restNames: [String],
+        uti: String?,
+        totalSize: Int64
+    ) -> FileAttachment? {
+        let destDir = filesDirectory.appendingPathComponent(uuid.uuidString, isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: destDir, withIntermediateDirectories: true)
+            for entry in entries {
+                let dest = destDir.appendingPathComponent(entry.url.lastPathComponent)
+                try fileManager.copyItem(at: entry.url, to: dest)
+            }
+        } catch {
+            print("[Buffer] Failed to copy files into storage, falling back to a reference: \(error)")
+            try? fileManager.removeItem(at: destDir)
+            return nil
+        }
+
+        return FileAttachment(
+            originalName: firstName,
+            additionalNames: restNames,
+            storedRelativePath: "files/\(uuid.uuidString)",
+            referencePath: nil,
+            bookmark: nil,
+            uti: uti,
+            byteSize: totalSize
+        )
+    }
+
+    private func fileSize(_ url: URL) -> Int64 {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path) else { return 0 }
+        if let size = attributes[.size] as? Int64 { return size }
+        if let size = attributes[.size] as? Int { return Int64(size) }
+        return 0
+    }
+
+    private func modificationDate(_ url: URL) -> Date {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path) else {
+            return Date(timeIntervalSince1970: 0)
+        }
+        return attributes[.modificationDate] as? Date ?? Date(timeIntervalSince1970: 0)
+    }
+
+    private func directorySize(_ url: URL) -> Int64 {
+        guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey], options: [], errorHandler: nil) else { return 0 }
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            if let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey]), let size = values.fileSize {
+                total += Int64(size)
+            }
+        }
+        return total
+    }
+
+    /// Stable SHA-256 fingerprint of a file list's paths, sizes and
+    /// modification dates — sorted by path first so capture order never
+    /// changes the result. Same files copied twice in a row (e.g. an
+    /// accidental double ⌘C in Finder) produce the same fingerprint, which is
+    /// how `ClipboardWatcher` skips the repeat.
+    static func fingerprint(for entries: [(path: String, size: Int64, modificationDate: Date)]) -> String {
+        var hasher = SHA256()
+        for entry in entries.sorted(by: { $0.path < $1.path }) {
+            hasher.update(data: Data(entry.path.utf8))
+            hasher.update(data: withUnsafeBytes(of: entry.size.bigEndian) { Data($0) })
+            let millis = Int64(entry.modificationDate.timeIntervalSince1970 * 1000)
+            hasher.update(data: withUnsafeBytes(of: millis.bigEndian) { Data($0) })
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - Saving

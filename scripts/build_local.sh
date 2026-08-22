@@ -105,6 +105,8 @@ for CURRENT_ARCH in "${ARCHS[@]}"; do
         -framework Cocoa \
         -framework SwiftUI \
         -framework Carbon \
+        -framework Quartz \
+        -framework QuickLookThumbnailing \
         *.swift $(find Models Services Views -name "*.swift" | sort) \
         -o "${OUTPUT_BIN}" \
         2>&1 | tee "${COMPILE_LOG}"

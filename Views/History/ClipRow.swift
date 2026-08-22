@@ -26,6 +26,10 @@ struct ClipRow: View {
     var onTagTap: ((String) -> Void)? = nil
 
     @State private var thumbnail: NSImage?
+    /// QuickLook-generated 38×38 thumbnail for `.file` items (Phase 3F).
+    /// `nil` while loading or when QuickLook has nothing for this file type —
+    /// either way `badge` falls back to `fileIcon(store:)`.
+    @State private var fileThumbnail: NSImage?
 
     private var isHighlighted: Bool { isPrimarySelection || isMultiSelected }
     private var badgeSize: CGFloat { .klipScaled(38) }
@@ -61,6 +65,9 @@ struct ClipRow: View {
             if item.type == .image && thumbnail == nil {
                 thumbnail = await loadThumbnail()
             }
+            if item.type == .file && fileThumbnail == nil, let url = store.fileURLs(for: item).first {
+                fileThumbnail = await FilePreview.thumbnail(for: url, itemID: item.id, size: badgeSize)
+            }
         }
     }
 
@@ -89,12 +96,30 @@ struct ClipRow: View {
                         .strokeBorder(Theme.swatchStroke, lineWidth: 1)
                 )
                 .shadow(color: swatch.opacity(0.5), radius: 4, y: 1)
-        } else if item.type == .file, let icon = item.fileIcon(store: store) {
-            Image(nsImage: icon)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: badgeSize, height: badgeSize)
+        } else if item.type == .file {
+            // QuickLook thumbnail when available (a real pdf/csv/image
+            // preview reads much better at this size than a generic icon),
+            // else the Launch Services / UTI icon, else the generic badge.
+            if let thumb = fileThumbnail {
+                Image(nsImage: thumb)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: badgeSize, height: badgeSize)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.badgeCornerRadius))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.badgeCornerRadius)
+                            .strokeBorder(Theme.badgeStroke, lineWidth: 1)
+                    )
+            } else if let icon = item.fileIcon(store: store) {
+                Image(nsImage: icon)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: badgeSize, height: badgeSize)
+            } else {
+                kindBadge
+            }
         } else {
             kindBadge
         }

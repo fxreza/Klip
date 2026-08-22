@@ -48,13 +48,27 @@ class PasteController {
     }
 
     /// Write file items' payloads onto the pasteboard as file URLs, so the
-    /// receiving app copies/attaches the files. Phase 3F refines this (file
-    /// promises, security-scoped bookmarks, per-file stored paths).
+    /// receiving app copies/attaches the files (Finder copies them in, Mail /
+    /// Slack attach them). Each file becomes its own `NSPasteboardItem`
+    /// carrying both the file URL type (what Finder/Mail/Slack look for) and
+    /// a plain-text fallback of the path, the same pairing Finder itself
+    /// offers, so apps that only read strings still get something useful.
     @discardableResult
     private static func writeFileURLs(for items: [ClipboardItem], store: ClipboardStore, to pasteboard: NSPasteboard) -> Bool {
         let urls = items.flatMap { store.fileURLs(for: $0) }
+        return writeFileURLs(urls, to: pasteboard)
+    }
+
+    @discardableResult
+    private static func writeFileURLs(_ urls: [URL], to pasteboard: NSPasteboard) -> Bool {
         guard !urls.isEmpty else { return false }
-        pasteboard.writeObjects(urls.map { $0 as NSURL })
+        let pasteboardItems: [NSPasteboardItem] = urls.map { url in
+            let item = NSPasteboardItem()
+            item.setString(url.absoluteString, forType: .fileURL)
+            item.setString(url.path, forType: .string)
+            return item
+        }
+        pasteboard.writeObjects(pasteboardItems)
         return true
     }
     
@@ -124,8 +138,7 @@ class PasteController {
             }
             urls.append(contentsOf: fileItems.flatMap { store.fileURLs(for: $0) })
 
-            if !urls.isEmpty {
-                pasteboard.writeObjects(urls.map { $0 as NSURL })
+            if writeFileURLs(urls, to: pasteboard) {
                 simulatePasteWithCustomDelay(0.05)
             }
         }
@@ -221,5 +234,107 @@ class PasteController {
                 }
             }
         }
+    }
+
+    // MARK: - Save to disk, generalized (Phase 3F)
+
+    /// Save one item to disk, whatever its kind: images as PNG (today's
+    /// `saveImageToDisk`), text as a `.txt` file, and files either straight to
+    /// a chosen path (single file) or into a chosen folder (multiple files in
+    /// one attachment). This is what ⌘S ("Save to Disk") and the multi-select
+    /// "Save All…" button use.
+    static func saveToDisk(_ item: ClipboardItem, store: ClipboardStore) {
+        switch item.type {
+        case .image:
+            guard let image = store.image(for: item) else { return }
+            saveImageToDisk(image)
+        case .text:
+            saveTextToDisk(item, store: store)
+        case .file:
+            saveFileToDisk(item, store: store)
+        }
+    }
+
+    private static func saveTextToDisk(_ item: ClipboardItem, store: ClipboardStore) {
+        let text = store.fullText(for: item) ?? item.textContent ?? ""
+        DispatchQueue.main.async {
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.plainText]
+
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyyMMdd-HHmmss"
+            panel.nameFieldStringValue = "Clip-\(formatter.string(from: Date()))"
+            panel.canCreateDirectories = true
+
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            do {
+                try text.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                print("[Buffer] Failed to save text to disk: \(error)")
+            }
+        }
+    }
+
+    private static func saveFileToDisk(_ item: ClipboardItem, store: ClipboardStore) {
+        let urls = store.fileURLs(for: item)
+        guard !urls.isEmpty else { return }
+
+        DispatchQueue.main.async {
+            if urls.count == 1, let source = urls.first {
+                let panel = NSSavePanel()
+                panel.nameFieldStringValue = source.lastPathComponent
+                panel.canCreateDirectories = true
+                guard panel.runModal() == .OK, let destination = panel.url else { return }
+
+                do {
+                    if FileManager.default.fileExists(atPath: destination.path) {
+                        try FileManager.default.removeItem(at: destination)
+                    }
+                    try FileManager.default.copyItem(at: source, to: destination)
+                } catch {
+                    print("[Buffer] Failed to save file to disk: \(error)")
+                }
+            } else {
+                let panel = NSOpenPanel()
+                panel.canChooseDirectories = true
+                panel.canChooseFiles = false
+                panel.canCreateDirectories = true
+                panel.title = "Select Folder to Save Files"
+                panel.prompt = "Select"
+                guard panel.runModal() == .OK, let folder = panel.url else { return }
+
+                for source in urls {
+                    let destination = uniqueURL(for: source.lastPathComponent, in: folder)
+                    do {
+                        try FileManager.default.copyItem(at: source, to: destination)
+                    } catch {
+                        print("[Buffer] Failed to save \(source.lastPathComponent): \(error)")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Returns a URL for `name` inside `directory` that doesn't collide with
+    /// an existing file — `"Report.pdf"` becomes `"Report 2.pdf"`,
+    /// `"Report 3.pdf"`, and so on until a free name is found. Used by
+    /// single/multi file save and by "Save All…" so nothing is silently
+    /// overwritten when several selected items would otherwise produce the
+    /// same filename.
+    static func uniqueURL(for name: String, in directory: URL, fileManager: FileManager = .default) -> URL {
+        var candidate = directory.appendingPathComponent(name)
+        guard fileManager.fileExists(atPath: candidate.path) else { return candidate }
+
+        let ext = (name as NSString).pathExtension
+        let base = ext.isEmpty ? name : String(name.dropLast(ext.count + 1))
+
+        var counter = 2
+        repeat {
+            let newName = ext.isEmpty ? "\(base) \(counter)" : "\(base) \(counter).\(ext)"
+            candidate = directory.appendingPathComponent(newName)
+            counter += 1
+        } while fileManager.fileExists(atPath: candidate.path)
+
+        return candidate
     }
 }
