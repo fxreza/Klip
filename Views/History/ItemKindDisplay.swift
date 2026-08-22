@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// UI-side view of a clipboard item's semantic kind.
 ///
@@ -24,12 +25,26 @@ extension ClipboardItem {
         ColorSwatchParser.swatch(for: self)
     }
 
-    /// Icon for a `.file` item, taken from Launch Services when the payload is
-    /// reachable on disk. `nil` → the caller draws the generic `doc` glyph.
+    /// Icon for a `.file` item. Prefers Launch Services' icon for the actual
+    /// file when the payload is reachable on disk; if it went missing (moved
+    /// or deleted) this falls back to the generic icon for its extension/UTI,
+    /// so a missing "Report.pdf" still reads as a pdf rather than a blank
+    /// `doc`. `nil` only when there is no file information at all.
     func fileIcon(store: ClipboardStore) -> NSImage? {
         guard type == .file || isFile else { return nil }
-        guard let url = store.fileURLs(for: self).first else { return nil }
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return NSWorkspace.shared.icon(forFile: url.path)
+
+        if let url = store.fileURLs(for: self).first, FileManager.default.fileExists(atPath: url.path) {
+            return NSWorkspace.shared.icon(forFile: url.path)
+        }
+
+        // Missing on disk — fall back to a generic icon from the UTI/extension.
+        if let uti = fileAttachment?.uti, let type = UTType(uti) {
+            return NSWorkspace.shared.icon(for: type)
+        }
+        let ext = (fileAttachment?.originalName as NSString?)?.pathExtension ?? ""
+        if !ext.isEmpty, let type = UTType(filenameExtension: ext) {
+            return NSWorkspace.shared.icon(for: type)
+        }
+        return nil
     }
 }

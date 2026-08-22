@@ -49,6 +49,8 @@ swiftc \
     -framework Cocoa \
     -framework SwiftUI \
     -framework Carbon \
+    -framework Quartz \
+    -framework QuickLookThumbnailing \
     "${SOURCES[@]}" \
     -o "$BUILD_DIR/runner" \
     > "$LOG_FILE" 2>&1

@@ -12,6 +12,12 @@ class ClipboardWatcher: ObservableObject {
     private var lastChangeCount: Int = 0
     private var lastContentHash: Int = 0
     private var ignoreNextChange = false
+
+    /// Fingerprint of the last captured file set, kept separate from
+    /// `lastContentHash` (text/image use an `Int`; files use a SHA-256 hex
+    /// string from `ClipboardStore.makeFileItem`) so a file capture and a
+    /// text/image capture never accidentally compare equal.
+    private var lastFileFingerprint: String?
     
     private let pollInterval: TimeInterval = 0.5
     
@@ -83,18 +89,26 @@ class ClipboardWatcher: ObservableObject {
         // Get current frontmost app as source
         let sourceApp = NSWorkspace.shared.frontmostApplication?.localizedName
         
-        // Check for single image file from Finder BEFORE text check
-        // (Finder always writes both NSFilenamesPboardType + .string, so we must intercept first)
+        // Check for file URLs from Finder BEFORE the text check (Finder always
+        // writes both NSFilenamesPboardType + .string, so we must intercept first).
+        // A single image file keeps today's behavior and becomes an `.image`
+        // item; any other file, or any count/mix of files, becomes one `.file`
+        // item (Phase 3F).
         if let filePaths = pasteboard.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) as? [String],
-           filePaths.count == 1,
-           let filePath = filePaths.first {
-            if isImageFile(filePath) {
+           !filePaths.isEmpty {
+            if filePaths.count == 1, let filePath = filePaths.first, isImageFile(filePath) {
                 // Read and process image file asynchronously to avoid blocking the poll timer
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     self?.processImageFile(filePath, sourceApp: sourceApp)
                 }
                 return  // Prevent .string branch from also processing this change
             }
+
+            let urls = filePaths.map { URL(fileURLWithPath: $0) }
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                self?.processFileURLs(urls, sourceApp: sourceApp)
+            }
+            return  // Prevent .string branch from also processing this change
         }
         
         // Try to capture text first
@@ -211,6 +225,21 @@ class ClipboardWatcher: ObservableObject {
             }
         } catch {
             print("[Buffer] Error processing image file: \(filePath) - \(error)")
+        }
+    }
+
+    /// Build a `.file` item for any non-single-image set of file URLs from
+    /// Finder — one file of any type, or several files/directories of mixed
+    /// types. `ClipboardStore.makeFileItem` decides copy-vs-reference against
+    /// the configured cap and returns a fingerprint used to skip a repeat
+    /// capture of the same files, mirroring the text/image dedupe above.
+    private func processFileURLs(_ urls: [URL], sourceApp: String?) {
+        guard let (item, fingerprint) = store.makeFileItem(from: urls, sourceApp: sourceApp) else { return }
+        guard fingerprint != lastFileFingerprint else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.lastFileFingerprint = fingerprint
+            self?.store.add(item)
         }
     }
 }

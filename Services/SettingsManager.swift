@@ -198,6 +198,18 @@ final class SettingsManager: ObservableObject {
         }
     }
 
+    // MARK: - Files (Phase 3F)
+
+    /// Cap, in megabytes, under which a copied file's bytes are copied into
+    /// storage; `0` means unlimited (always copy). Above the cap only a
+    /// reference + bookmark is kept. Key `files.copyCapMB`, default 50.
+    @Published var fileCopyCapMB: Int = 50 {
+        didSet {
+            guard isLoaded, fileCopyCapMB != oldValue else { return }
+            defaults.set(fileCopyCapMB, forKey: "files.copyCapMB")
+        }
+    }
+
     private init() {
         // Initialize with defaults first, then load saved values
         let defaultMods = HotkeyModifiers(shift: true, command: true, option: false, control: false)
@@ -255,6 +267,10 @@ final class SettingsManager: ObservableObject {
         }
         self.windowWidth = defaults.object(forKey: "windowWidth") as? Double
         self.windowHeight = defaults.object(forKey: "windowHeight") as? Double
+
+        if let raw = defaults.object(forKey: "files.copyCapMB") as? Int {
+            self.fileCopyCapMB = raw
+        }
 
         isLoaded = true
     }
@@ -316,6 +332,42 @@ struct HotkeyModifiers: Equatable {
         if shift { parts.append("⇧") }
         if command { parts.append("⌘") }
         return parts.joined()
+    }
+}
+
+/// Preset tiers offered by the Files cap picker (Phase 3F, D6). The stored
+/// value (`SettingsManager.fileCopyCapMB`) is a plain `Int`, so any custom
+/// number the user types is valid too — `matching(_:)` returns `nil` for a
+/// value that isn't one of these presets, which the settings UI reads as
+/// "Custom" and shows the numeric field instead of highlighting a tile.
+enum FileCopyCapTier: Int, CaseIterable, Identifiable {
+    case mb1 = 1
+    case mb5 = 5
+    case mb10 = 10
+    case mb50 = 50
+    case mb100 = 100
+    case mb500 = 500
+    case unlimited = 0
+
+    var id: Int { rawValue }
+
+    /// The `fileCopyCapMB` value this tier writes; `0` means unlimited.
+    var megabytes: Int { rawValue }
+
+    var label: String {
+        switch self {
+        case .mb1:        return "1 MB"
+        case .mb5:        return "5 MB"
+        case .mb10:       return "10 MB"
+        case .mb50:       return "50 MB"
+        case .mb100:      return "100 MB"
+        case .mb500:      return "500 MB"
+        case .unlimited:  return "Unlimited"
+        }
+    }
+
+    static func matching(_ megabytes: Int) -> FileCopyCapTier? {
+        allCases.first { $0.megabytes == megabytes }
     }
 }
 

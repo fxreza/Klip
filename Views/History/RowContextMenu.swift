@@ -35,6 +35,14 @@ struct RowContextMenu: View {
             }
         }
 
+        // "Reveal in Finder" is 3D's addition (see the doc comment above);
+        // this is just the file-save counterpart to "Save Image…".
+        if item.type == .file {
+            Button("Save…") {
+                PasteController.saveToDisk(item, store: viewModel.store)
+            }
+        }
+
         Divider()
 
         Button("Delete", role: .destructive) {

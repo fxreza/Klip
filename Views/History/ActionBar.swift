@@ -90,8 +90,8 @@ struct ActionBar: View {
                 if let item = viewModel.selectedItem, item.isEditable {
                     legendItem("⌘E", "edit")
                 }
-                if viewModel.selectedItem?.type == .image {
-                    legendItem("⌘S", "save")
+                if viewModel.selectedItem != nil {
+                    legendItem("⌘S", "save to disk")
                 }
                 legendItem("⌘[ ]", "scope")
             }

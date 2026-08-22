@@ -45,25 +45,25 @@ struct MultiSelectionSummary: View {
 
             Divider()
 
-            // Download All Images (only when everything selected is an image)
-            if textCount == 0 && fileCount == 0 && imageCount > 0 {
-                Button(action: { viewModel.downloadAllImages() }) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.down.to.line")
-                        Text("Download All (\(imageCount))")
-                        Spacer()
-                    }
-                    .font(.klip(.preview))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.chipInactive))
-                    .contentShape(Rectangle())
+            // Save All… — images, files and texts together into one chosen
+            // folder, with unique names (Phase 3F; replaces the image-only
+            // "Download All").
+            Button(action: { viewModel.saveAllSelected() }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.down.to.line")
+                    Text("Save All… (\(selectionCount))")
+                    Spacer()
                 }
-                .buttonStyle(.plain)
-
-                Divider()
+                .font(.klip(.preview))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.chipInactive))
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+
+            Divider()
 
             // First selected item preview (optional)
             if let firstItem = selectedItems.first, firstItem.type == .text {

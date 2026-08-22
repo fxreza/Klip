@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Settings window for Klip preferences. Every control binds directly to
 /// `SettingsManager.shared` — there is no separate view-model layer, and
@@ -80,6 +81,7 @@ private struct HistorySettingsTab: View {
     @ObservedObject private var settings = SettingsManager.shared
     @State private var pendingTier: HistoryLimit?
     @State private var showingTrimAlert = false
+    @State private var customCapText: String = ""
 
     var body: some View {
         Form {
@@ -93,8 +95,32 @@ private struct HistorySettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section("Files") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Copy files into storage up to")
+                    HStack(spacing: 8) {
+                        ForEach(FileCopyCapTier.allCases) { tier in
+                            capButton(tier)
+                        }
+                        customCapField
+                    }
+                }
+                .padding(.vertical, 2)
+
+                Text(settings.fileCopyCapMB == 0
+                     ? "Every copied file is stored in full, however large — this can use a lot of disk space over time."
+                     : "Files larger than this are kept as a reference to the original instead of being copied in.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button("Open Storage Folder in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([ClipboardStore.storageDirectoryURL])
+                }
+            }
         }
         .formStyle(.grouped)
+        .onAppear { customCapText = String(settings.fileCopyCapMB) }
         .alert("Reduce History Limit?", isPresented: $showingTrimAlert) {
             Button("Cancel", role: .cancel) { pendingTier = nil }
             Button("Reduce & Delete", role: .destructive) {
@@ -161,6 +187,51 @@ private struct HistorySettingsTab: View {
         case (.some, nil): return false
         case let (.some(currentMax), .some(newMax)): return newMax < currentMax
         }
+    }
+
+    // MARK: - Files cap (Phase 3F, D6)
+
+    private func capButton(_ tier: FileCopyCapTier) -> some View {
+        let isSelected = settings.fileCopyCapMB == tier.megabytes
+        return Button(action: {
+            settings.fileCopyCapMB = tier.megabytes
+            customCapText = String(tier.megabytes)
+        }) {
+            Text(tier.label)
+                .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                .foregroundColor(isSelected ? .white : .primary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule().fill(isSelected ? Color.accentColor : Color(NSColor.controlBackgroundColor))
+                )
+                .overlay(Capsule().stroke(isSelected ? Color.clear : Theme.hairline, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Free-form entry for a cap that isn't one of the preset tiers.
+    private var customCapField: some View {
+        let isCustom = FileCopyCapTier.matching(settings.fileCopyCapMB) == nil
+        return HStack(spacing: 4) {
+            TextField("Custom", text: $customCapText)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 56)
+                .multilineTextAlignment(.trailing)
+                .onSubmit { applyCustomCap() }
+            Text("MB")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .opacity(isCustom ? 1 : 0.6)
+    }
+
+    private func applyCustomCap() {
+        guard let value = Int(customCapText), value >= 0 else {
+            customCapText = String(settings.fileCopyCapMB)
+            return
+        }
+        settings.fileCopyCapMB = value
     }
 }
 

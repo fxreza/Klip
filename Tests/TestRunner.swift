@@ -71,6 +71,7 @@ let allSuites: [(String, [(String, () throws -> Void)])] = [
     ("ShortcutTests", ShortcutTests.tests),
     ("PermissionsTests", PermissionsTests.tests),
     ("ContentDetectorTests", ContentDetectorTests.tests),
+    ("FileClipTests", FileClipTests.tests),
 ]
 
 // MARK: - Runner
