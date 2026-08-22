@@ -38,5 +38,10 @@ Read this first if you are resuming as the manager. Plan: `PLAN.md`. Briefs: `br
 - Installed `/Applications/Klip.app` (signed QTranslate Dev, universal), launched; upstream `Buffer.app` moved to Trash; Buffer data backed up to `releases/backup-20260822-091610/` (gitignored) and left untouched in `~/Library/Application Support/Buffer`.
 - User still has to grant Accessibility to Klip (Permissions… in the menu bar) for auto-paste.
 
+## 3.0.1 (2026-08-22, after the user's first live test)
+- Fixed: `QLPreviewView` abort when a file clip was selected / window opened with one selected (3 crash reports) - previews are QuickLook thumbnails now, gate refuses the symbol; ⌘F = favorite; "star" -> "favorite" wording; scope cycling removed; Paste button removed; legend shows ↩ paste / ⌥↩ paste plain; preview pane full height; scroll-to-selection reliable; no blink on key navigation; OCR copy button works with a toast. 275 tests.
+- Installed over 3.0.0; release https://github.com/fxreza/Klip/releases/tag/klip-v3.0.1. Build/dist dirs use `.noindex` (Spotlight duplicates), see CLAUDE.md.
+- Open question from the user: BTT ⌘E - Klip only registers ⇧⌘V globally; in-window keys are panel-scoped.
+
 ## Remaining (post-release)
 2A -> 3A lock UX, 3B folders + drag/drop (Opus), 3D row context menu + rich capture + plain paste, 3F file clips + QuickLook, 3E part 2 (monitor wiring + legend), 3H font sweep (Haiku), 3C part 2 search upgrade -> `v3.0.0-beta1` -> 4A iCloud Drive sync (Opus) + 4B review -> 5A review (Opus), 5B pbxproj, 5C fixes, 5D docs (Haiku), 5E release + install.
