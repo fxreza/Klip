@@ -17,6 +17,8 @@ struct SettingsView: View {
                     .tabItem { Label("History", systemImage: "clock") }
                 AppearanceSettingsTab()
                     .tabItem { Label("Appearance", systemImage: "paintbrush") }
+                ShortcutsTab()
+                    .tabItem { Label("Shortcuts", systemImage: "keyboard") }
             }
 
             Divider()
@@ -31,50 +33,12 @@ struct SettingsView: View {
 
 private struct GeneralSettingsTab: View {
     @ObservedObject private var settings = SettingsManager.shared
-    @State private var isRecording = false
 
     var body: some View {
         Form {
             Section("Global Shortcut") {
-                HStack(spacing: 12) {
-                    HStack(spacing: 4) {
-                        Text(settings.hotkeyModifiers.displayString)
-                            .font(.system(size: 14, weight: .medium, design: .monospaced))
-                        Text(keyCodeNames[settings.hotkeyKeyCode] ?? "?")
-                            .font(.system(size: 14, weight: .medium, design: .monospaced))
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(isRecording ? Color.accentColor.opacity(0.2) : Color(NSColor.controlBackgroundColor))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(isRecording ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: 1)
-                    )
-
-                    Button(action: { isRecording.toggle() }) {
-                        Text(isRecording ? "Cancel" : "Change")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .buttonStyle(.bordered)
-
-                    Spacer()
-                }
-
-                if isRecording {
-                    Text("Press your new shortcut...")
-                        .font(.caption)
-                        .foregroundStyle(Color.accentColor)
-                }
-
-                HStack(spacing: 8) {
-                    presetButton(label: "⇧⌘V", mods: HotkeyModifiers(shift: true, command: true), keyCode: 9)
-                    presetButton(label: "⌥⌘V", mods: HotkeyModifiers(command: true, option: true), keyCode: 9)
-                    presetButton(label: "⌃⇧V", mods: HotkeyModifiers(shift: true, control: true), keyCode: 9)
-                    presetButton(label: "⌘B", mods: HotkeyModifiers(command: true), keyCode: 11)
-                }
+                Text("Open Klip: \(settings.hotkeyModifiers.displayString)\(keyCodeNames[settings.hotkeyKeyCode] ?? "?") - change in Shortcuts")
+                    .foregroundStyle(.secondary)
             }
 
             Section("Startup") {
@@ -105,24 +69,6 @@ private struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .background(KeyRecorder(isRecording: $isRecording) { keyCode, modifiers in
-            settings.hotkeyKeyCode = keyCode
-            settings.hotkeyModifiers = modifiers
-            isRecording = false
-        })
-    }
-
-    private func presetButton(label: String, mods: HotkeyModifiers, keyCode: UInt16) -> some View {
-        Button(action: {
-            settings.hotkeyModifiers = mods
-            settings.hotkeyKeyCode = keyCode
-        }) {
-            Text(label)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-        }
-        .buttonStyle(.bordered)
     }
 }
 
@@ -334,72 +280,5 @@ private struct AboutFooter: View {
         }
         .frame(maxWidth: .infinity)
         .multilineTextAlignment(.center)
-    }
-}
-
-/// Records keyboard shortcuts when active
-struct KeyRecorder: NSViewRepresentable {
-    @Binding var isRecording: Bool
-    let onRecord: (UInt16, HotkeyModifiers) -> Void
-
-    func makeNSView(context: Context) -> KeyRecorderView {
-        let view = KeyRecorderView()
-        view.onRecord = onRecord
-        return view
-    }
-
-    func updateNSView(_ nsView: KeyRecorderView, context: Context) {
-        nsView.isRecording = isRecording
-        if isRecording {
-            DispatchQueue.main.async {
-                nsView.window?.makeFirstResponder(nsView)
-            }
-        }
-    }
-}
-
-class KeyRecorderView: NSView {
-    var isRecording = false
-    var onRecord: ((UInt16, HotkeyModifiers) -> Void)?
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if let window = self.window {
-            // Set level to be above other apps but below system items
-            window.level = .floating
-
-            // Use a tiny delay to allow the window to be properly added to the window list
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                window.makeKeyAndOrderFront(nil)
-                window.orderFrontRegardless()
-                NSApp.activate(ignoringOtherApps: true)
-            }
-        }
-    }
-
-    override func keyDown(with event: NSEvent) {
-        guard isRecording else {
-            super.keyDown(with: event)
-            return
-        }
-
-        // Ignore modifier-only presses
-        if event.keyCode == 56 || event.keyCode == 59 || event.keyCode == 58 || event.keyCode == 55 {
-            return
-        }
-
-        let mods = HotkeyModifiers(
-            shift: event.modifierFlags.contains(.shift),
-            command: event.modifierFlags.contains(.command),
-            option: event.modifierFlags.contains(.option),
-            control: event.modifierFlags.contains(.control)
-        )
-
-        // Require at least one modifier
-        if mods.shift || mods.command || mods.option || mods.control {
-            onRecord?(event.keyCode, mods)
-        }
     }
 }
