@@ -88,6 +88,15 @@ mkdir -p "${OUTPUT_DIR}/compile-logs"
 declare -a BIN_ARM64=""
 declare -a BIN_X86_64=""
 
+# Source list (review 5A-26). The old `*.swift $(find … | sort)` relied on
+# word splitting, so a source file with a space in its name would silently
+# break the build or compile the wrong set. Null-delimited, exactly like
+# scripts/run_tests.sh.
+SOURCES=(*.swift)
+while IFS= read -r -d '' f; do
+    SOURCES+=("$f")
+done < <(find Models Services Views -name '*.swift' -print0 | sort -z)
+
 for CURRENT_ARCH in "${ARCHS[@]}"; do
     OUTPUT_BIN="${OUTPUT_DIR}/${CURRENT_ARCH}/${APP_NAME}"
     mkdir -p "${OUTPUT_DIR}/${CURRENT_ARCH}"
@@ -107,7 +116,7 @@ for CURRENT_ARCH in "${ARCHS[@]}"; do
         -framework Carbon \
         -framework Quartz \
         -framework QuickLookThumbnailing \
-        *.swift $(find Models Services Views -name "*.swift" | sort) \
+        "${SOURCES[@]}" \
         -o "${OUTPUT_BIN}" \
         2>&1 | tee "${COMPILE_LOG}"
 

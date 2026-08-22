@@ -55,6 +55,11 @@ extension HistoryViewModel {
         let targets = store.items.filter { ids.contains($0.id) }
         let result = store.delete(targets)
 
+        // 5A-10: a deleted clip's thumbnails go with it. Locked survivors
+        // keep theirs — they are still in the list.
+        let removed = targets.filter { !$0.isLocked }.map { $0.id }
+        ImageThumbnailCache.evict(itemIDs: removed)
+
         if result.skippedLocked > 0 {
             let survivors = targets.filter { $0.isLocked }.map { $0.id }
             selectedIDs = Set(survivors)

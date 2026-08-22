@@ -54,11 +54,11 @@ struct RowContextMenu: View {
             viewModel.store.toggleBookmark(for: item)
         }
 
-        Button(shortcutLabel(item.isLocked ? "Unlock" : "Lock", .lock)) {
+        Button(shortcutLabel(RowMenuLabels.lock(selectionCount: selectionCount, allLocked: allSelectedLocked), .lock)) {
             viewModel.toggleLockSelection()
         }
 
-        Menu("Move to Folder") {
+        Menu(RowMenuLabels.moveToFolder(selectionCount: selectionCount)) {
             ForEach(viewModel.store.folders) { folder in
                 Button(folder.name) {
                     viewModel.moveSelection(toFolder: folder.id)
@@ -79,7 +79,7 @@ struct RowContextMenu: View {
 
         Divider()
 
-        Button(shortcutLabel("Save to Disk…", .saveToDisk)) {
+        Button(shortcutLabel(RowMenuLabels.saveToDisk(selectionCount: selectionCount), .saveToDisk)) {
             if isMultiSelection {
                 viewModel.saveAllSelected()
             } else {
@@ -125,11 +125,52 @@ struct RowContextMenu: View {
     }
 
     private var deleteTitle: String {
-        guard !isMultiSelection, item.isLocked else { return shortcutLabel("Delete", .delete) }
+        guard !isMultiSelection, item.isLocked else {
+            return shortcutLabel(RowMenuLabels.delete(selectionCount: selectionCount), .delete)
+        }
         return "Delete (Locked)"
+    }
+
+    /// How many clips the selection-wide entries below will actually act on.
+    private var selectionCount: Int { viewModel.selectedItems.count }
+
+    private var allSelectedLocked: Bool {
+        let selection = viewModel.selectedItems
+        guard !selection.isEmpty else { return item.isLocked }
+        return selection.allSatisfy { $0.isLocked }
     }
 
     private func shortcutLabel(_ title: String, _ action: ShortcutAction) -> String {
         "\(title) (\(ShortcutManager.shared.displayString(for: action)))"
+    }
+}
+
+/// Labels for the entries that act on the whole selection (review 5A-30).
+///
+/// Pin and Star are per-item everywhere — the row menu, ⌘P and ⌘B all act on
+/// the focused clip only — while Lock, Move to Folder, Save to Disk and
+/// Delete act on the entire selection. That difference was invisible:
+/// right-clicking inside a ten-row selection offered a plain "Lock" whose
+/// label was derived from the clicked row's own state while the action
+/// toggled all ten. The selection-wide entries now say how many clips they
+/// will touch, and the Lock label is derived from the selection rather than
+/// from one row. Behaviour is unchanged.
+enum RowMenuLabels {
+    static func lock(selectionCount: Int, allLocked: Bool) -> String {
+        let verb = allLocked ? "Unlock" : "Lock"
+        guard selectionCount > 1 else { return verb }
+        return "\(verb) \(selectionCount) Clips"
+    }
+
+    static func moveToFolder(selectionCount: Int) -> String {
+        selectionCount > 1 ? "Move \(selectionCount) Clips to Folder" : "Move to Folder"
+    }
+
+    static func saveToDisk(selectionCount: Int) -> String {
+        selectionCount > 1 ? "Save \(selectionCount) Clips to Disk…" : "Save to Disk…"
+    }
+
+    static func delete(selectionCount: Int) -> String {
+        selectionCount > 1 ? "Delete \(selectionCount) Clips" : "Delete"
     }
 }

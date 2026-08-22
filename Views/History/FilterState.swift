@@ -119,7 +119,72 @@ struct FilterState: Equatable {
     /// An image with no OCR text contributes only its (possibly empty) tags
     /// and source app here, matching the old all-or-nothing behaviour for the
     /// common case: no tag, no matching source app, no match.
-    private static func searchBlob(for item: ClipboardItem) -> String {
+    static func searchBlob(for item: ClipboardItem) -> String {
+        if let cached = blobCache[item.id], cached.stamp == item.updatedAt {
+            return cached.blob
+        }
+        let blob = buildSearchBlob(for: item)
+        cache(blob, for: item)
+        return blob
+    }
+
+    // MARK: - Blob cache (5A-15)
+    //
+    // The blob above used to be rebuilt — and `.folding(...)`ed, which
+    // allocates a fresh String per item — on *every* keystroke: measured at
+    // 35.6 ms for a no-match query over 10,000 items, 112 ms to type
+    // "project". Nothing about an item's blob changes unless the item does,
+    // and every store mutation stamps `updatedAt` (`ClipboardStore.touchItem`),
+    // so `(id, updatedAt)` is an exact cache key.
+    //
+    // Two bounds keep this from becoming a memory problem in its own right:
+    // a byte budget (a folded copy of every inline clip could otherwise be up
+    // to `inlineTextLimit` × the whole history), and a sweep that drops
+    // entries for items that are no longer in the list.
+
+    private struct CachedBlob {
+        let stamp: Date
+        let blob: String
+    }
+
+    private static var blobCache: [UUID: CachedBlob] = [:]
+    private static var blobCacheBytes = 0
+
+    /// Roughly 16 MB of folded text. Beyond this, misses are simply not
+    /// cached (the newest items — the ones actually on screen — get there
+    /// first, so the tail pays the old cost rather than everything thrashing).
+    private static let blobCacheByteBudget = 16 * 1024 * 1024
+
+    private static func cache(_ blob: String, for item: ClipboardItem) {
+        if let existing = blobCache[item.id] {
+            blobCacheBytes -= existing.blob.utf8.count
+            blobCache[item.id] = nil
+        }
+        let size = blob.utf8.count
+        guard blobCacheBytes + size <= blobCacheByteBudget else { return }
+        blobCache[item.id] = CachedBlob(stamp: item.updatedAt, blob: blob)
+        blobCacheBytes += size
+    }
+
+    /// Drops cache entries for items that are gone (deleted, evicted, merged
+    /// away). Cheap and rare: only runs once the cache has drifted well past
+    /// the size of the list it is caching.
+    private static func sweepBlobCache(keeping items: [ClipboardItem]) {
+        guard blobCache.count > items.count + 512 else { return }
+        let live = Set(items.map { $0.id })
+        for (id, entry) in blobCache where !live.contains(id) {
+            blobCacheBytes -= entry.blob.utf8.count
+            blobCache[id] = nil
+        }
+    }
+
+    /// Test/measurement hook: forget everything, so a cold pass can be timed.
+    static func resetSearchBlobCache() {
+        blobCache.removeAll()
+        blobCacheBytes = 0
+    }
+
+    private static func buildSearchBlob(for item: ClipboardItem) -> String {
         var parts: [String] = []
         if let text = item.textContent { parts.append(text) }
         if let ocr = item.ocrText { parts.append(ocr) }
@@ -161,6 +226,7 @@ struct FilterState: Equatable {
     /// query happened to match, so the user's muscle memory for row position
     /// keeps working.
     static func apply(_ items: [ClipboardItem], _ f: FilterState) -> [ClipboardItem] {
+        sweepBlobCache(keeping: items)
         var base = items
         if f.scope != .all {
             base = base.filter { matches($0, scope: f.scope) }

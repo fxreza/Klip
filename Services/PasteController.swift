@@ -161,6 +161,13 @@ class PasteController {
         /// Writes every image (as a PNG in the temp dir) and every file payload
         /// onto the pasteboard as one batch of file URLs, then pastes.
         func writeURLBatchAndPaste() {
+            // 5A-21: tell the watcher to ignore this change *before* the
+            // pasteboard is written, exactly as the single-item path does.
+            // `simulatePasteWithCustomDelay` posts the same flag, but only
+            // 50 ms later — and the watcher polls every 500 ms, so a poll
+            // landing in that window captured the app's own paste as a new
+            // (text) clip.
+            NotificationCenter.default.post(name: .bufferIgnoreNextChange, object: nil)
             pasteboard.clearContents()
 
             var urls: [URL] = []
@@ -324,10 +331,7 @@ class PasteController {
                 guard panel.runModal() == .OK, let destination = panel.url else { return }
 
                 do {
-                    if FileManager.default.fileExists(atPath: destination.path) {
-                        try FileManager.default.removeItem(at: destination)
-                    }
-                    try FileManager.default.copyItem(at: source, to: destination)
+                    try copyReplacingItem(at: source, to: destination)
                 } catch {
                     print("[Buffer] Failed to save file to disk: \(error)")
                 }
@@ -349,6 +353,37 @@ class PasteController {
                     }
                 }
             }
+        }
+    }
+
+    /// Copies `source` over `destination`, replacing what is already there
+    /// **only once the copy has succeeded** (review 5A-23).
+    ///
+    /// "Save to Disk" for a single file used to `removeItem(at: destination)`
+    /// and then `copyItem`: if the copy failed — the source had vanished,
+    /// permissions, a full disk — the user's existing file at that path was
+    /// already gone and nothing replaced it. The copy now lands on a hidden
+    /// sibling name first and is swapped in with `replaceItemAt`, so a
+    /// failure leaves the original untouched.
+    static func copyReplacingItem(
+        at source: URL,
+        to destination: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        guard fileManager.fileExists(atPath: destination.path) else {
+            try fileManager.copyItem(at: source, to: destination)
+            return
+        }
+
+        let staging = destination
+            .deletingLastPathComponent()
+            .appendingPathComponent(".klip-save-\(UUID().uuidString)-\(destination.lastPathComponent)")
+        try fileManager.copyItem(at: source, to: staging)
+        do {
+            _ = try fileManager.replaceItemAt(destination, withItemAt: staging)
+        } catch {
+            try? fileManager.removeItem(at: staging)
+            throw error
         }
     }
 

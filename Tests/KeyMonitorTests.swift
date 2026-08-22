@@ -21,6 +21,10 @@ enum KeyMonitorTests {
         ("resolution_modifierExactness_pinVsTogglePreviewShareKeycode35", testModifierExactnessPinVsTogglePreview),
         ("resolution_unboundEventResolvesToNil", testUnboundEventIsNil),
         ("resolution_fixedKeysResolveWithExpectedModifiers", testFixedKeysResolve),
+        // 5A-01 — the monitor is app-wide; it must only act on the panel.
+        ("scope_eventOutsideThePanelIsReturnedUntouchedForEveryAction", testForeignEventPassesThroughForEveryAction),
+        ("scope_shouldHandleIsFalseWithoutAKeyPanel", testShouldHandleGate),
+        ("scope_panelEventsStillDispatch", testPanelEventsStillDispatch),
     ]
 
     // MARK: - Fixtures
@@ -146,5 +150,141 @@ enum KeyMonitorTests {
         // keycode, distinguished only by the Cmd modifier.
         try expectEqual(manager.action(for: event(keyCode: 51, modifiers: [])), .clearFilter)
         try expectEqual(manager.action(for: event(keyCode: 51, modifiers: [.command])), .delete)
+    }
+
+    // MARK: - 5A-01: the local monitor is app-wide and must gate on the panel
+    //
+    // `NSEvent.addLocalMonitorForEvents` fires for *every* window the process
+    // puts on screen. Before this gate, Return inside an `NSSavePanel` (⌘S →
+    // "Save to Disk"), inside the "Clear Clipboard History?" alert or inside
+    // the update alerts resolved to `.paste`, was swallowed (so the panel
+    // never saved) and pasted the clip into whatever app was frontmost —
+    // and ⌘C/⌘S/⌘E/⌘L/⌘P/⌘B/⌘1-9 fired while Settings, Permissions or
+    // Onboarding had focus.
+    //
+    // A synthetic `NSEvent` has `window == nil`, which is exactly the shape
+    // of "this event is not the history panel's": the assertions below drive
+    // the real monitor body (`GlobalKeyMonitor.handle`) with one event per
+    // action and require every one of them to come back untouched, with no
+    // view-model side effect at all.
+
+    /// State that must not move when a foreign event passes through.
+    private struct ViewModelSnapshot: Equatable {
+        var itemCount: Int
+        var selectedID: UUID?
+        var selectedIndex: Int
+        var selectedIDs: Set<UUID>
+        var isEditing: Bool
+        var showTagInput: Bool
+        var scrollTrigger: Bool
+        var isPromptShowing: Bool
+        var scopeIsAll: Bool
+        var sidebarCollapsed: Bool
+        var showPreviewPane: Bool
+        var hasToast: Bool
+
+        init(_ vm: HistoryViewModel) {
+            itemCount = vm.store.items.count
+            selectedID = vm.selectedID
+            selectedIndex = vm.selectedIndex
+            selectedIDs = vm.selectedIDs
+            isEditing = vm.isEditing
+            showTagInput = vm.showTagInput
+            scrollTrigger = vm.scrollTrigger
+            isPromptShowing = vm.isPromptShowing
+            scopeIsAll = vm.scope == .all
+            sidebarCollapsed = SettingsManager.shared.sidebarCollapsed
+            showPreviewPane = SettingsManager.shared.showPreviewPane
+            hasToast = vm.toast != nil
+        }
+    }
+
+    static func testForeignEventPassesThroughForEveryAction() throws {
+        try FolderUXTests.withViewModel { vm, store in
+            FolderUXTests.seed(vm, store, ["alpha", "beta", "gamma"])
+            vm.applyFilters(resetSelection: .defaultItem)
+
+            // Any of these firing means the monitor acted on an event that
+            // belonged to another window.
+            var pasted = false, pastedMultiple = false, copied = false, dismissed = false
+            vm.onPaste = { _, _ in pasted = true }
+            vm.onPasteMultiple = { _, _ in pastedMultiple = true }
+            vm.onCopyToClipboard = { _, _ in copied = true }
+            vm.onDismiss = { dismissed = true }
+
+            var backspaceCalls = 0
+            let onBackspace: () -> Bool = { backspaceCalls += 1; return true }
+
+            let before = ViewModelSnapshot(vm)
+
+            for action in ShortcutAction.allCases {
+                let binding = action.defaultBinding
+                let synthetic = event(keyCode: binding.keyCode, modifiers: eventFlags(for: binding.modifiers))
+
+                // `panel: nil` is the "the hosting view has no window" case;
+                // a synthetic event's own `window` is nil too, so this also
+                // covers "the event belongs to some other window".
+                let result = GlobalKeyMonitor.handle(synthetic, panel: nil, viewModel: vm, onBackspace: onBackspace)
+
+                try expect(result === synthetic,
+                           "\(action): a foreign event must be returned untouched, not swallowed")
+                try expectEqual(ViewModelSnapshot(vm), before,
+                                "\(action): a foreign event must not touch view-model state")
+            }
+
+            try expect(!pasted && !pastedMultiple && !copied && !dismissed,
+                       "no controller callback may fire for events outside the panel")
+            try expectEqual(backspaceCalls, 0, "the search field's backspace hook must not fire either")
+
+            // Same again with a prompt up (the early-return branch) and while
+            // editing (the branch that swallows ⌘⌫ / ⌘P / ⌘B / ⌘T).
+            vm.requestNewFolder()
+            let esc = event(keyCode: 53, modifiers: [])
+            try expect(GlobalKeyMonitor.handle(esc, panel: nil, viewModel: vm, onBackspace: onBackspace) === esc,
+                       "Esc outside the panel must not unwind a prompt")
+            try expect(vm.showNewFolderPrompt, "the prompt must still be showing")
+            vm.cancelNewFolder()
+
+            vm.isEditing = true
+            let cmdDelete = event(keyCode: 51, modifiers: [.command])
+            try expect(GlobalKeyMonitor.handle(cmdDelete, panel: nil, viewModel: vm, onBackspace: onBackspace) === cmdDelete,
+                       "⌘⌫ outside the panel must not be swallowed while editing")
+            vm.isEditing = false
+        }
+    }
+
+    /// The gate itself: no window, or a window that is not key, is never ours.
+    static func testShouldHandleGate() throws {
+        let returnKey = event(keyCode: 36, modifiers: [])
+        try expect(!GlobalKeyMonitor.shouldHandle(returnKey, panel: nil),
+                   "with no hosting window the monitor must stand down")
+    }
+
+    /// The counter-test: when the event *does* belong to the key panel the
+    /// dispatch still runs, so the gate above is what blocks foreign events —
+    /// not a broken dispatch. Only the two fixed, non-rebindable keys are
+    /// used here so `ShortcutManager.shared`'s stored bindings cannot matter.
+    static func testPanelEventsStillDispatch() throws {
+        try FolderUXTests.withViewModel { vm, store in
+            let items = FolderUXTests.seed(vm, store, ["alpha", "beta"])
+            vm.applyFilters(resetSelection: .defaultItem)
+            vm.selectSingle(items[0].id)
+
+            var pastedID: UUID?
+            vm.onPaste = { item, _ in pastedID = item.id }
+            vm.onPasteMultiple = { items, _ in pastedID = items.first?.id }
+            var dismissed = false
+            vm.onDismiss = { dismissed = true }
+
+            let returnKey = event(keyCode: 36, modifiers: [])
+            try expectNil(GlobalKeyMonitor.dispatch(returnKey, viewModel: vm, firstResponder: nil, onBackspace: nil),
+                          "Return inside the panel is consumed")
+            try expectEqual(pastedID, items[0].id, "Return inside the panel pastes the focused clip")
+
+            let esc = event(keyCode: 53, modifiers: [])
+            try expectNil(GlobalKeyMonitor.dispatch(esc, viewModel: vm, firstResponder: nil, onBackspace: nil),
+                          "Esc inside the panel is consumed")
+            try expect(dismissed, "Esc inside the panel closes the window")
+        }
     }
 }

@@ -22,9 +22,13 @@ struct ClipRow: View {
     let isPrimarySelection: Bool
     /// Part of a multi-selection (same gradient, dimmed).
     let isMultiSelected: Bool
-    let isHovered: Bool
     var onTagTap: ((String) -> Void)? = nil
 
+    /// Hover is the row's own state (5A-14). It used to live on `ClipList`,
+    /// so moving the pointer across the list re-evaluated the *list's* body —
+    /// which is where the 10,000-element `Array(items.enumerated())` copy was
+    /// paid, on every hover transition.
+    @State private var isHovered = false
     @State private var thumbnail: NSImage?
     /// QuickLook-generated 38×38 thumbnail for `.file` items (Phase 3F).
     /// `nil` while loading or when QuickLook has nothing for this file type —
@@ -60,10 +64,15 @@ struct ClipRow: View {
         .animation(Theme.selectionSpring, value: isPrimarySelection)
         .animation(Theme.selectionSpring, value: isMultiSelected)
         .animation(.easeOut(duration: 0.12), value: isHovered)
+        .onHover { hovering in
+            guard isHovered != hovering else { return }
+            isHovered = hovering
+        }
         .task(id: item.id) {
-            // Load thumbnail off the main thread, as before.
+            // Load thumbnail off the main thread, as before — now through a
+            // cache (5A-10) and without `lockFocus` (5A-07).
             if item.type == .image && thumbnail == nil {
-                thumbnail = await loadThumbnail()
+                thumbnail = await ImageThumbnailCache.thumbnail(for: item, store: store, size: badgeSize)
             }
             if item.type == .file && fileThumbnail == nil, let url = store.fileURLs(for: item).first {
                 fileThumbnail = await FilePreview.thumbnail(for: url, itemID: item.id, size: badgeSize)
@@ -231,35 +240,6 @@ struct ClipRow: View {
         return AnyShapeStyle(isHovered ? Theme.rowHover : Color.clear)
     }
 
-    // MARK: - Thumbnail
-
-    /// Generate a small thumbnail asynchronously (unchanged from
-    /// `ClipboardItemRow`, but sized for the larger 38pt badge).
-    private func loadThumbnail() async -> NSImage? {
-        let store = self.store
-        let item = self.item
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                guard let original = store.image(for: item) else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-
-                let thumbSize = NSSize(width: 76, height: 76)
-                let thumb = NSImage(size: thumbSize)
-                thumb.lockFocus()
-                original.draw(
-                    in: NSRect(origin: .zero, size: thumbSize),
-                    from: NSRect(origin: .zero, size: original.size),
-                    operation: .copy,
-                    fraction: 1.0
-                )
-                thumb.unlockFocus()
-
-                continuation.resume(returning: thumb)
-            }
-        }
-    }
 }
 
 // MARK: - Drag image (3B)

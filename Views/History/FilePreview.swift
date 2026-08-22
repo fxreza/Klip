@@ -65,18 +65,22 @@ enum FilePreview {
 struct FileQuickLookView: NSViewRepresentable {
     let url: URL
 
-    func makeNSView(context: Context) -> QLPreviewView {
-        // `init?(frame:style:)` is failable in principle; it doesn't fail in
-        // practice for `.normal` style, and there is no reasonable fallback
-        // view to return here if it ever did.
-        let view = QLPreviewView(frame: .zero, style: .normal)!
+    /// `QLPreviewView(frame:style:)` is failable. It does not fail in
+    /// practice for `.normal` style, but force-unwrapping it made a preview
+    /// of a `.file` clip an unrecoverable crash if it ever did (5A-32), so a
+    /// plain `NSView` stands in and the pane simply renders empty.
+    func makeNSView(context: Context) -> NSView {
+        guard let view = QLPreviewView(frame: .zero, style: .normal) else {
+            return NSView(frame: .zero)
+        }
         view.autostarts = true
         view.previewItem = url as QLPreviewItem
         return view
     }
 
-    func updateNSView(_ nsView: QLPreviewView, context: Context) {
-        guard nsView.previewItem?.previewItemURL != url else { return }
-        nsView.previewItem = url as QLPreviewItem
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let preview = nsView as? QLPreviewView else { return }
+        guard preview.previewItem?.previewItemURL != url else { return }
+        preview.previewItem = url as QLPreviewItem
     }
 }

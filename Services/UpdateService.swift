@@ -301,6 +301,13 @@ class UpdateService {
                 return fail("Failed to prepare temp dir: \(error)")
             }
 
+            // Sanity-check the payload before handing it to ditto: an error
+            // page or a truncated download is not worth extracting.
+            let zipSize = ((try? fm.attributesOfItem(atPath: zipURL.path))?[.size] as? NSNumber)?.intValue ?? 0
+            guard zipSize > 100_000, zipSize < 500_000_000 else {
+                return fail("Downloaded asset has an implausible size (\(zipSize) bytes)")
+            }
+
             // 2. Extract zip in Swift so we can inspect it before touching /Applications
             let ditto = Process()
             ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
@@ -320,10 +327,14 @@ class UpdateService {
                 return fail("Klip.app not found in extracted zip at \(newAppURL.path)")
             }
 
-            // 4. Verify code signature before replacing anything
+            // 4. Verify the signature *and* who signed it, before replacing
+            //    anything. `--verify` alone only proves the signature is
+            //    internally consistent — any ad-hoc or self-signed bundle
+            //    passes it, so it could not tell a genuine Klip build from
+            //    anything else that ended up at the download URL (5A-12).
             let codesign = Process()
             codesign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-            codesign.arguments = ["--verify", "--deep", "--strict", newAppURL.path]
+            codesign.arguments = ["--verify", "--strict", newAppURL.path]
             do {
                 try codesign.run(); codesign.waitUntilExit()
                 guard codesign.terminationStatus == 0 else {
@@ -334,27 +345,29 @@ class UpdateService {
                 return fail("Failed to run codesign: \(error)")
             }
 
-            // 5. Write install script — extraction already done, script only copies + opens
-            let script = """
-            #!/bin/bash
-            sleep 2
+            // 4b. The downloaded bundle must carry the same signing identity
+            //     as the app that is running, and our bundle identifier. A
+            //     self-signed identity cannot be pinned with a designated
+            //     requirement, so the running app is the reference.
+            guard let candidate = Self.signingInfo(at: newAppURL.path) else {
+                Self.showIdentityRefusedAlert(reason: "the downloaded app's signature could not be read")
+                return fail("Could not read the downloaded bundle's signing info")
+            }
+            guard let running = Self.signingInfo(at: Bundle.main.bundlePath) else {
+                Self.showIdentityRefusedAlert(reason: "this app's own signature could not be read")
+                return fail("Could not read the running bundle's signing info")
+            }
+            if let reason = Self.identityMismatchReason(candidate: candidate, running: running) {
+                Self.showIdentityRefusedAlert(reason: reason)
+                return fail("Refusing to install: \(reason)")
+            }
+            print("[UpdateService] Signing identity matches the running app")
 
-            rm -rf "/Applications/Klip.app"
-            if [ $? -ne 0 ]; then
-                osascript -e 'display alert "Klip Update Failed" message "Could not remove old app. Try updating manually."'
-                exit 1
-            fi
-
-            cp -R "\(newAppURL.path)" "/Applications/Klip.app"
-            if [ $? -ne 0 ]; then
-                osascript -e 'display alert "Klip Update Failed" message "Could not copy new app. Try updating manually."'
-                exit 1
-            fi
-
-            xattr -cr "/Applications/Klip.app"
-            sleep 1
-            /bin/launchctl asuser $(id -u) /usr/bin/open "/Applications/Klip.app"
-            """
+            // 5. Write install script — extraction already done, the script
+            //    only stages, swaps and opens. Paths are passed as positional
+            //    arguments rather than interpolated into the script text
+            //    (5A-25).
+            let script = Self.installScript()
             do {
                 try script.write(to: scriptURL, atomically: true, encoding: .utf8)
                 print("[UpdateService] Install script written to: \(scriptURL.path)")
@@ -372,10 +385,18 @@ class UpdateService {
                 return fail("Failed to chmod script: \(error)")
             }
 
-            // 7. Launch script detached via nohup so it survives the app quitting
+            // 7. Launch script detached via nohup so it survives the app
+            //    quitting. `sh -c '…' arg0 arg1 arg2` binds $0/$1/$2, so no
+            //    path is ever interpolated into shell text (5A-25).
             let launcher = Process()
             launcher.executableURL = URL(fileURLWithPath: "/bin/sh")
-            launcher.arguments = ["-c", "nohup /bin/bash '\(scriptURL.path)' >/dev/null 2>&1 &"]
+            launcher.arguments = [
+                "-c",
+                "nohup /bin/bash \"$0\" \"$1\" \"$2\" >/dev/null 2>&1 &",
+                scriptURL.path,
+                newAppURL.path,
+                Self.installDestination,
+            ]
             do {
                 try launcher.run()
                 launcher.waitUntilExit() // wait for fork to complete before we exit
@@ -397,6 +418,164 @@ class UpdateService {
                 }
             }
         }.resume()
+    }
+
+    // MARK: - Install script (5A-11 / 5A-25)
+
+    /// Where an update is installed.
+    static let installDestination = "/Applications/Klip.app"
+
+    /// The bundle identifier an update must carry to be installed.
+    static let expectedBundleIdentifier = "com.fxreza.klip"
+
+    /// The installer, as a standalone bash script.
+    ///
+    /// Arguments: `$1` = the extracted new bundle, `$2` = the destination.
+    /// `$3`/`$4` exist only so a test can run this for real without waiting
+    /// two seconds and without launching anything; the app passes neither, so
+    /// production behaviour is the defaults.
+    ///
+    /// The old version did `rm -rf "$2"` and *then* `cp -R`. If the copy
+    /// failed — disk full, the extracted bundle moved, permissions — the user
+    /// was left with no app at all (5A-11); and `rm -rf` returns 0 for a
+    /// missing path, so the `$?` check caught almost nothing. This one stages
+    /// the new bundle next to the destination first, moves the old one aside,
+    /// swaps, and only then deletes the old copy — restoring it if any step
+    /// fails. Every path is quoted.
+    static func installScript() -> String {
+        """
+        #!/bin/bash
+        # Klip updater. $1 = new bundle, $2 = destination,
+        # $3 = seconds to wait first (default 2), $4 = relaunch? 1/0 (default 1).
+        set -u
+
+        NEW_APP="$1"
+        TARGET="$2"
+        WAIT="${3:-2}"
+        RELAUNCH="${4:-1}"
+        STAGE="${TARGET}.new"
+        OLD="${TARGET}.old"
+
+        fail() {
+            osascript -e "display alert \\"Klip Update Failed\\" message \\"$1 Try updating manually.\\"" >/dev/null 2>&1
+            exit 1
+        }
+
+        sleep "$WAIT"
+
+        # Stage beside the destination, on the same volume, so the swap below
+        # is an atomic rename rather than a copy.
+        rm -rf "$STAGE"
+        if ! cp -R "$NEW_APP" "$STAGE"; then
+            rm -rf "$STAGE"
+            fail "Could not stage the new app."
+        fi
+        xattr -cr "$STAGE" >/dev/null 2>&1
+
+        rm -rf "$OLD"
+        if [ -e "$TARGET" ]; then
+            if ! mv "$TARGET" "$OLD"; then
+                rm -rf "$STAGE"
+                fail "Could not move the old app aside."
+            fi
+        fi
+
+        if ! mv "$STAGE" "$TARGET"; then
+            # Put the old app back before giving up.
+            if [ -e "$OLD" ]; then mv "$OLD" "$TARGET"; fi
+            rm -rf "$STAGE"
+            fail "Could not install the new app."
+        fi
+
+        rm -rf "$OLD"
+
+        if [ "$RELAUNCH" = "1" ]; then
+            sleep 1
+            /bin/launchctl asuser $(id -u) /usr/bin/open "$TARGET"
+        fi
+        """
+    }
+
+    // MARK: - Signing identity (5A-12)
+
+    /// What `codesign -dvv` reports about a bundle.
+    struct SigningInfo: Equatable {
+        var identifier: String?
+        /// The `Authority=` chain, leaf first. Empty for an ad-hoc signature.
+        var authorities: [String]
+    }
+
+    /// Parses `codesign -dvv` output (which goes to stderr).
+    static func parseSigningInfo(_ output: String) -> SigningInfo {
+        var identifier: String?
+        var authorities: [String] = []
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("Identifier="), identifier == nil {
+                identifier = String(trimmed.dropFirst("Identifier=".count))
+            } else if trimmed.hasPrefix("Authority=") {
+                authorities.append(String(trimmed.dropFirst("Authority=".count)))
+            }
+        }
+        return SigningInfo(identifier: identifier, authorities: authorities)
+    }
+
+    /// Why `candidate` must not be installed over `running`, or nil if it may.
+    ///
+    /// A self-signed identity cannot be expressed as an anchored designated
+    /// requirement, so the rule is "the update must be signed by exactly the
+    /// same chain as the app asking for it, and must be Klip". That refuses a
+    /// differently-signed bundle at the download URL, which
+    /// `codesign --verify` on its own happily accepted.
+    static func identityMismatchReason(candidate: SigningInfo, running: SigningInfo) -> String? {
+        guard candidate.identifier == expectedBundleIdentifier else {
+            return "the downloaded app identifies itself as \"\(candidate.identifier ?? "nothing")\", not \(expectedBundleIdentifier)"
+        }
+        guard candidate.authorities == running.authorities else {
+            let signer = candidate.authorities.first ?? "no signing authority"
+            let expected = running.authorities.first ?? "no signing authority"
+            return "the downloaded app is signed by \(signer), but this copy of Klip is signed by \(expected)"
+        }
+        return nil
+    }
+
+    /// Reads a bundle's signing info via `codesign -dvv`.
+    static func signingInfo(at path: String) -> SigningInfo? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        process.arguments = ["-dvv", path]
+        let pipe = Pipe()
+        // codesign writes its display output to stderr.
+        process.standardError = pipe
+        process.standardOutput = Pipe()
+        do {
+            try process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            return parseSigningInfo(String(decoding: data, as: UTF8.self))
+        } catch {
+            print("[UpdateService] Failed to run codesign -dvv: \(error)")
+            return nil
+        }
+    }
+
+    private static func showIdentityRefusedAlert(reason: String) {
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.icon = NSApp.applicationIconImage
+            alert.messageText = "Update Refused"
+            alert.informativeText = """
+            Klip did not install this update because \(reason).
+
+            Nothing has been changed. Download the update yourself from \
+            github.com/fxreza/Klip/releases if you were expecting one.
+            """
+            alert.alertStyle = .critical
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
     }
 
     private func showProgressWindow() {

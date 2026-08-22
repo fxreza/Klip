@@ -39,6 +39,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Invalid sort predicate in history list (was causing undefined sort order); replaced with stable pinned-first partition
 - Decode failures silently discard history; now renamed to `history.corrupt-<date>.json` for recovery
 - Settings panel had multiple sources of truth; consolidated into `SettingsManager`
+<!-- 5Cb -->
+- **Keyboard shortcuts hijacked other windows (5A-01)** - the history panel's key monitor is process-wide, so Return in a Save panel, in the Clear History alert or in an update alert was swallowed and pasted the clip into the frontmost app instead, and ⌘C/⌘S/⌘E/⌘L/⌘P/⌘B/⌘1-9 fired while Settings, Permissions or Onboarding had focus; the monitor now only acts on events belonging to the history panel while it is the key window
+- **Copying a very large clip froze the app (5A-04)** - a 15 MB text clip blocked the UI for 5 seconds at capture; classification is capped at the first 64 KB, the `SELECT…FROM` regex is gone, and classification plus the text/RTF/flavors disk writes now run off the main thread (main-thread block: 5,001 ms → 3.7 ms), with capture cadence and duplicate suppression unchanged
+- Image thumbnails were drawn with `lockFocus` off the main thread (5A-07) - now rendered into a bitmap context, which is thread-safe
+- Image thumbnails were re-read and re-rendered from disk on every scroll (5A-10) - now cached per item and size, and evicted when a clip is deleted
+- Updater could leave you with no app at all (5A-11) - the installer staged the new build beside the old one, swaps them, and restores the old app if any step fails
+- Updater accepted any signed build at the download URL (5A-12) - an update must now carry Klip's bundle identifier and the same signing identity as the running app, or it is refused with an explanation; the download's size is sanity-checked too
+- Hovering the list rebuilt the whole 10,000-row array (5A-14), and every keystroke re-folded every clip's searchable text (5A-15, worst case 35.6 ms → 7.4 ms per keystroke at 10,000 clips)
+- Right-clicking a row changed the selection from inside a view update (5A-19) - now handled on the mouse-down
+- A multi-item paste containing images or files could be captured back as a new clip (5A-21)
+- "Save to Disk" deleted the file already at the chosen path before copying, losing it if the copy failed (5A-23)
+- ⇧↑ / ⇧↓ could crash on a stale selection index (5A-22); the index is now clamped whenever the list changes
+- Updater and build scripts quoted paths incorrectly (5A-25, 5A-26); a QuickLook preview could crash on a failed initialiser (5A-32)
+- Row menu entries that act on the whole selection now say so ("Lock 10 Clips"), instead of a single-clip label doing a ten-clip action (5A-30)
+<!-- /5Cb -->
 
 ### Internal
 

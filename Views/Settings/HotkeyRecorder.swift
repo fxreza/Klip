@@ -106,31 +106,50 @@ final class RecorderView: NSView {
         window?.makeFirstResponder(self)
     }
 
+    /// What a key press does to an in-progress recording.
+    ///
+    /// Pulled out of `keyDown` as a pure function so the rules — Escape
+    /// cancels, a combination without ⌘/⌃/⌥ is rejected — are unit-testable
+    /// without a window or a first responder (review-2B test gap #1).
+    enum RecordingOutcome: Equatable {
+        /// Escape: stop recording, change nothing.
+        case cancel
+        /// Not enough modifiers to be a safe shortcut; beep and keep recording.
+        case reject
+        /// Accept this binding.
+        case record(KeyBinding)
+    }
+
+    static func outcome(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> RecordingOutcome {
+        // Escape cancels recording rather than being recordable itself.
+        if keyCode == 53 { return .cancel }
+
+        let mods = KeyModifiers(eventFlags: flags.intersection(.deviceIndependentFlagsMask))
+
+        // Require at least one of ⌘⌃⌥ so a rebind can't collide with
+        // ordinary typing (shift-only is not sufficient).
+        guard mods.contains(.command) || mods.contains(.control) || mods.contains(.option) else {
+            return .reject
+        }
+        return .record(KeyBinding(keyCode: keyCode, modifiers: mods))
+    }
+
     override func keyDown(with event: NSEvent) {
         guard isRecording else {
             super.keyDown(with: event)
             return
         }
 
-        // Escape cancels recording rather than being recordable itself.
-        if event.keyCode == 53 {
+        switch RecorderView.outcome(keyCode: event.keyCode, flags: event.modifierFlags) {
+        case .cancel:
             isRecording = false
-            return
-        }
-
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let mods = KeyModifiers(eventFlags: flags)
-
-        // Require at least one of ⌘⌃⌥ so a rebind can't collide with
-        // ordinary typing (shift-only is not sufficient).
-        guard mods.contains(.command) || mods.contains(.control) || mods.contains(.option) else {
+        case .reject:
             NSSound.beep()
-            return
+        case .record(let binding):
+            onRecord?(binding)
+            isRecording = false
+            window?.makeFirstResponder(nil)
         }
-
-        onRecord?(KeyBinding(keyCode: event.keyCode, modifiers: mods))
-        isRecording = false
-        window?.makeFirstResponder(nil)
     }
 
     override func resignFirstResponder() -> Bool {

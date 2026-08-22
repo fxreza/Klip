@@ -9,6 +9,26 @@ import Foundation
 /// project's `-default-isolation MainActor` build flag.
 enum ContentDetector {
 
+    /// Detection never looks at more than this many UTF-8 bytes of a clip
+    /// (review 5A-04).
+    ///
+    /// Every rule below is worst-case linear-or-worse in the input length —
+    /// `isCode` alone runs a non-greedy `SELECT…FROM` regex, up to 22
+    /// full-string `contains` scans and a `components(separatedBy:)` that
+    /// allocates every line — so classifying a 14.9 MB log tail cost **5.0 s**
+    /// of main-thread time at capture. Nothing a rule can decide needs more
+    /// than the head of a clip: a link/email/phone/colour is a *whole-string*
+    /// match and is rejected the moment the string is longer than the cap,
+    /// and code evidence (JSON shape, a SQL clause, braces + a keyword or two
+    /// indented lines) shows up in the first few lines or not at all.
+    ///
+    /// The one behaviour this gives up is `looksLikeJSON` on a > 64 KB
+    /// document: a truncated object no longer ends in `}`, so a huge JSON
+    /// blob is classified by the symbol/keyword/indentation rule instead of
+    /// by `JSONSerialization` (which in turn would have had to parse the
+    /// whole thing).
+    nonisolated static let detectionInputLimit = 65_536
+
     /// Classifies a single string. Rules are evaluated, in order, on the
     /// *trimmed* text — the first match wins:
     ///  1. `.link`
@@ -18,7 +38,12 @@ enum ContentDetector {
     ///  5. `.code`
     ///  6. `.text` (default)
     nonisolated static func detect(text: String) -> ContentKind {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // `utf8.count` is O(1) on a native Swift string, so an oversized clip
+        // is capped before anything walks or copies it.
+        let capped = text.utf8.count > detectionInputLimit
+            ? String(decoding: text.utf8.prefix(detectionInputLimit), as: UTF8.self)
+            : text
+        let trimmed = capped.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .text }
 
         if isLink(trimmed) { return .link }
@@ -174,12 +199,46 @@ enum ContentDetector {
         return (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil
     }
 
+    /// `\bSELECT\b … \bFROM\b`, without the regex.
+    ///
+    /// The old implementation ran a non-greedy `\bSELECT\b[\s\S]*?\bFROM\b`
+    /// over the whole clip, which is the single most expensive rule here
+    /// (5A-04). This is the same predicate — the first `SELECT` word followed
+    /// somewhere later by a `FROM` word; if no `FROM` follows the first
+    /// `SELECT`, none follows a later one either — as two linear substring
+    /// searches with explicit word-boundary checks.
     private nonisolated static func hasSQLSelectFrom(_ text: String) -> Bool {
-        guard let regex = try? NSRegularExpression(pattern: "\\bSELECT\\b[\\s\\S]*?\\bFROM\\b", options: [.caseInsensitive]) else {
-            return false
+        guard let select = wordRange(of: "SELECT", in: text, from: text.startIndex) else { return false }
+        return wordRange(of: "FROM", in: text, from: select.upperBound) != nil
+    }
+
+    /// First case-insensitive occurrence of `word` in `text` at or after
+    /// `start` that is delimited by non-word characters on both sides (regex
+    /// `\b`: word characters are letters, digits and `_`).
+    private nonisolated static func wordRange(
+        of word: String,
+        in text: String,
+        from start: String.Index
+    ) -> Range<String.Index>? {
+        var searchStart = start
+        while true {
+            guard let found = text.range(
+                of: word,
+                options: [.caseInsensitive],
+                range: searchStart..<text.endIndex
+            ) else { return nil }
+            let beforeOK = found.lowerBound == text.startIndex
+                || !isWordCharacter(text[text.index(before: found.lowerBound)])
+            let afterOK = found.upperBound == text.endIndex
+                || !isWordCharacter(text[found.upperBound])
+            if beforeOK && afterOK { return found }
+            guard found.lowerBound < text.endIndex else { return nil }
+            searchStart = text.index(after: found.lowerBound)
         }
-        let range = NSRange(text.startIndex..., in: text)
-        return regex.firstMatch(in: text, options: [], range: range) != nil
+    }
+
+    private nonisolated static func isWordCharacter(_ character: Character) -> Bool {
+        character == "_" || character.isLetter || character.isNumber
     }
 
     // MARK: - Regex helper
