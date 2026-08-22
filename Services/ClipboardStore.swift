@@ -605,8 +605,29 @@ class ClipboardStore: ObservableObject {
         return NSImage(contentsOf: url)
     }
 
-    func saveImage(_ data: Data) -> String? {
-        let filename = UUID().uuidString + ".png"
+    /// File URL of the stored image asset for `item`, or nil if it isn't an
+    /// image item or carries no filename.
+    func imageURL(for item: ClipboardItem) -> URL? {
+        guard item.type == .image, let filename = item.imageFilename else { return nil }
+        return imagesDirectory.appendingPathComponent(filename)
+    }
+
+    /// The exact bytes captured for `item`'s image, whatever format they were
+    /// stored in (JPEG/PNG/HEIC/GIF/WebP/...). Paste/copy and Save to Disk
+    /// read through this instead of decoding via `image(for:)`, so the
+    /// original encoding never gets lost to an NSImage round-trip.
+    func imageData(for item: ClipboardItem) -> Data? {
+        guard let url = imageURL(for: item) else { return nil }
+        return try? Data(contentsOf: url)
+    }
+
+    /// Writes `data` verbatim to `images/<uuid>.<fileExtension>` and returns
+    /// the filename. `fileExtension` defaults to `png` for legacy callers
+    /// (the fallback NSImage -> PNG conversion path and every pre-6C test
+    /// fixture); real captures pass the extension matching the bytes'
+    /// original format so nothing gets re-encoded.
+    func saveImage(_ data: Data, fileExtension: String = "png") -> String? {
+        let filename = UUID().uuidString + "." + fileExtension
         let url = imagesDirectory.appendingPathComponent(filename)
 
         do {

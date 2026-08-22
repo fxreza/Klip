@@ -732,21 +732,16 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func saveSelectedImage() {
-        if selectedItem?.type == .image, let img = previewImage {
-            PasteController.saveImageToDisk(img)
-        }
+        guard let item = selectedItem, item.type == .image else { return }
+        PasteController.saveImageToDisk(for: item, store: store)
     }
 
-    /// Save an arbitrary image item (row context menu). Reuses the already
-    /// decoded preview when it happens to be the selected item.
+    /// Save an arbitrary image item (row context menu). Reads the stored
+    /// bytes directly (6C) rather than going through the decoded preview, so
+    /// the file written matches the original capture exactly.
     func saveImage(for item: ClipboardItem) {
         guard item.type == .image else { return }
-        if item.id == selectedItem?.id, let img = previewImage {
-            PasteController.saveImageToDisk(img)
-            return
-        }
-        guard let img = store.image(for: item) else { return }
-        PasteController.saveImageToDisk(img)
+        PasteController.saveImageToDisk(for: item, store: store)
     }
 
     func extractTextFromSelection() async {

@@ -189,31 +189,99 @@ class ClipboardWatcher: ObservableObject {
             return
         }
         
-        // Try to capture image. The pasteboard read stays on main; the
-        // PNG re-encode (a full decode + re-compress, tens of ms for a
-        // retina screenshot) and the disk write go to `captureQueue`,
-        // like the text branch above (5A-04).
-        if let rawImageData = rawImageData(from: pasteboard) {
+        // Try to capture image. The pasteboard read stays on main; the disk
+        // write (and, only on the fallback path, the PNG re-encode — a full
+        // decode + re-compress, tens of ms for a retina screenshot) go to
+        // `captureQueue`, like the text branch above (5A-04).
+        //
+        // Verbatim path first (6C): a JPEG/PNG/HEIC/GIF/WebP already on the
+        // pasteboard is stored byte-for-byte, under its real extension — no
+        // decode, no re-encode, no size cap. Only when none of those five
+        // representations are present (TIFF-only, or a vector/PDF image
+        // type) do we fall back to today's NSImage -> PNG conversion, which
+        // is where the 4096 px cap applies (see `pngData(from:)`).
+        if let verbatim = verbatimImageData(from: pasteboard) {
+            let knownHash = lastContentHash
+            captureQueue.async { [weak self] in
+                self?.finishImageCapture(
+                    verbatim.data,
+                    fileExtension: verbatim.fileExtension,
+                    uti: verbatim.uti,
+                    knownHash: knownHash,
+                    sourceApp: sourceApp
+                )
+            }
+        } else if let rawImageData = rawImageData(from: pasteboard) {
             // 5A-29: read `lastContentHash` here, on main, instead of from
             // the background closure.
             let knownHash = lastContentHash
             captureQueue.async { [weak self] in
-                self?.finishImageCapture(rawImageData, knownHash: knownHash, sourceApp: sourceApp)
+                self?.finishImageCaptureFallback(rawImageData, knownHash: knownHash, sourceApp: sourceApp)
             }
         }
     }
 
-    /// Background half of a pasteboard image capture.
-    private func finishImageCapture(_ rawImageData: Data, knownHash: Int, sourceApp: String?) {
-        let imageData = pngData(from: rawImageData) ?? rawImageData
+    /// One of the five raster representations `verbatimImageData` looked for
+    /// on the pasteboard, kept exactly as captured.
+    private struct VerbatimImage {
+        let data: Data
+        let fileExtension: String
+        let uti: String
+    }
+
+    /// Picks the first available image representation on `pasteboard` in
+    /// verbatim-preserving order — `public.jpeg` -> `.jpg`, `public.png` ->
+    /// `.png`, `public.heic` -> `.heic`, `com.compuserve.gif` -> `.gif`,
+    /// `public.webp` -> `.webp` — or `nil` if none of the five are present,
+    /// in which case the caller falls back to `rawImageData`/`pngData`.
+    private func verbatimImageData(from pasteboard: NSPasteboard) -> VerbatimImage? {
+        let candidates: [(NSPasteboard.PasteboardType, String, String)] = [
+            (NSPasteboard.PasteboardType("public.jpeg"), "jpg", "public.jpeg"),
+            (.png, "png", "public.png"),
+            (NSPasteboard.PasteboardType("public.heic"), "heic", "public.heic"),
+            (NSPasteboard.PasteboardType("com.compuserve.gif"), "gif", "com.compuserve.gif"),
+            (NSPasteboard.PasteboardType("public.webp"), "webp", "public.webp"),
+        ]
+        for (type, ext, uti) in candidates {
+            if let data = pasteboard.data(forType: type) {
+                return VerbatimImage(data: data, fileExtension: ext, uti: uti)
+            }
+        }
+        return nil
+    }
+
+    /// Background half of a verbatim pasteboard image capture (6C): the
+    /// bytes are stored exactly as received, so the dedupe hash is the hash
+    /// of those same bytes.
+    private func finishImageCapture(_ data: Data, fileExtension: String, uti: String, knownHash: Int, sourceApp: String?) {
+        let hash = data.hashValue
+
+        // Skip consecutive duplicates
+        guard hash != knownHash else { return }
+
+        guard let filename = store.saveImage(data, fileExtension: fileExtension) else { return }
+        var item = ClipboardItem.image(filename: filename, uti: uti, sourceApp: sourceApp)
+        item.kind = .image
+        let captured = item
+        DispatchQueue.main.async { [weak self] in
+            self?.lastContentHash = hash
+            self?.store.add(captured)
+        }
+    }
+
+    /// Background half of a pasteboard image capture with no verbatim raster
+    /// representation available (TIFF-only, or a vector/PDF image type):
+    /// decode via `NSImage` and re-encode as PNG. This is the only image
+    /// capture path the 4096 px cap applies to.
+    private func finishImageCaptureFallback(_ rawImageData: Data, knownHash: Int, sourceApp: String?) {
+        guard let imageData = pngData(from: rawImageData) else { return }
         let hash = imageData.hashValue
 
         // Skip consecutive duplicates
         guard hash != knownHash else { return }
 
-        // Save image to disk
-        guard let filename = store.saveImage(imageData) else { return }
-        var item = ClipboardItem.image(filename: filename, sourceApp: sourceApp)
+        guard let filename = store.saveImage(imageData, fileExtension: "png") else { return }
+        var item = ClipboardItem.image(filename: filename, uti: "public.png", sourceApp: sourceApp)
         item.kind = .image
         let captured = item
         DispatchQueue.main.async { [weak self] in
@@ -273,27 +341,50 @@ class ClipboardWatcher: ObservableObject {
         }
     }
 
-    /// The raw `.png`/`.tiff` bytes on the pasteboard, if any. Cheap enough
-    /// to run on the poll thread; the conversion below is not.
+    /// The raw `.tiff` bytes on the pasteboard, if any — the "no verbatim
+    /// raster representation" fallback case (`.png`/`.jpeg`/etc are all
+    /// handled by `verbatimImageData` before this is ever reached). Cheap
+    /// enough to run on the poll thread; the conversion below is not.
     private func rawImageData(from pasteboard: NSPasteboard) -> Data? {
-        let imageTypes: [NSPasteboard.PasteboardType] = [.png, .tiff]
-        for type in imageTypes {
-            if let data = pasteboard.data(forType: type) { return data }
-        }
-        return nil
+        pasteboard.data(forType: .tiff)
     }
 
-    /// Normalises arbitrary image bytes to PNG. Returns `nil` when the data
-    /// cannot be decoded, in which case callers keep the original bytes —
-    /// the same fallback the old `getImageData` had.
+    /// Longest edge, in pixels, a fallback-path PNG is allowed to keep.
+    /// Verbatim JPEG/PNG/HEIC/GIF/WebP captures never go through this
+    /// function and are stored at their original size no matter how large.
+    /// `nonisolated` so the `nonisolated` `pngData(from:)` below (itself
+    /// off-main so a large decode/re-encode never blocks the poll timer)
+    /// can read it without hopping to the main actor.
+    private nonisolated static let fallbackMaxDimension: CGFloat = 4096
+
+    /// Normalises arbitrary image bytes to PNG, downscaled to at most
+    /// `fallbackMaxDimension` px on the long edge. Used only for the
+    /// TIFF-only / vector-PDF fallback path — every verbatim raster capture
+    /// bypasses this entirely and keeps its original bytes and size.
+    /// Returns `nil` when the data cannot be decoded.
     private nonisolated func pngData(from data: Data) -> Data? {
         guard let image = NSImage(data: data),
               let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let png = bitmap.representation(using: .png, properties: [:]) else {
+              let bitmap = NSBitmapImageRep(data: tiffData) else {
             return nil
         }
-        return png
+
+        let maxDimension = Self.fallbackMaxDimension
+        let width = CGFloat(bitmap.pixelsWide)
+        let height = CGFloat(bitmap.pixelsHigh)
+        guard width > maxDimension || height > maxDimension else {
+            return bitmap.representation(using: .png, properties: [:])
+        }
+
+        let scale = maxDimension / max(width, height)
+        let newSize = NSSize(width: (width * scale).rounded(), height: (height * scale).rounded())
+        guard let resized = ImageThumbnailCache.render(image, size: newSize) else {
+            return bitmap.representation(using: .png, properties: [:])
+        }
+        return resized.tiffRepresentation
+            .flatMap { NSBitmapImageRep(data: $0) }?
+            .representation(using: .png, properties: [:])
+            ?? bitmap.representation(using: .png, properties: [:])
     }
     
     /// Check if a file path points to an image by examining its UTType
@@ -307,29 +398,27 @@ class ClipboardWatcher: ObservableObject {
         return false
     }
     
-    /// Read image file from disk, convert to PNG, and store as image item
+    /// Read a single image file copied in Finder and store it verbatim (6C):
+    /// its bytes and extension are kept exactly as they are on disk — never
+    /// re-encoded, whatever the format (JPEG/PNG/HEIC/GIF/WebP/TIFF/...).
     private func processImageFile(_ filePath: String, knownHash: Int, sourceApp: String?) {
         do {
-            // Read file bytes
             let fileURL = URL(fileURLWithPath: filePath)
             let fileData = try Data(contentsOf: fileURL)
 
-            // Convert to PNG using the same pattern as pasteboard image handling
-            guard let pngData = pngData(from: fileData) else {
-                print("[Buffer] Failed to convert image file: \(filePath)")
-                return
-            }
-
-            // Check for duplicate using hash
-            let hash = pngData.hashValue
+            // Check for duplicate using hash of the exact bytes.
+            let hash = fileData.hashValue
             guard hash != knownHash else {
                 // print("[Buffer] Duplicate image file detected: \(filePath)")
                 return
             }
 
+            let ext = fileURL.pathExtension.isEmpty ? "png" : fileURL.pathExtension.lowercased()
+            let uti = ClipboardItem.uti(forExtension: ext)
+
             // Save image to disk and add to store
-            if let filename = store.saveImage(pngData) {
-                var item = ClipboardItem.image(filename: filename, sourceApp: sourceApp)
+            if let filename = store.saveImage(fileData, fileExtension: ext) {
+                var item = ClipboardItem.image(filename: filename, uti: uti, sourceApp: sourceApp)
                 item.kind = .image
                 DispatchQueue.main.async { [weak self] in
                     self?.lastContentHash = hash

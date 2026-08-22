@@ -18,8 +18,10 @@ extension HistoryViewModel {
     // MARK: - Save to disk
 
     /// ⌘S / the preview pane's save action, generalized to any item kind.
-    /// Images save as PNG (unchanged), text saves as `.txt`, files save
-    /// straight to a path (single) or into a chosen folder (multiple).
+    /// Images save in their original stored format (6C — a captured JPEG
+    /// saves as `.jpg`, never re-encoded to PNG), text saves as `.txt`,
+    /// files save straight to a path (single) or into a chosen folder
+    /// (multiple).
     func saveSelectedToDisk() {
         guard let item = selectedItem else { return }
         if store.fileIsMissing(item) {
@@ -57,14 +59,15 @@ extension HistoryViewModel {
                 for (index, item) in items.enumerated() {
                     switch item.type {
                     case .image:
-                        guard let image = store.image(for: item),
-                              let tiffData = image.tiffRepresentation,
-                              let bitmap = NSBitmapImageRep(data: tiffData),
-                              let pngData = bitmap.representation(using: .png, properties: [:]) else { continue }
-                        let name = "image-\(String(format: "%04d", index + 1)).png"
+                        // 6C: write the original stored bytes under the
+                        // original extension — no PNG re-encode.
+                        guard let data = store.imageData(for: item) else { continue }
+                        let ext = (item.imageFilename as NSString?)?.pathExtension.lowercased()
+                        let safeExt = (ext?.isEmpty ?? true) ? "png" : ext!
+                        let name = "image-\(String(format: "%04d", index + 1)).\(safeExt)"
                         let dest = PasteController.uniqueURL(for: name, in: folderURL)
                         do {
-                            try pngData.write(to: dest)
+                            try data.write(to: dest)
                         } catch {
                             print("[Buffer] Save All: failed to write \(name): \(error)")
                         }
