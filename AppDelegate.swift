@@ -92,6 +92,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         clipboardWatcher?.stopWatching()
         hotkeyManager?.unregister()
+        clipboardStore.flushPendingSave()
         print("[AppDelegate] applicationWillTerminate — call stack:")
         Thread.callStackSymbols.forEach { print($0) }
     }

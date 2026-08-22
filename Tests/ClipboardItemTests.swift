@@ -12,6 +12,13 @@ enum ClipboardItemTests {
         ("decode_missingOptionalFields_usesDefaults", testDecodeMissingOptionalFields),
         ("previewText_capsAt200Chars", testPreviewTextCap),
         ("isEditable_falseAbove5000Chars", testIsEditableLimit),
+        ("isProtected_coversEveryProtectionFlag", testIsProtected),
+        ("previewText_usesFileAttachmentName", testPreviewTextFileAttachment),
+        ("jsonRoundTrip_preservesNewV2Fields", testJSONRoundTripNewFields),
+        ("decode_v25File_defaultsNewFields", testDecodeLegacyDefaultsNewFields),
+        ("decode_ignoresRemovedTruncationKeys", testDecodeIgnoresRemovedKeys),
+        ("contentKind_labelAndSymbolForEveryCase", testContentKindMetadata),
+        ("fileAttachment_isReference", testFileAttachmentIsReference),
     ]
 
     // MARK: - Ported from BufferTests
@@ -70,9 +77,7 @@ enum ClipboardItemTests {
             isPinned: true,
             isBookmarked: true,
             tags: ["work", "urgent"],
-            ocrText: "hello ocr",
-            isTruncated: false,
-            originalSizeBytes: 12345
+            ocrText: "hello ocr"
         )
 
         let data = try JSONEncoder().encode(original)
@@ -83,8 +88,6 @@ enum ClipboardItemTests {
         try expectEqual(decoded.textContent, original.textContent, "textContent should round-trip")
         try expectEqual(decoded.textFilename, original.textFilename, "textFilename should round-trip")
         try expectEqual(decoded.imageFilename, original.imageFilename, "imageFilename should round-trip")
-        try expectEqual(decoded.isTruncated, original.isTruncated, "isTruncated should round-trip")
-        try expectEqual(decoded.originalSizeBytes, original.originalSizeBytes, "originalSizeBytes should round-trip")
         try expectEqual(decoded.timestamp, original.timestamp, "timestamp should round-trip")
     }
 
@@ -100,9 +103,7 @@ enum ClipboardItemTests {
             isPinned: false,
             isBookmarked: true,
             tags: ["screenshot"],
-            ocrText: nil,
-            isTruncated: false,
-            originalSizeBytes: nil
+            ocrText: nil
         )
 
         let data = try JSONEncoder().encode(original)
@@ -112,7 +113,6 @@ enum ClipboardItemTests {
         try expectEqual(decoded.imageFilename, original.imageFilename, "imageFilename should round-trip")
         try expectEqual(decoded.tags, original.tags, "tags should round-trip")
         try expectNil(decoded.textContent, "textContent should stay nil for an image item")
-        try expectNil(decoded.originalSizeBytes, "originalSizeBytes should stay nil when absent")
     }
 
     // MARK: - Forward-compat contract (buffer.md section 2)
@@ -164,5 +164,156 @@ enum ClipboardItemTests {
 
         let shortItem = ClipboardItem.text("short")
         try expect(shortItem.isEditable, "short text item should be editable")
+    }
+
+    // MARK: - Phase 1B additions
+
+    static func testIsProtected() throws {
+        let plain = ClipboardItem.text("plain")
+        try expect(!plain.isProtected, "a loose item is not protected")
+
+        var pinned = plain; pinned.isPinned = true
+        var bookmarked = plain; bookmarked.isBookmarked = true
+        var tagged = plain; tagged.tags = ["t"]
+        var locked = plain; locked.isLocked = true
+        var foldered = plain; foldered.folderID = UUID()
+
+        try expect(pinned.isProtected, "pinned items are protected from eviction")
+        try expect(bookmarked.isProtected, "bookmarked items are protected from eviction")
+        try expect(tagged.isProtected, "tagged items are protected from eviction")
+        try expect(locked.isProtected, "locked items are protected from eviction")
+        try expect(foldered.isProtected, "foldered items are protected from eviction")
+
+        // Only isLocked blocks deletion; the other flags do not.
+        try expect(!pinned.isLocked, "pinning must not imply a lock")
+        try expect(!foldered.isLocked, "the model does not lock on its own — the store does that when filing")
+    }
+
+    static func testPreviewTextFileAttachment() throws {
+        let single = ClipboardItem(
+            type: .text,
+            textContent: "ignored",
+            fileAttachment: FileAttachment(originalName: "Report.pdf", byteSize: 10)
+        )
+        try expectEqual(single.previewText, "Report.pdf", "a file item previews as its original name")
+        try expect(single.isFile, "an item with an attachment is a file item")
+
+        let multiple = ClipboardItem(
+            type: .text,
+            fileAttachment: FileAttachment(
+                originalName: "Report.pdf",
+                additionalNames: ["Notes.txt", "Data.csv"],
+                byteSize: 30
+            )
+        )
+        try expectEqual(multiple.previewText, "Report.pdf +2", "extra files are summarised with a +N suffix")
+
+        try expect(!ClipboardItem.text("hi").isFile, "a plain text item is not a file item")
+    }
+
+    static func testJSONRoundTripNewFields() throws {
+        let folderID = UUID()
+        let attachment = FileAttachment(
+            originalName: "Deck.key",
+            additionalNames: ["Script.md"],
+            storedRelativePath: nil,
+            referencePath: "/Users/someone/Desktop/Deck.key",
+            bookmark: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+            uti: "com.apple.keynote.key",
+            byteSize: 1_048_576
+        )
+        let original = ClipboardItem(
+            type: .text,
+            timestamp: Date(timeIntervalSince1970: 1_700_000_900),
+            sourceApp: "Finder",
+            textContent: "Deck.key",
+            isLocked: true,
+            folderID: folderID,
+            kind: .file,
+            fileAttachment: attachment,
+            rtfFilename: "deck.rtf",
+            flavorsFilename: "deck.plist"
+        )
+
+        let decoded = try JSONDecoder().decode(ClipboardItem.self, from: JSONEncoder().encode(original))
+        try expectEqual(decoded, original, "an item with every new field should round-trip")
+        try expectEqual(decoded.isLocked, true, "isLocked should round-trip")
+        try expectEqual(decoded.folderID, folderID, "folderID should round-trip")
+        try expectEqual(decoded.kind, .file, "kind should round-trip")
+        try expectEqual(decoded.fileAttachment, attachment, "fileAttachment should round-trip")
+        try expect(decoded.fileAttachment?.isReference == true, "a reference attachment stays a reference")
+        try expectEqual(decoded.rtfFilename, "deck.rtf", "rtfFilename should round-trip")
+        try expectEqual(decoded.flavorsFilename, "deck.plist", "flavorsFilename should round-trip")
+    }
+
+    static func testDecodeLegacyDefaultsNewFields() throws {
+        // A v2.5.0 history entry: none of the Phase 1B keys exist.
+        let json = """
+        {
+            "id": "\(UUID().uuidString)",
+            "type": "text",
+            "timestamp": 1700000000,
+            "textContent": "old clip",
+            "isPinned": true,
+            "isBookmarked": false,
+            "tags": ["work"]
+        }
+        """
+        let decoded = try JSONDecoder().decode(ClipboardItem.self, from: Data(json.utf8))
+
+        try expectEqual(decoded.isLocked, false, "missing isLocked should default to false")
+        try expectNil(decoded.folderID, "missing folderID should default to nil")
+        try expectNil(decoded.kind, "missing kind should stay nil (not yet detected)")
+        try expectNil(decoded.fileAttachment, "missing fileAttachment should default to nil")
+        try expectNil(decoded.rtfFilename, "missing rtfFilename should default to nil")
+        try expectNil(decoded.flavorsFilename, "missing flavorsFilename should default to nil")
+        try expect(decoded.isProtected, "a tagged, pinned legacy item is still protected")
+        try expect(!decoded.isFile, "a legacy text item is not a file item")
+    }
+
+    static func testDecodeIgnoresRemovedKeys() throws {
+        // isTruncated / originalSizeBytes were removed in Phase 1B. Old files
+        // still carry them and must decode without complaint.
+        let json = """
+        {
+            "id": "\(UUID().uuidString)",
+            "type": "text",
+            "timestamp": 1700000000,
+            "textContent": "preview only",
+            "isTruncated": true,
+            "originalSizeBytes": 99999999
+        }
+        """
+        let decoded = try JSONDecoder().decode(ClipboardItem.self, from: Data(json.utf8))
+        try expectEqual(decoded.textContent, "preview only", "the surviving fields should decode")
+        try expect(decoded.isEditable, "a short text item stays editable")
+    }
+
+    static func testContentKindMetadata() throws {
+        try expectEqual(ContentKind.allCases.count, 9, "there should be nine content kinds")
+        for kind in ContentKind.allCases {
+            try expect(!kind.label.isEmpty, "\(kind.rawValue) should have a label")
+            try expect(!kind.systemImage.isEmpty, "\(kind.rawValue) should have an SF Symbol")
+            let decoded = try JSONDecoder().decode(ContentKind.self, from: JSONEncoder().encode(kind))
+            try expectEqual(decoded, kind, "\(kind.rawValue) should round-trip through JSON")
+        }
+        try expectEqual(ContentKind.code.systemImage, "chevron.left.forwardslash.chevron.right", "code symbol")
+        try expectEqual(ContentKind.richText.rawValue, "richText", "raw values are the stable storage keys")
+    }
+
+    static func testFileAttachmentIsReference() throws {
+        let copied = FileAttachment(originalName: "a.txt", storedRelativePath: "files/x/a.txt", byteSize: 4)
+        try expect(!copied.isReference, "an attachment with a stored path is not a reference")
+
+        let referenced = FileAttachment(originalName: "a.txt", referencePath: "/tmp/a.txt", byteSize: 4)
+        try expect(referenced.isReference, "an attachment without a stored path is a reference")
+
+        let decoded = try JSONDecoder().decode(FileAttachment.self, from: Data("""
+        {"originalName": "a.txt"}
+        """.utf8))
+        try expectEqual(decoded.originalName, "a.txt", "originalName should decode")
+        try expectEqual(decoded.additionalNames, [], "missing additionalNames should default to empty")
+        try expectEqual(decoded.byteSize, 0, "missing byteSize should default to 0")
+        try expect(decoded.isReference, "an attachment with no stored path is a reference")
     }
 }

@@ -141,7 +141,9 @@ struct SettingsView: View {
                 HStack(spacing: 12) {
                     ForEach(HistoryLimit.allCases, id: \.self) { tier in
                         Button(action: { 
-                            if tier.rawValue < settings.historyLimit.rawValue {
+                            // 1B-compat: unlimited is rawValue 0, so compare
+                            // caps (nil = unlimited = largest) not raw values.
+                            if (tier.maxItems ?? Int.max) < (settings.historyLimit.maxItems ?? Int.max) {
                                 pendingTier = tier
                                 showingTrimAlert = true
                             } else {
@@ -347,8 +349,8 @@ class SettingsViewModel: ObservableObject {
         self.launchAtLogin = SettingsManager.shared.launchAtLogin
         
         // Load history limit
-        let rawLimit = defaults.integer(forKey: "historyLimit")
-        self.historyLimit = HistoryLimit(rawValue: rawLimit) ?? .essential
+        // 1B-compat: legacy raw values (100/500/1000) map through from(storedRaw:).
+        self.historyLimit = HistoryLimit.from(storedRaw: defaults.object(forKey: "historyLimit") as? Int)
         
         // Load pre-release updates toggle
         self.includePrereleases = defaults.bool(forKey: "includePrereleases")
