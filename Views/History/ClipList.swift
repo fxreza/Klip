@@ -22,21 +22,25 @@ struct ClipList: View {
                 LazyVStack(spacing: 3) {
                     let items = viewModel.filteredItems
 
-                    if items.contains(where: { $0.isPinned }) {
-                        pinnedHeader
-                    }
-
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        // Separator between the pinned group and the rest.
-                        if !item.isPinned && index > 0 && items[index - 1].isPinned {
-                            Rectangle()
-                                .fill(Theme.separator)
-                                .frame(height: 0.5)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
+                    if items.isEmpty, let message = noMatchesMessage {
+                        emptyState(message)
+                    } else {
+                        if items.contains(where: { $0.isPinned }) {
+                            pinnedHeader
                         }
 
-                        row(item, at: index)
+                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                            // Separator between the pinned group and the rest.
+                            if !item.isPinned && index > 0 && items[index - 1].isPinned {
+                                Rectangle()
+                                    .fill(Theme.separator)
+                                    .frame(height: 0.5)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                            }
+
+                            row(item, at: index)
+                        }
                     }
                 }
                 .padding(8)
@@ -63,6 +67,27 @@ struct ClipList: View {
                 }
             }
         }
+    }
+
+    // MARK: - Empty state
+
+    /// Help text shown only when a non-empty, non-`#tag` query matches
+    /// nothing — a bare empty history or an empty tag/chip result stays
+    /// silent, as before.
+    private var noMatchesMessage: String? {
+        let query = viewModel.debouncedSearchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty, !query.hasPrefix("#") else { return nil }
+        return "No clips match \"\(query)\". Try a tag with #, or a chip filter."
+    }
+
+    private func emptyState(_ message: String) -> some View {
+        Text(message)
+            .font(.klip(.rowSubtitle))
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 40)
+            .padding(.horizontal, 24)
     }
 
     // MARK: - Pieces
