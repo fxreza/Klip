@@ -46,6 +46,8 @@ final class RecorderView: NSView {
     }
     var onRecord: ((KeyBinding) -> Void)?
 
+    private static let textFontSize: CGFloat = 12 // semantic: .footnote
+
     override var acceptsFirstResponder: Bool { isRebindable }
     override var intrinsicContentSize: NSSize { NSSize(width: 120, height: 24) }
 
@@ -90,7 +92,7 @@ final class RecorderView: NSView {
         }
 
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .font: NSFont.systemFont(ofSize: RecorderView.textFontSize, weight: .medium),
             .foregroundColor: color
         ]
         let size = (text as NSString).size(withAttributes: attrs)

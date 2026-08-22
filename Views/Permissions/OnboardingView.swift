@@ -16,7 +16,7 @@ struct OnboardingView: View {
     var body: some View {
         VStack(spacing: 18) {
             Image(systemName: "doc.on.clipboard.fill")
-                .font(.system(size: 46))
+                .font(.largeTitle)
                 .foregroundStyle(Theme.accentGradient)
 
             VStack(spacing: 6) {
