@@ -45,6 +45,21 @@ Phase 0 and Phase 1 tasks 1A/1C can start without these. Everything else waits.
 | **D6** | File clips: copy the file into Buffer's storage (survives the original being moved/deleted, costs disk) or only reference the path? | **Copy if <= 50 MB per file**, otherwise store a reference + security bookmark and show a "reference" badge. Cap adjustable in Settings. |
 | **D7** | iCloud: iCloud Drive file sync (no developer account needed, works with current build) or CloudKit (needs paid Apple Developer Program, sandboxed signed build, 5-8 extra days)? Do you have an Apple Developer Program membership? | **iCloud Drive file sync** (Pesty's direct-download approach, improved with per-device files + tombstones). CloudKit only if you already pay for the program and want push-speed sync. |
 
+### Decisions log (answered 2026-08-22, all phases approved to run unattended)
+
+| # | Decision |
+|---|---|
+| D1 | Baseline committed (`baseline-v2.5.0`), fork created and renamed: **https://github.com/fxreza/Klip** (`origin`), pushed at each phase tag. Commits use the GitHub noreply identity (email privacy). |
+| D2 | **App renamed to "Klip"**: bundle id `com.fxreza.klip`, data dir `~/Library/Application Support/Klip` (history + defaults copied from Buffer on first launch, originals untouched), updater points at `fxreza/Klip` releases, and I **publish GitHub release `klip-v3.0.0`** with the DMGs at the end. Swift type names and notification names stay as-is internally. |
+| D3 | History limit presets 1,000 / 5,000 / 10,000 / Unlimited, default 10,000. |
+| D4 | Clips moved into a folder stay visible in "All". |
+| D5 | Rich-text capture approved; default paste keeps formatting; explicit Plain option; setting "Always paste as plain text". |
+| D6 | File clips copied into storage up to a cap chosen from 1 / 5 / 10 / 50 / 100 / 500 MB / Unlimited or a custom value; above the cap = reference + bookmark. Default 50 MB. |
+| D7 | iCloud Drive file sync. No CloudKit. |
+| Signing | Builds signed with the local self-signed "QTranslate Dev" identity (stable identity so Accessibility grant survives rebuilds); ad-hoc fallback. |
+| Install | At the end: back up `~/Library/Application Support/Buffer` to `releases/backup-<date>/`, quit upstream Buffer, **move /Applications/Buffer.app to Trash**, install `/Applications/Klip.app`, launch. User grants Accessibility once on return. |
+| Testing | Test builds always run with `KLIP_DATA_DIR` pointing at a scratch dir and `KLIP_DEBUG=1` (Darwin-notification hooks to show/hide the window) so the user's live data and hotkey are never touched. |
+
 Decided by me (say if you disagree): min macOS stays 13.0; window becomes Clipfield-style borderless material panel (still resizable, size persisted); pinned keeps float-to-top; Favorites = existing bookmark/star flag; lock on move-into-folder, lock state unchanged on move-out; no third-party packages; Xcode project kept in sync but `swiftc` script is the canonical build (no Xcode here).
 
 ---
