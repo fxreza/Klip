@@ -69,6 +69,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Phase 4A: iCloud Drive sync. Attaching wires the store's mutation /
+        // delete hooks; `startIfEnabled` starts watching only when the user
+        // turned sync on and iCloud Drive is actually there, and keeps
+        // listening for that setting changing.
+        CloudDriveSync.shared.attach(store: clipboardStore)
+        CloudDriveSync.shared.startIfEnabled()
+
         // Initialize clipboard watcher
         clipboardWatcher = ClipboardWatcher(store: clipboardStore)
         clipboardWatcher?.startWatching()
@@ -111,6 +118,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardWatcher?.stopWatching()
         hotkeyManager?.unregister()
         clipboardStore.flushPendingSave()
+        // Phase 4A: stop watching, then get this session's clips into iCloud
+        // Drive before the process goes away (the 2 s push debounce may not
+        // have fired yet).
+        if CloudDriveSync.shared.isActive {
+            CloudDriveSync.shared.stop()
+            CloudDriveSync.shared.pushSynchronously()
+        }
         print("[AppDelegate] applicationWillTerminate — call stack:")
         Thread.callStackSymbols.forEach { print($0) }
     }

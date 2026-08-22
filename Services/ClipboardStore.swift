@@ -88,6 +88,7 @@ class ClipboardStore: ObservableObject {
         loadHistory()
         backfillKindsIfNeeded()
         loadFolders()
+        loadSyncIgnore()   // Phase 4A
 
         NotificationCenter.default.addObserver(
             self,
@@ -145,12 +146,15 @@ class ClipboardStore: ObservableObject {
             // evicted and never count toward the limit.
             var unprotectedCount = trimmed.reduce(0) { $0 + ($1.isProtected ? 0 : 1) }
             guard unprotectedCount > limit else { return }
+            var evicted: [UUID] = []   // Phase 4A
             while unprotectedCount > limit,
                   let idx = trimmed.lastIndex(where: { !$0.isProtected }) {
                 self.deleteAssociatedFiles(for: trimmed[idx])
+                evicted.append(trimmed[idx].id)   // Phase 4A
                 trimmed.remove(at: idx)
                 unprotectedCount -= 1
             }
+            self.noteEvicted(evicted)   // Phase 4A: one batched sync-ignore write
             self.items = trimmed
             self.scheduleSave()
         }
@@ -186,6 +190,7 @@ class ClipboardStore: ObservableObject {
                   let indexToRemove = items.lastIndex(where: { !$0.isProtected }) {
                 let removed = items.remove(at: indexToRemove)
                 deleteAssociatedFiles(for: removed)
+                noteEvicted([removed.id])   // Phase 4A
                 unprotectedCount -= 1
             }
         }
@@ -206,6 +211,7 @@ class ClipboardStore: ObservableObject {
             guard !self.items[index].isLocked else { return }
             let removed = self.items.remove(at: index)
             self.deleteAssociatedFiles(for: removed)
+            self.noteDeleted([removed.id])   // Phase 4A
             didDelete = true
             self.scheduleSave()
         }
@@ -233,6 +239,7 @@ class ClipboardStore: ObservableObject {
             for item in removable {
                 self.deleteAssociatedFiles(for: item)
             }
+            self.noteDeleted(Array(removableIDs))   // Phase 4A
 
             result = DeleteResult(deleted: removable.count, skippedLocked: skipped)
             self.scheduleSave()
@@ -246,6 +253,7 @@ class ClipboardStore: ObservableObject {
             guard let self = self else { return }
             guard let index = self.items.firstIndex(where: { $0.id == item.id }) else { return }
             self.items[index].isPinned.toggle()
+            self.touchItem(at: index)   // Phase 4A
             self.scheduleSave()
         }
     }
@@ -256,6 +264,7 @@ class ClipboardStore: ObservableObject {
             guard let self = self else { return }
             guard let index = self.items.firstIndex(where: { $0.id == item.id }) else { return }
             self.items[index].isBookmarked.toggle()
+            self.touchItem(at: index)   // Phase 4A
             self.scheduleSave()
         }
     }
@@ -268,6 +277,7 @@ class ClipboardStore: ObservableObject {
             guard let self = self else { return }
             guard let index = self.items.firstIndex(where: { $0.id == item.id }) else { return }
             self.items[index].isLocked.toggle()
+            self.touchItem(at: index)   // Phase 4A
             self.scheduleSave()
         }
     }
@@ -281,6 +291,7 @@ class ClipboardStore: ObservableObject {
             for index in self.items.indices where ids.contains(self.items[index].id) {
                 if self.items[index].isLocked != locked {
                     self.items[index].isLocked = locked
+                    self.touchItem(at: index)   // Phase 4A
                     changed = true
                 }
             }
@@ -295,6 +306,7 @@ class ClipboardStore: ObservableObject {
             guard let self = self else { return }
             guard let index = self.items.firstIndex(where: { $0.id == item.id }) else { return }
             self.items[index].textContent = text
+            self.touchItem(at: index)   // Phase 4A
             self.scheduleSave()
         }
     }
@@ -309,6 +321,7 @@ class ClipboardStore: ObservableObject {
             guard let index = self.items.firstIndex(where: { $0.id == item.id }) else { return }
             guard !self.items[index].tags.contains(tag) else { return }
             self.items[index].tags.append(tag)
+            self.touchItem(at: index)   // Phase 4A
             self.scheduleSave()
         }
     }
@@ -318,6 +331,7 @@ class ClipboardStore: ObservableObject {
             guard let self = self else { return }
             guard let index = self.items.firstIndex(where: { $0.id == item.id }) else { return }
             self.items[index].tags.removeAll { $0 == tag }
+            self.touchItem(at: index)   // Phase 4A
             self.scheduleSave()
         }
     }
@@ -328,6 +342,7 @@ class ClipboardStore: ObservableObject {
             guard let self = self else { return }
             guard let index = self.items.firstIndex(where: { $0.id == item.id }) else { return }
             self.items[index].ocrText = text
+            self.touchItem(at: index)   // Phase 4A
             self.scheduleSave()
         }
     }
@@ -353,6 +368,7 @@ class ClipboardStore: ObservableObject {
                 self.deleteAssociatedFiles(for: item)
             }
             self.items.removeAll(where: shouldDelete)
+            self.noteDeleted(doomed.map { $0.id })   // Phase 4A
 
             result = DeleteResult(deleted: doomed.count, skippedLocked: skipped)
             self.scheduleSave()
@@ -386,6 +402,7 @@ class ClipboardStore: ObservableObject {
                     let id = self.items[index].id
                     guard self.items[index].kind == nil, let kind = computed[id] else { continue }
                     self.items[index].kind = kind
+                    self.touchItem(at: index)   // Phase 4A
                     changed = true
                 }
                 if changed {
@@ -423,6 +440,7 @@ class ClipboardStore: ObservableObject {
             guard let self = self else { return }
             guard let index = self.folders.firstIndex(where: { $0.id == id }) else { return }
             self.folders[index].name = finalName
+            self.folders[index].updatedAt = Date()   // Phase 4A
             self.saveFolders()
         }
     }
@@ -454,6 +472,7 @@ class ClipboardStore: ObservableObject {
                 var movedOut = 0
                 for index in self.items.indices where self.items[index].folderID == id {
                     self.items[index].folderID = nil
+                    self.touchItem(at: index)   // Phase 4A
                     movedOut += 1
                 }
                 self.folders.removeAll { $0.id == id }
@@ -469,6 +488,7 @@ class ClipboardStore: ObservableObject {
                 }
                 let doomedIDs = Set(doomed.map { $0.id })
                 self.items.removeAll { doomedIDs.contains($0.id) }
+                self.noteDeleted(Array(doomedIDs))   // Phase 4A
 
                 // Locked items left behind keep the folder alive; the UI asks
                 // for explicit confirmation and calls again with includeLocked.
@@ -484,6 +504,9 @@ class ClipboardStore: ObservableObject {
                 )
             }
 
+            if result.folderDeleted {
+                self.noteFolderDeleted(id)   // Phase 4A
+            }
             self.saveFolders()
             self.scheduleSave()
         }
@@ -504,6 +527,7 @@ class ClipboardStore: ObservableObject {
                 if folderID != nil {
                     self.items[index].isLocked = true
                 }
+                self.touchItem(at: index)   // Phase 4A
                 changed = true
             }
             guard changed else { return }
@@ -541,7 +565,9 @@ class ClipboardStore: ObservableObject {
 
             self.folders = ordered.enumerated().map { offset, folder in
                 var copy = folder
+                guard copy.sortIndex != offset else { return copy }
                 copy.sortIndex = offset
+                copy.updatedAt = Date()   // Phase 4A
                 return copy
             }
             self.saveFolders()
@@ -694,6 +720,7 @@ class ClipboardStore: ObservableObject {
     /// Schedule a debounced write of the current items. Safe to call from the
     /// main thread after any mutation.
     private func scheduleSave() {
+        notifySyncOfLocalMutation()   // Phase 4A
         let snapshot = items
         saveQueue.async { [weak self] in
             guard let self = self else { return }
@@ -858,6 +885,7 @@ class ClipboardStore: ObservableObject {
     /// Folders are tiny and mutated rarely, so they are written straight
     /// through (atomically) rather than debounced.
     private func saveFolders() {
+        notifySyncOfLocalMutation()   // Phase 4A
         let snapshot = folders
         saveQueue.sync {
             do {
@@ -904,6 +932,222 @@ class ClipboardStore: ObservableObject {
         let rtfURL = textsDirectory.appendingPathComponent(rtf)
         if fileManager.fileExists(atPath: rtfURL.path) {
             try? fileManager.removeItem(at: rtfURL)
+        }
+    }
+
+    // ==========================================================================
+    // MARK: - Phase 4A: iCloud Drive sync hooks (owned by task 4A)
+    //
+    // Everything the sync service needs from the store lives in this one block:
+    // the `updatedAt` bump helper used by the mutations above, the two delete
+    // paths it has to tell apart (explicit delete -> tombstone, cap eviction ->
+    // sync-ignore), the merge application path, and the cloud-root override.
+    // Nothing here does any cloud I/O — that is `Services/CloudDriveSync.swift`.
+    // ==========================================================================
+
+    /// Called after any local mutation was scheduled for persistence, so the
+    /// sync service can debounce a push. Never fires while a remote merge is
+    /// being applied (that would push straight back what was just pulled).
+    var onLocalMutation: (() -> Void)?
+
+    /// Ids removed by an **explicit** delete (single, batch, clear, folder
+    /// delete). The sync service turns these into tombstones so the delete
+    /// propagates. Evictions never come through here.
+    var onItemsDeleted: (([UUID]) -> Void)?
+
+    /// A folder the user deleted, for `deletedFolders` tombstones.
+    var onFolderDeleted: ((UUID) -> Void)?
+
+    /// True while `applyRemoteMerge` is writing pulled state into the store.
+    private var isApplyingRemoteMerge = false
+
+    /// Ids this device evicted because of the history cap, with the date. They
+    /// must not come back from another device's snapshot — an eviction is a
+    /// local storage decision, not a delete. Pruned at 30 days
+    /// (`SyncMerge.ignoreLifetime`), persisted in `sync-ignore.json`.
+    private(set) var syncIgnoredIDs: [UUID: Date] = [:]
+
+    private var syncIgnoreFileURL: URL {
+        storageDirectory.appendingPathComponent("sync-ignore.json")
+    }
+
+    private struct SyncIgnoreEntry: Codable {
+        let id: UUID
+        let date: Date
+    }
+
+    private struct SyncIgnoreFile: Codable {
+        var version: Int
+        var ignored: [SyncIgnoreEntry]
+    }
+
+    /// The iCloud Drive container this Mac syncs through, or `nil` when iCloud
+    /// Drive is not set up. `KLIP_CLOUD_ROOT` overrides it the same way
+    /// `KLIP_DATA_DIR` overrides the local store, so manual tests and the test
+    /// suite never touch the user's real iCloud Drive.
+    static var cloudSyncRoot: URL? {
+        if let override = ProcessInfo.processInfo.environment["KLIP_CLOUD_ROOT"], !override.isEmpty {
+            let expanded = (override as NSString).expandingTildeInPath
+            let url = URL(fileURLWithPath: expanded, isDirectory: true)
+            try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            return url
+        }
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs", isDirectory: true)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    // MARK: Storage locations the sync service mirrors
+
+    var syncStorageRoot: URL { storageDirectory }
+    var syncImagesDirectory: URL { imagesDirectory }
+    var syncTextsDirectory: URL { textsDirectory }
+    var syncFilesDirectory: URL { filesDirectory }
+    var syncFlavorsDirectory: URL { flavorsDirectory }
+
+    // MARK: Mutation bookkeeping
+
+    /// Stamps an item as changed now. Called by every mutation above so a
+    /// same-`id` conflict between two Macs resolves to the newer edit.
+    private func touchItem(at index: Int) {
+        guard items.indices.contains(index) else { return }
+        items[index].updatedAt = Date()
+    }
+
+    private func notifySyncOfLocalMutation() {
+        guard !isApplyingRemoteMerge else { return }
+        onLocalMutation?()
+    }
+
+    private func noteDeleted(_ ids: [UUID]) {
+        guard !ids.isEmpty, !isApplyingRemoteMerge else { return }
+        onItemsDeleted?(ids)
+    }
+
+    private func noteFolderDeleted(_ id: UUID) {
+        guard !isApplyingRemoteMerge else { return }
+        onFolderDeleted?(id)
+    }
+
+    /// Records a cap eviction. Deliberately does **not** produce a tombstone:
+    /// other devices keep their copy, this one just does not want it back.
+    private func noteEvicted(_ ids: [UUID]) {
+        guard !isApplyingRemoteMerge else { return }
+        recordEvictions(ids)
+    }
+
+    /// Adds ids to the sync-ignore list unconditionally. `noteEvicted` is the
+    /// guarded entry point for normal mutations; the merge path calls this one
+    /// directly, because trimming a pulled history *is* an eviction even though
+    /// it happens while a merge is being applied.
+    private func recordEvictions(_ ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        let now = Date()
+        for id in ids { syncIgnoredIDs[id] = now }
+        pruneSyncIgnore(now: now)
+        saveSyncIgnore()
+    }
+
+    /// A pull can legitimately bring in more clips than this Mac's history
+    /// limit allows (the other Mac may keep 10,000 where this one keeps 1,000).
+    /// Trim to the limit right away instead of leaving the store over its cap
+    /// until the next copy, using exactly the same rule as `performAdd`:
+    /// protected clips are never evicted and never count. The trimmed ids go
+    /// into the sync-ignore list, so they do not come straight back on the next
+    /// pull, and — because this is an eviction, not a delete — no tombstone is
+    /// written, so the other Mac keeps its copy.
+    private func trimToLimitAfterMerge() {
+        guard let limit = maxItems else { return }
+        var unprotectedCount = items.reduce(0) { $0 + ($1.isProtected ? 0 : 1) }
+        guard unprotectedCount > limit else { return }
+
+        var evicted: [UUID] = []
+        while unprotectedCount > limit,
+              let index = items.lastIndex(where: { !$0.isProtected }) {
+            let removed = items.remove(at: index)
+            deleteAssociatedFiles(for: removed)
+            evicted.append(removed.id)
+            unprotectedCount -= 1
+        }
+        recordEvictions(evicted)
+    }
+
+    private func pruneSyncIgnore(now: Date) {
+        let cutoff = now.addingTimeInterval(-SyncMerge.ignoreLifetime)
+        syncIgnoredIDs = syncIgnoredIDs.filter { $0.value > cutoff }
+    }
+
+    private func loadSyncIgnore() {
+        guard fileManager.fileExists(atPath: syncIgnoreFileURL.path) else { return }
+        do {
+            let data = try Data(contentsOf: syncIgnoreFileURL)
+            let file = try JSONDecoder().decode(SyncIgnoreFile.self, from: data)
+            syncIgnoredIDs = Dictionary(file.ignored.map { ($0.id, $0.date) }, uniquingKeysWith: max)
+            pruneSyncIgnore(now: Date())
+        } catch {
+            print("[Klip] Sync: ignoring unreadable sync-ignore.json: \(error)")
+        }
+    }
+
+    private func saveSyncIgnore() {
+        let snapshot = syncIgnoredIDs
+        let url = syncIgnoreFileURL
+        saveQueue.sync {
+            do {
+                let file = SyncIgnoreFile(
+                    version: 1,
+                    ignored: snapshot.map { SyncIgnoreEntry(id: $0.key, date: $0.value) }
+                        .sorted { $0.id.uuidString < $1.id.uuidString }
+                )
+                try JSONEncoder().encode(file).write(to: url, options: .atomic)
+            } catch {
+                print("[Klip] Sync: failed to write sync-ignore.json: \(error)")
+            }
+        }
+    }
+
+    // MARK: Applying a pull
+
+    /// Writes a merged result from `SyncMerge` into the store. Runs on the main
+    /// actor, deletes the on-disk assets of items the merge dropped, and never
+    /// re-triggers a push (the sync service decides that itself, so a pull can
+    /// never ping-pong).
+    func applyRemoteMerge(_ result: SyncMerge.Result) {
+        performOnMainSync { [weak self] in
+            guard let self = self else { return }
+            self.isApplyingRemoteMerge = true
+            defer { self.isApplyingRemoteMerge = false }
+
+            for removed in result.removedItems {
+                self.deleteAssociatedFiles(for: removed)
+            }
+            self.items = result.items
+            self.folders = result.folders
+            self.sortFolders()
+            self.trimToLimitAfterMerge()
+            self.scheduleSave()
+            self.saveFolders()
+        }
+    }
+
+    /// Marks attachments the push skipped for being over the size cap. Applied
+    /// under the remote-merge guard because it is bookkeeping, not a user edit:
+    /// it must not bump `updatedAt` or schedule another push (it is idempotent,
+    /// so a later push simply finds the flag already set).
+    func markSyncSkippedLarge(ids: Set<UUID>, skipped: Bool = true) {
+        guard !ids.isEmpty else { return }
+        performOnMainSync { [weak self] in
+            guard let self = self else { return }
+            var changed = false
+            self.isApplyingRemoteMerge = true
+            defer { self.isApplyingRemoteMerge = false }
+            for index in self.items.indices where ids.contains(self.items[index].id) {
+                guard self.items[index].fileAttachment != nil,
+                      self.items[index].fileAttachment?.syncSkippedLarge != skipped else { continue }
+                self.items[index].fileAttachment?.syncSkippedLarge = skipped
+                changed = true
+            }
+            if changed { self.scheduleSave() }
         }
     }
 }

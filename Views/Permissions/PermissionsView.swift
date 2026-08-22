@@ -11,9 +11,12 @@ import SwiftUI
 struct PermissionsView: View {
     @ObservedObject var permissions: PermissionsState
     @ObservedObject private var settings = SettingsManager.shared
+    /// Phase 4A: the iCloud Drive row shows the live sync status.
+    @ObservedObject private var sync: CloudDriveSync
 
-    init(permissions: PermissionsState? = nil) {
+    init(permissions: PermissionsState? = nil, sync: CloudDriveSync? = nil) {
         self.permissions = permissions ?? .shared
+        self.sync = sync ?? .shared
     }
 
     var body: some View {
@@ -93,8 +96,24 @@ struct PermissionsView: View {
                 ? "Available for syncing your clipboard history across devices."
                 : "Sign in to iCloud and turn on iCloud Drive to sync your clipboard history across devices."
         ) {
-            EmptyView()
+            // Phase 4A: the live sync status, so this screen answers "is it
+            // actually syncing?" and not just "could it".
+            Text(syncStatus)
+                .font(.klip(.caption))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// Sync status line, mirroring Settings > Sync.
+    private var syncStatus: String {
+        SyncStatusLine.text(
+            enabled: settings.syncEnabled,
+            available: sync.isAvailable,
+            lastPush: sync.lastPush,
+            lastPull: sync.lastPull,
+            devices: sync.otherDevices.map { $0.name }
+        )
     }
 }
 

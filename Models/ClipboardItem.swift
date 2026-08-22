@@ -54,6 +54,14 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     /// (reserved for Phase 3D).
     var flavorsFilename: String? = nil
 
+    // --- Phase 4A (iCloud Drive sync) ---
+    /// Last time any field of this item changed locally. Seeded from
+    /// `timestamp` for items captured (or decoded) before sync existed, and
+    /// bumped by every `ClipboardStore` mutation. The sync merge resolves a
+    /// same-`id` conflict by keeping the record with the newest `updatedAt`.
+    var updatedAt: Date
+    // --- end Phase 4A ---
+
     init(
         id: UUID = UUID(),
         type: ClipboardItemType,
@@ -71,7 +79,8 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         kind: ContentKind? = nil,
         fileAttachment: FileAttachment? = nil,
         rtfFilename: String? = nil,
-        flavorsFilename: String? = nil
+        flavorsFilename: String? = nil,
+        updatedAt: Date? = nil
     ) {
         self.id = id
         self.type = type
@@ -90,12 +99,14 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.fileAttachment = fileAttachment
         self.rtfFilename = rtfFilename
         self.flavorsFilename = flavorsFilename
+        self.updatedAt = updatedAt ?? timestamp
     }
 
     enum CodingKeys: String, CodingKey {
         case id, type, timestamp, sourceApp, textContent, textFilename, imageFilename
         case isPinned, isBookmarked, tags, ocrText
         case isLocked, folderID, kind, fileAttachment, rtfFilename, flavorsFilename
+        case updatedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -117,6 +128,9 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.fileAttachment = try container.decodeIfPresent(FileAttachment.self, forKey: .fileAttachment)
         self.rtfFilename = try container.decodeIfPresent(String.self, forKey: .rtfFilename)
         self.flavorsFilename = try container.decodeIfPresent(String.self, forKey: .flavorsFilename)
+        // Pre-sync files have no `updatedAt`; the capture time is the best
+        // available approximation and keeps merges deterministic.
+        self.updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? self.timestamp
     }
 
     func encode(to encoder: Encoder) throws {
@@ -138,6 +152,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(fileAttachment, forKey: .fileAttachment)
         try container.encodeIfPresent(rtfFilename, forKey: .rtfFilename)
         try container.encodeIfPresent(flavorsFilename, forKey: .flavorsFilename)
+        try container.encode(updatedAt, forKey: .updatedAt)
     }
 
     /// Create a text clipboard item

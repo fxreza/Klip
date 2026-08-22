@@ -198,6 +198,70 @@ final class SettingsManager: ObservableObject {
         }
     }
 
+    // ==========================================================================
+    // MARK: - Phase 4A: iCloud Drive sync (owned by task 4A)
+    //
+    // Keys: sync.enabled, sync.maxAttachmentMB, sync.deviceID, sync.deviceName,
+    // sync.lastPush, sync.lastPull. `deviceID` is a stable UUID minted on first
+    // access; `deviceName` defaults to this Mac's name and is user-editable.
+    // ==========================================================================
+
+    /// Master switch for iCloud Drive sync. Default off — sync is opt-in.
+    @Published var syncEnabled: Bool = false {
+        didSet {
+            guard isLoaded, syncEnabled != oldValue else { return }
+            defaults.set(syncEnabled, forKey: "sync.enabled")
+            NotificationCenter.default.post(name: .klipSyncSettingsChanged, object: nil)
+        }
+    }
+
+    /// Attachments larger than this (in MB) stay local-only. `0` = no cap.
+    @Published var syncMaxAttachmentMB: Int = 50 {
+        didSet {
+            guard isLoaded, syncMaxAttachmentMB != oldValue else { return }
+            defaults.set(syncMaxAttachmentMB, forKey: "sync.maxAttachmentMB")
+            NotificationCenter.default.post(name: .klipSyncSettingsChanged, object: nil)
+        }
+    }
+
+    /// Name shown for this Mac in the other devices' sync status line.
+    @Published var syncDeviceName: String = SettingsManager.defaultDeviceName {
+        didSet {
+            guard isLoaded, syncDeviceName != oldValue else { return }
+            defaults.set(syncDeviceName, forKey: "sync.deviceName")
+            NotificationCenter.default.post(name: .klipSyncSettingsChanged, object: nil)
+        }
+    }
+
+    /// Stable identity of this Mac's sync folder. Minted once and never shown
+    /// to the user.
+    var syncDeviceID: String {
+        if let existing = defaults.string(forKey: "sync.deviceID"), !existing.isEmpty {
+            return existing
+        }
+        let fresh = UUID().uuidString
+        defaults.set(fresh, forKey: "sync.deviceID")
+        return fresh
+    }
+
+    /// Timestamps of the last successful push/pull, for the status line.
+    var syncLastPush: Date? {
+        get { defaults.object(forKey: "sync.lastPush") as? Date }
+        set { defaults.set(newValue, forKey: "sync.lastPush") }
+    }
+
+    var syncLastPull: Date? {
+        get { defaults.object(forKey: "sync.lastPull") as? Date }
+        set { defaults.set(newValue, forKey: "sync.lastPull") }
+    }
+
+    static var defaultDeviceName: String {
+        let name = Host.current().localizedName ?? ""
+        return name.isEmpty ? "This Mac" : name
+    }
+
+    // ==================== end Phase 4A settings ====================
+
     private init() {
         // Initialize with defaults first, then load saved values
         let defaultMods = HotkeyModifiers(shift: true, command: true, option: false, control: false)
@@ -255,6 +319,16 @@ final class SettingsManager: ObservableObject {
         }
         self.windowWidth = defaults.object(forKey: "windowWidth") as? Double
         self.windowHeight = defaults.object(forKey: "windowHeight") as? Double
+
+        // --- Phase 4A: iCloud Drive sync ---
+        self.syncEnabled = defaults.bool(forKey: "sync.enabled")
+        if let raw = defaults.object(forKey: "sync.maxAttachmentMB") as? Int {
+            self.syncMaxAttachmentMB = raw
+        }
+        if let name = defaults.string(forKey: "sync.deviceName"), !name.isEmpty {
+            self.syncDeviceName = name
+        }
+        // --- end Phase 4A ---
 
         isLoaded = true
     }
