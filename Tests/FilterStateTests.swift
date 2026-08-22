@@ -22,6 +22,15 @@ enum FilterStateTests {
         ("chip_text_isTheCatchAllForUndetectedText", testChipText),
         ("chip_specificKinds_requireAnExactKindMatch", testChipSpecificKinds),
         ("scopeChipTagAndQuery_combine", testScopeChipCombine),
+        ("query_matchesOCRText_onImagesWithNoTextContent", testQueryMatchesOCRText),
+        ("query_matchesTagNames_withoutHashPrefix", testQueryMatchesTagNameWithoutHash),
+        ("query_matchesSourceApp", testQueryMatchesSourceApp),
+        ("query_matchesFileNames_originalAndAdditional", testQueryMatchesFileNames),
+        ("query_multiWord_isANDedAcrossAnyField", testQueryMultiWordAND),
+        ("query_isDiacriticInsensitive", testQueryDiacriticInsensitive),
+        ("query_imageWithNoSearchableField_stillExcluded", testQueryImageWithNothingSearchableExcluded),
+        ("query_oldTextContentBehavior_stillWorks", testQueryOldTextContentBehaviorUnchanged),
+        ("apply_10kItems_staysUnderTimingBudget", testApplyTimingBudget),
     ]
 
     // MARK: - Fixtures
@@ -32,10 +41,12 @@ enum FilterStateTests {
         tags: [String] = [],
         bookmarked: Bool = false,
         folder: UUID? = nil,
-        kind: ContentKind? = nil
+        kind: ContentKind? = nil,
+        sourceApp: String? = nil
     ) -> ClipboardItem {
         ClipboardItem(
             type: .text,
+            sourceApp: sourceApp,
             textContent: content,
             isPinned: pinned,
             isBookmarked: bookmarked,
@@ -50,21 +61,30 @@ enum FilterStateTests {
         tags: [String] = [],
         bookmarked: Bool = false,
         folder: UUID? = nil,
-        kind: ContentKind? = nil
+        kind: ContentKind? = nil,
+        sourceApp: String? = nil,
+        ocrText: String? = nil
     ) -> ClipboardItem {
         ClipboardItem(
             type: .image,
+            sourceApp: sourceApp,
             imageFilename: "images/\(UUID().uuidString).png",
             isPinned: pinned,
             isBookmarked: bookmarked,
             tags: tags,
+            ocrText: ocrText,
             folderID: folder,
             kind: kind
         )
     }
 
-    private static func file(_ name: String, bookmarked: Bool = false, folder: UUID? = nil) -> ClipboardItem {
-        var item = ClipboardItem.file(attachment: FileAttachment(originalName: name, byteSize: 10))
+    private static func file(
+        _ name: String,
+        additionalNames: [String] = [],
+        bookmarked: Bool = false,
+        folder: UUID? = nil
+    ) -> ClipboardItem {
+        var item = ClipboardItem.file(attachment: FileAttachment(originalName: name, additionalNames: additionalNames, byteSize: 10))
         item.isBookmarked = bookmarked
         item.folderID = folder
         return item
@@ -308,5 +328,144 @@ enum FilterStateTests {
             FilterState(query: "apple", tag: "work", scope: .folder(folderID), chip: .kind(.link))
         )
         try expectEqual(contents(result), ["apple link"], "every predicate must hold")
+    }
+
+    // MARK: - Search upgrade (OCR / tags / source app / file names)
+
+    /// An image with recognized OCR text and no `textContent` is now found by
+    /// a plain-text query.
+    static func testQueryMatchesOCRText() throws {
+        let items = [
+            text("unrelated note"),
+            image(ocrText: "Invoice #4471 - Total Due"),
+            image(ocrText: "just a screenshot"),
+        ]
+
+        let result = FilterState.apply(items, FilterState(query: "invoice"))
+        try expectEqual(result.count, 1, "only the image whose OCR text contains the query")
+        try expectNil(result.first?.textContent, "the match is the image, not the text item")
+
+        let noMatch = FilterState.apply(items, FilterState(query: "zzz"))
+        try expectEqual(noMatch.count, 0, "an OCR query matching nothing returns an empty list")
+    }
+
+    /// A plain (non-`#`) query now also matches a tag name directly, in
+    /// addition to the existing `#tag` chip-filter path.
+    static func testQueryMatchesTagNameWithoutHash() throws {
+        let items = [
+            text("alpha", tags: ["urgent"]),
+            text("beta", tags: ["later"]),
+            image(tags: ["urgent"]),
+        ]
+
+        let result = FilterState.apply(items, FilterState(query: "urgent"))
+        try expectEqual(contents(result), ["alpha", "<image>"], "tag name match reaches text and image items alike")
+    }
+
+    /// The app the clip was copied from is now searchable.
+    static func testQueryMatchesSourceApp() throws {
+        let items = [
+            text("alpha", sourceApp: "Xcode"),
+            text("beta", sourceApp: "Safari"),
+            image(sourceApp: "Xcode"),
+        ]
+
+        let result = FilterState.apply(items, FilterState(query: "xcode"))
+        try expectEqual(contents(result), ["alpha", "<image>"], "source-app match, case-insensitive")
+    }
+
+    /// File clip names, including the additional names of a multi-file copy,
+    /// are searchable.
+    static func testQueryMatchesFileNames() throws {
+        let items = [
+            file("Invoice.pdf"),
+            file("Report.pdf", additionalNames: ["Appendix-Invoice.pdf", "Notes.txt"]),
+            file("Photo.png"),
+        ]
+
+        let result = FilterState.apply(items, FilterState(query: "invoice"))
+        try expectEqual(contents(result), ["Invoice.pdf", "Report.pdf"], "matches the primary name or any additional name")
+    }
+
+    /// Multi-word queries AND across words, but each word may land in a
+    /// different field (text, tag, source app, OCR, file name, ...).
+    static func testQueryMultiWordAND() throws {
+        let items = [
+            text("release notes", tags: ["urgent"], sourceApp: "Notes"),
+            text("release notes", tags: ["someday"], sourceApp: "Notes"),
+            text("release notes", tags: ["urgent"], sourceApp: "Safari"),
+        ]
+
+        let result = FilterState.apply(items, FilterState(query: "urgent notes"))
+        try expectEqual(result.count, 2, "\"urgent\" (tag) AND \"notes\" (text) must both be present somewhere on the item")
+
+        let none = FilterState.apply(items, FilterState(query: "urgent xylophone"))
+        try expectEqual(none.count, 0, "a word with no match anywhere excludes the item")
+    }
+
+    /// Matching ignores accents/diacritics as well as case.
+    static func testQueryDiacriticInsensitive() throws {
+        let items = [
+            text("café society"),
+            text("plain coffee"),
+        ]
+
+        let result = FilterState.apply(items, FilterState(query: "cafe"))
+        try expectEqual(contents(result), ["café society"], "an unaccented query still finds the accented content")
+
+        let reverse = FilterState.apply(items, FilterState(query: "café"))
+        try expectEqual(contents(reverse), ["café society"], "and vice versa")
+    }
+
+    /// An image with no OCR text, no tags and no matching source app still
+    /// matches nothing — the pre-upgrade "images excluded" behavior holds
+    /// whenever none of the new fields are populated.
+    static func testQueryImageWithNothingSearchableExcluded() throws {
+        let items = [text("hello"), image()]
+        let result = FilterState.apply(items, FilterState(query: "hello"))
+        try expectEqual(contents(result), ["hello"], "the bare image never matches a text query")
+    }
+
+    /// The original `textContent` substring match (case-insensitive, images
+    /// excluded when they carry none of the new fields) still works
+    /// unchanged after the additive rewrite.
+    static func testQueryOldTextContentBehaviorUnchanged() throws {
+        let items = [
+            text("Hello World"),
+            image(),
+            text("goodbye"),
+            text("say hello again"),
+        ]
+
+        let result = FilterState.apply(items, FilterState(query: "HELLO"))
+        try expectEqual(contents(result), ["Hello World", "say hello again"], "unchanged: case-insensitive textContent match, bare image excluded")
+    }
+
+    /// Perf budget: 10,000 items, several fields populated on each, must
+    /// filter well within the 150ms CI-safe ceiling (observed ~single-digit
+    /// ms on a dev machine for this size).
+    static func testApplyTimingBudget() throws {
+        var items: [ClipboardItem] = []
+        items.reserveCapacity(10_000)
+        for i in 0..<10_000 {
+            switch i % 4 {
+            case 0:
+                items.append(text("Some clipboard text number \(i) about coffee and code", tags: ["tag\(i % 50)"], sourceApp: "App\(i % 10)"))
+            case 1:
+                items.append(image(tags: ["tag\(i % 50)"], sourceApp: "App\(i % 10)", ocrText: "Recognized text block \(i) invoice total"))
+            case 2:
+                items.append(file("File-\(i).pdf", additionalNames: ["Extra-\(i).txt"]))
+            default:
+                items.append(text("plain entry \(i)", pinned: i % 37 == 0))
+            }
+        }
+
+        let start = Date()
+        let result = FilterState.apply(items, FilterState(query: "invoice code"))
+        let elapsedMs = Date().timeIntervalSince(start) * 1000
+
+        try expect(elapsedMs < 150, "apply() over 10,000 items took \(elapsedMs) ms, want < 150 ms")
+        try expect(result.count >= 0, "sanity: apply must return without crashing")
+        print("FilterState.apply timing over 10,000 items: \(String(format: "%.2f", elapsedMs)) ms")
     }
 }

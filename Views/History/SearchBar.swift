@@ -26,7 +26,7 @@ struct SearchBar: View {
                 }
 
                 TextField(
-                    store.allTags.isEmpty ? "Search clipboard…" : "Search or #tag…",
+                    "Search text, tags, apps, files, OCR…",
                     text: $viewModel.searchText
                 )
                 .textFieldStyle(.plain)
