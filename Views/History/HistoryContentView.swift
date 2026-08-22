@@ -76,6 +76,8 @@ struct HistoryContentView: View {
             if viewModel.showNewFolderPrompt {
                 NewFolderPrompt(viewModel: viewModel, isFieldFocused: $isFolderFieldFocused)
             }
+
+            FolderPromptLayer(viewModel: viewModel)  // 3B: rename / delete / move
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.regularMaterial)

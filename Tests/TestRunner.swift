@@ -66,6 +66,7 @@ let allSuites: [(String, [(String, () throws -> Void)])] = [
     ("ClipboardItemTests", ClipboardItemTests.tests),
     ("ClipboardStoreTests", ClipboardStoreTests.tests),
     ("FolderTests", FolderTests.tests),
+    ("FolderUXTests", FolderUXTests.tests),
     ("FilterStateTests", FilterStateTests.tests),
     ("SettingsManagerTests", SettingsManagerTests.tests),
     ("ShortcutTests", ShortcutTests.tests),

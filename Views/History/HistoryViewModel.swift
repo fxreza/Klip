@@ -113,7 +113,7 @@ final class HistoryViewModel: ObservableObject {
 
     /// True while any inline prompt owns the keyboard, so list shortcuts stand
     /// down and Esc dismisses the prompt rather than the window.
-    var isPromptShowing: Bool { showNewFolderPrompt }
+    var isPromptShowing: Bool { showNewFolderPrompt || isFolderPromptShowing }  // 3B
 
     // MARK: - Selection
 
@@ -480,6 +480,7 @@ final class HistoryViewModel: ObservableObject {
     /// Returns true when a prompt was dismissed.
     @discardableResult
     func dismissTopPrompt() -> Bool {
+        if dismissTopFolderPrompt() { return true }  // 3B
         if showNewFolderPrompt {
             cancelNewFolder()
             return true
@@ -530,6 +531,7 @@ final class HistoryViewModel: ObservableObject {
         showNewFolderPrompt = false
         newFolderName = ""
         showDeleteConfirmation = false
+        resetFolderPrompts()  // 3B
 
         // Recalculate cache immediately and point at the restored / default item
         applyFilters(resetSelection: shouldResetOnOpen ? .defaultItem : .restore(restoreTarget))
@@ -940,4 +942,45 @@ final class HistoryViewModel: ObservableObject {
         activeTagFilter = nil
         return true
     }
+
+    // MARK: - 3B state
+    //
+    // Folder rename / delete / move prompts and drag-and-drop. Behaviour lives
+    // in `HistoryViewModel+Folders.swift`; only stored state is here so the file
+    // stays mergeable with the other Phase 3 tasks.
+
+    /// Inline rename prompt (double-click a sidebar folder, context menu, ⌘R).
+    @Published var showRenameFolderPrompt = false
+    @Published var renameFolderID: UUID?
+    @Published var renameFolderName = ""
+
+    /// Stages of the inline "Delete Folder" card.
+    enum FolderDeleteStage: Equatable {
+        /// Move the clips out, or delete them.
+        case choice
+        /// Locked clips found — typing DELETE is required to include them.
+        case lockedConfirm
+        /// What happened, after a delete that left locked clips behind.
+        case result
+    }
+
+    @Published var showDeleteFolderPrompt = false
+    @Published var deleteFolderID: UUID?
+    @Published var deleteFolderStage: FolderDeleteStage = .choice
+    /// Must read exactly `HistoryViewModel.lockedDeleteConfirmationWord`.
+    @Published var deleteLockedConfirmText = ""
+    /// Outcome line shown in `.result` (e.g. "Deleted 4, kept 2 locked clips…").
+    @Published var folderActionMessage: String?
+
+    /// Inline "Move to Folder" picker (⌘M / context menu).
+    @Published var showMoveToFolderPrompt = false
+    @Published var moveFolderQuery = ""
+    /// Index into `moveToFolderOptions`.
+    @Published var moveFolderHighlight = 0
+    /// Ids the picker will move; captured when it opens so a later selection
+    /// change cannot retarget it.
+    var pendingMoveIDs: Set<UUID> = []
+
+    /// Sidebar row currently highlighted as a drop target, or nil.
+    @Published var dropTargetScope: Scope?
 }
