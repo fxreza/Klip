@@ -48,5 +48,8 @@ Read this first if you are resuming as the manager. Plan: `PLAN.md`. Briefs: `br
 - Dev safety: test instances (`KLIP_DATA_DIR`) now use the `com.fxreza.klip.test` defaults suite after an agent harness flipped two real preferences (restored).
 - Edit shortcut vs BTT ⌘E: user can rebind Edit in Settings > Shortcuts or scope the BTT trigger; no app change.
 
+## 3.0.3 (2026-08-22)
+- Images keep their original bytes/format (JPEG/PNG/HEIC/GIF/WebP) on capture, paste (original UTI first + TIFF fallback), save and sync; TIFF-only clipboards still convert to PNG. `imageUTI` field. 303 tests. https://github.com/fxreza/Klip/releases/tag/klip-v3.0.3, installed.
+
 ## Remaining (post-release)
 2A -> 3A lock UX, 3B folders + drag/drop (Opus), 3D row context menu + rich capture + plain paste, 3F file clips + QuickLook, 3E part 2 (monitor wiring + legend), 3H font sweep (Haiku), 3C part 2 search upgrade -> `v3.0.0-beta1` -> 4A iCloud Drive sync (Opus) + 4B review -> 5A review (Opus), 5B pbxproj, 5C fixes, 5D docs (Haiku), 5E release + install.
