@@ -22,6 +22,10 @@ struct ClipRow: View {
     let isPrimarySelection: Bool
     /// Part of a multi-selection (same gradient, dimmed).
     let isMultiSelected: Bool
+    /// Whether the highlight change animates. False for key-driven selection
+    /// moves (user item 4) — restarting the spring on every row while an
+    /// arrow key repeats read as a blink.
+    var animatesSelection: Bool = true
     var onTagTap: ((String) -> Void)? = nil
 
     /// Hover is the row's own state (5A-14). It used to live on `ClipList`,
@@ -61,8 +65,8 @@ struct ClipRow: View {
         .frame(minHeight: .klipScaled(54))
         .background(rowBackground)
         .contentShape(RoundedRectangle(cornerRadius: Theme.rowCornerRadius))
-        .animation(Theme.selectionSpring, value: isPrimarySelection)
-        .animation(Theme.selectionSpring, value: isMultiSelected)
+        .animation(animatesSelection ? Theme.selectionSpring : nil, value: isPrimarySelection)
+        .animation(animatesSelection ? Theme.selectionSpring : nil, value: isMultiSelected)
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .onHover { hovering in
             guard isHovered != hovering else { return }

@@ -155,7 +155,7 @@ class StatusBarController {
     @objc private func checkboxToggled(_ sender: NSButton) {
         guard let alert = activeAlert else { return }
         if sender.state == .on {
-            alert.informativeText = "Clear history? Pinned, starred, tagged, locked and folder clips are kept."
+            alert.informativeText = "Clear history? Pinned, favorited, tagged, locked and folder clips are kept."
         } else {
             alert.informativeText = "This will permanently delete every clip except locked ones - a lock always outranks Clear History."
         }
@@ -164,12 +164,12 @@ class StatusBarController {
     @objc private func clearHistory() {
         let alert = NSAlert()
         alert.messageText = "Clear Clipboard History?"
-        alert.informativeText = "Clear history? Pinned, starred, tagged, locked and folder clips are kept."
+        alert.informativeText = "Clear history? Pinned, favorited, tagged, locked and folder clips are kept."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Clear")
         alert.addButton(withTitle: "Cancel")
 
-        let checkbox = NSButton(checkboxWithTitle: "Keep pinned, starred, tagged, locked and folder clips", target: self, action: #selector(checkboxToggled(_:)))
+        let checkbox = NSButton(checkboxWithTitle: "Keep pinned, favorited, tagged, locked and folder clips", target: self, action: #selector(checkboxToggled(_:)))
         checkbox.state = .on
         checkbox.sizeToFit()
         checkbox.frame = NSRect(x: 0, y: 0, width: max(checkbox.frame.width, 350), height: 24)
@@ -210,7 +210,7 @@ class StatusBarController {
     ///
     /// The kept count is deliberately *not* described as "locked": with the
     /// checkbox on, `clear(keepProtected: true)` keeps everything protected —
-    /// pinned, starred, tagged, foldered **and** locked — so calling all of
+    /// pinned, favorited, tagged, foldered **and** locked — so calling all of
     /// them locked (the wording the other delete surfaces use, where only
     /// locks can block a delete) would be wrong. With the checkbox off, locks
     /// really are the only thing left standing, and the message says so.

@@ -34,6 +34,10 @@ struct HistoryContentView: View {
                     PanelResizer(width: $settings.sidebarWidth, range: 120...320, side: .leading)
                 }
 
+                // Middle column: search / chips / list / action bar. 180
+                // keeps the list usable at the 560pt minimum window width
+                // with the sidebar at its 120pt minimum and the preview at
+                // its 200pt minimum.
                 VStack(spacing: 0) {
                     SearchBar(store: store, viewModel: viewModel, isSearchFocused: $isSearchFocused)
 
@@ -45,33 +49,32 @@ struct HistoryContentView: View {
 
                     Divider()
 
-                    HStack(spacing: 0) {
-                        // 180 keeps the list usable at the 560pt minimum window
-                        // width with the sidebar at its 120pt minimum and the
-                        // preview at its 200pt minimum.
-                        listPane
-                            .frame(minWidth: 180, maxWidth: .infinity)
-
-                        if settings.showPreviewPane {
-                            PanelResizer(width: $settings.previewWidth, range: 200...440, side: .trailing)
-                            PreviewPane(
-                                store: store,
-                                viewModel: viewModel,
-                                isTextEditorFocused: $isTextEditorFocused,
-                                isTagInputFocused: $isTagInputFocused
-                            )
-                            .frame(width: settings.previewWidth)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                        }
-                    }
-                    .frame(maxHeight: .infinity)
+                    listPane
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     Divider()
 
                     ActionBar(viewModel: viewModel, settings: settings)
                 }
-                .frame(minWidth: 320, maxWidth: .infinity)
+                .frame(minWidth: 180, maxWidth: .infinity)
                 .overlay(alignment: .bottom) { ToastOverlay(toast: viewModel.toast) }
+
+                // User item 5: the preview is a *panel*, a sibling of the
+                // sidebar, so it runs the full height of the window instead
+                // of being boxed in between the chip bar and the action bar.
+                // `PreviewPane` carries its own 13pt top padding, matching
+                // the search bar's, so the columns' first lines line up.
+                if settings.showPreviewPane {
+                    PanelResizer(width: $settings.previewWidth, range: 200...440, side: .trailing)
+                    PreviewPane(
+                        store: store,
+                        viewModel: viewModel,
+                        isTextEditorFocused: $isTextEditorFocused,
+                        isTagInputFocused: $isTagInputFocused
+                    )
+                    .frame(width: settings.previewWidth)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
 
             if viewModel.showNewFolderPrompt {

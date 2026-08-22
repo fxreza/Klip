@@ -60,6 +60,27 @@ class PasteController {
         return nil
     }
     
+    /// Copy a bare string to `pasteboard` — the OCR text under an image
+    /// preview, and anything else that is text without being a clip.
+    ///
+    /// Goes through here rather than touching `NSPasteboard.general`
+    /// directly so the `.bufferIgnoreNextChange` handshake happens *before*
+    /// the write, exactly as `copyToClipboard`/`paste` do: the watcher polls
+    /// every 500 ms, and a poll landing between the write and the flag would
+    /// re-capture the app's own copy as a brand-new clip.
+    ///
+    /// Returns whether anything was written, so callers can decide whether
+    /// to confirm to the user.
+    @discardableResult
+    static func copyPlainText(_ text: String, to pasteboard: NSPasteboard = .general) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        NotificationCenter.default.post(name: .bufferIgnoreNextChange, object: nil)
+        pasteboard.clearContents()
+        return pasteboard.setString(trimmed, forType: .string)
+    }
+
     /// Copy item content back to system clipboard. `mode` only affects `.text`
     /// items — see `PasteMode`.
     static func copyToClipboard(_ item: ClipboardItem, store: ClipboardStore, mode: PasteMode = .rich) {

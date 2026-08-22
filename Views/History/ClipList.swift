@@ -14,6 +14,15 @@ struct ClipList: View {
     @ObservedObject var store: ClipboardStore
     @ObservedObject var viewModel: HistoryViewModel
 
+    /// Ids of the rows LazyVStack currently has on screen, maintained by each
+    /// row's `onAppear`/`onDisappear` (user item 7).
+    ///
+    /// Only ever read for the *selected* id, and only to pick a scroll
+    /// anchor, so the fact that a LazyVStack keeps a small off-screen margin
+    /// alive (making this a slight superset of what is literally visible) is
+    /// harmless: the worst case is a minimal nudge instead of a centre-scroll.
+    @State private var visibleIDs: Set<UUID> = []
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: true) {
@@ -55,27 +64,64 @@ struct ClipList: View {
                 }
                 .padding(8)
             }
+            // User item 7: keyboard navigation sometimes moved the highlight
+            // without scrolling. Every one of these paths now goes through
+            // `reveal`, which scrolls twice — once synchronously, once on the
+            // next run loop, because a selection change that also changes the
+            // list contents (a filter or a delete) is not laid out yet when
+            // the first call runs and SwiftUI silently drops a `scrollTo` for
+            // a row it has not built.
+            .onChange(of: viewModel.selectedID) { id in
+                reveal(id, with: proxy)
+            }
             .onChange(of: viewModel.scrollTrigger) { trigger in
                 // `scrollTrigger` is the "this selection move came from the
-                // keyboard / a scope switch" flag. Driving the scroll off it
-                // (rather than off `selectedIndex`) also covers the case where
-                // the new selection lands on the index it already had — a scope
-                // or chip change that snaps back to row 0.
+                // keyboard / a scope switch" flag. Driving a scroll off it as
+                // well as off `selectedID` covers the case where the new
+                // selection lands on the id it already had — a scope or chip
+                // change that snaps back to the same row.
                 guard trigger else { return }
-                if let item = viewModel.filteredItems[safe: viewModel.selectedIndex] {
-                    withAnimation(Theme.selectionSpring) {
-                        proxy.scrollTo(item.id)
-                    }
-                }
+                reveal(viewModel.selectedID, with: proxy)
                 viewModel.scrollTrigger = false
+            }
+            .onChange(of: viewModel.filteredItems.count) { _ in
+                // The list changed under the selection (search, filter,
+                // delete, a new clip arriving). Only re-scroll if the
+                // selected row is no longer on screen — otherwise this would
+                // yank the list away from wherever the user scrolled it.
+                guard let id = viewModel.selectedID, !visibleIDs.contains(id) else { return }
+                reveal(id, with: proxy)
             }
             .onReceive(NotificationCenter.default.publisher(for: .bufferWindowDidOpen)) { _ in
                 // Bring the restored / default selection into view on reopen.
                 let scrollTarget = viewModel.selectedID ?? viewModel.filteredItems.first?.id
                 if let id = scrollTarget {
                     proxy.scrollTo(id, anchor: .center)
+                    DispatchQueue.main.async { proxy.scrollTo(id, anchor: .center) }
                 }
             }
+        }
+    }
+
+    // MARK: - Scroll to selection
+
+    /// Bring `id` into view, now and again on the next run loop.
+    ///
+    /// A row that is already on screen is only nudged (`anchor: nil` scrolls
+    /// the minimum distance, and does nothing at all when the row is fully
+    /// visible) so this never fights the user's own scrolling. A row that is
+    /// off screen — a jump from a click, a filter change, or holding an arrow
+    /// key — is centred instead, which is the only case where a large scroll
+    /// is what the user asked for.
+    private func reveal(_ id: UUID?, with proxy: ScrollViewProxy) {
+        guard let id else { return }
+        let anchor: UnitPoint? = visibleIDs.contains(id) ? nil : .center
+        let animation: Animation? = viewModel.animateSelection ? Theme.selectionSpring : nil
+
+        withAnimation(animation) { proxy.scrollTo(id, anchor: anchor) }
+        DispatchQueue.main.async {
+            guard viewModel.selectedID == id else { return }
+            withAnimation(animation) { proxy.scrollTo(id, anchor: anchor) }
         }
     }
 
@@ -123,14 +169,21 @@ struct ClipList: View {
             store: store,
             isPrimarySelection: item.id == viewModel.selectedID,
             isMultiSelected: viewModel.selectedIDs.contains(item.id) && item.id != viewModel.selectedID,
+            // User item 4: a key-driven selection move applies the highlight
+            // with no spring, which is what read as a blink while holding an
+            // arrow key. A mouse click still animates.
+            animatesSelection: viewModel.animateSelection,
             // Unchanged: tapping a row's tag chip sets the filter and nothing else.
             onTagTap: { tag in viewModel.activeTagFilter = tag }
         )
         .id(item.id)
         .contentShape(Rectangle())
+        .onAppear { visibleIDs.insert(item.id) }
+        .onDisappear { visibleIDs.remove(item.id) }
         .overlay(
             ClickModifierDetector(
                 onClickWithModifiers: { modifiers in
+                    viewModel.animateSelection = true
                     viewModel.focusIndex(of: item.id)
 
                     if modifiers.hasCommand {

@@ -17,12 +17,18 @@ struct PreviewPane: View {
     @FocusState.Binding var isTextEditorFocused: Bool
     @FocusState.Binding var isTagInputFocused: Bool
 
+    /// Matches `SearchBar`'s top padding. 3.0.1 made the pane a full-height
+    /// sibling of the sidebar (it used to be boxed between the chip bar and
+    /// the action bar), so its header now sits at the top of the window and
+    /// has to line up with the search field rather than with a divider.
+    static let topPadding: CGFloat = 13
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if viewModel.selectionCount > 1 {
                 multiSelectionHeader
                     .padding(.horizontal, 16)
-                    .padding(.top, 16)
+                    .padding(.top, Self.topPadding)
                     .padding(.bottom, 12)
                 ScrollView {
                     MultiSelectionSummary(viewModel: viewModel)
@@ -33,7 +39,7 @@ struct PreviewPane: View {
             } else if let item = viewModel.selectedItem {
                 header(for: item)
                     .padding(.horizontal, 16)
-                    .padding(.top, 16)
+                    .padding(.top, Self.topPadding)
                     .padding(.bottom, 12)
 
                 ScrollView {
@@ -179,8 +185,8 @@ struct PreviewPane: View {
                 item.isBookmarked ? "star.fill" : "star",
                 tint: item.isBookmarked ? Theme.bookmarkTint : .secondary,
                 help: item.isBookmarked
-                    ? "Remove from Favorites (\(ShortcutManager.shared.displayString(for: .star)))"
-                    : "Add to Favorites — protects from cleanup (\(ShortcutManager.shared.displayString(for: .star)))"
+                    ? "Unfavorite (\(ShortcutManager.shared.displayString(for: .star)))"
+                    : "Favorite — protects from cleanup (\(ShortcutManager.shared.displayString(for: .star)))"
             ) { viewModel.toggleBookmarkOnSelection() }
 
             iconButton(
@@ -300,10 +306,16 @@ struct PreviewPane: View {
                             .lineSpacing(4)
                             .frame(maxWidth: .infinity, alignment: .topLeading)
 
+                        // The tappable area used to be the glyph's own
+                        // painted pixels — a ~12 pt target with no padding
+                        // and no `contentShape`, which is half of why this
+                        // button "did nothing" (user item 11).
                         Button(action: { viewModel.copyOCRText(ocrText) }) {
                             Image(systemName: "doc.on.doc")
                                 .font(Theme.icon(12, preview: true))
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(.secondary)
+                                .padding(5)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .help("Copy extracted text")
@@ -314,11 +326,16 @@ struct PreviewPane: View {
         }
     }
 
-    /// `.file` item preview: a live `QLPreviewView` for the first file when it
-    /// exists on disk (pdf, csv, txt, code, images and office docs all
-    /// preview natively), else a fallback card — icon, name(s), size, a
-    /// "Reference" badge for files that were only referenced (not copied in),
-    /// and a "Reveal in Finder" button.
+    /// `.file` item preview: a static QuickLook *thumbnail* of the first file
+    /// (pane width × 320 pt) above the fallback card — icon, name(s), size,
+    /// kind, a "Reference" badge for files that were only referenced (not
+    /// copied in), a "File not found" badge, and Reveal in Finder / Open.
+    ///
+    /// 3.0.1: the live `QLPreviewView` that used to sit at the top is gone.
+    /// Setting its preview item from `updateNSView` — i.e. from inside a
+    /// SwiftUI layout pass — hits a QuickLook assertion that aborts the
+    /// process (three user crash reports on 3.0.0). Nothing in this path
+    /// touches a QuickLook UI class any more; see `FilePreview.swift`.
     @ViewBuilder
     private func fileBody(_ item: ClipboardItem) -> some View {
         let attachment = item.fileAttachment
@@ -326,14 +343,11 @@ struct PreviewPane: View {
         let isMissing = store.fileIsMissing(item)
 
         VStack(alignment: .leading, spacing: 10) {
-            if let fileURL {
-                FileQuickLookView(url: fileURL)
-                    .frame(minHeight: 220, maxHeight: 320)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.hairline, lineWidth: 1))
-            } else {
-                fileFallbackCard(item, attachment: attachment, isMissing: isMissing)
+            if let fileURL, !isMissing {
+                FileThumbnailView(url: fileURL, itemID: item.id, maxHeight: 320)
             }
+
+            fileFallbackCard(item, attachment: attachment, fileURL: fileURL, isMissing: isMissing)
 
             HStack(spacing: 8) {
                 if attachment?.isReference == true {
@@ -357,6 +371,15 @@ struct PreviewPane: View {
 
                 Spacer(minLength: 0)
 
+                if let fileURL, !isMissing {
+                    Button(action: { NSWorkspace.shared.open(fileURL) }) {
+                        Label("Open", systemImage: "arrow.up.forward.app")
+                            .font(.klip(.caption))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+
                 if let fileURL {
                     Button(action: { NSWorkspace.shared.activateFileViewerSelecting([fileURL]) }) {
                         Label("Reveal in Finder", systemImage: "folder")
@@ -371,23 +394,35 @@ struct PreviewPane: View {
         .padding(.vertical, 4)
     }
 
+    /// Name / size / kind block. The big icon is only drawn when there is no
+    /// thumbnail above it, so a previewable file doesn't show its artwork
+    /// twice.
     @ViewBuilder
-    private func fileFallbackCard(_ item: ClipboardItem, attachment: FileAttachment?, isMissing: Bool) -> some View {
+    private func fileFallbackCard(
+        _ item: ClipboardItem,
+        attachment: FileAttachment?,
+        fileURL: URL?,
+        isMissing: Bool
+    ) -> some View {
+        let showIcon = fileURL == nil || isMissing
+
         VStack(spacing: 10) {
-            Group {
-                if let icon = item.fileIcon(store: store) {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .interpolation(.high)
-                        .aspectRatio(contentMode: .fit)
-                } else {
-                    Image(systemName: "doc")
-                        .font(Theme.icon(46, preview: true))
-                        .foregroundStyle(.tertiary)
+            if showIcon {
+                Group {
+                    if let icon = item.fileIcon(store: store) {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                    } else {
+                        Image(systemName: "doc")
+                            .font(Theme.icon(46, preview: true))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
+                .frame(width: 72, height: 72)
+                .opacity(isMissing ? 0.5 : 1)
             }
-            .frame(width: 72, height: 72)
-            .opacity(isMissing ? 0.5 : 1)
 
             Text(attachment?.originalName ?? "File")
                 .font(.klip(.preview))
@@ -397,6 +432,12 @@ struct PreviewPane: View {
 
             if let extra = attachment?.additionalNames, !extra.isEmpty {
                 Text("+\(extra.count) more file\(extra.count == 1 ? "" : "s")")
+                    .font(.klip(.caption))
+                    .foregroundStyle(.secondary)
+            }
+
+            if let kind = FilePreview.kindLabel(for: fileURL, name: attachment?.originalName) {
+                Text(kind)
                     .font(.klip(.caption))
                     .foregroundStyle(.secondary)
             }
