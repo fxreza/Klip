@@ -77,6 +77,8 @@
 		B71FB4F3ED2547CD62F3BB9E /* HistoryViewModel+Files.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1483F6B905BDDB7A85B066AA /* HistoryViewModel+Files.swift */; };
 		30B8521EABF195DBA743E265 /* HistoryViewModel+Folders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A10955400EBE5FEE3C4CB9 /* HistoryViewModel+Folders.swift */; };
 		5F4C640276CE69AF0918C862 /* HistoryViewModel+Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06B8D3DFF6742AF6DD334273 /* HistoryViewModel+Shortcuts.swift */; };
+		F98CC5EA3333E08542C07B53 /* PasteboardFlavors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08370ACDDE3F89166CCA7642 /* PasteboardFlavors.swift */; };
+		F46E13F8FD2BE823669ED78B /* HistoryViewModel+Paste.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC3A99ECEC67DA2B442C6562 /* HistoryViewModel+Paste.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -164,6 +166,8 @@
 		1483F6B905BDDB7A85B066AA /* HistoryViewModel+Files.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HistoryViewModel+Files.swift"; sourceTree = "<group>"; };
 		47A10955400EBE5FEE3C4CB9 /* HistoryViewModel+Folders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HistoryViewModel+Folders.swift"; sourceTree = "<group>"; };
 		06B8D3DFF6742AF6DD334273 /* HistoryViewModel+Shortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HistoryViewModel+Shortcuts.swift"; sourceTree = "<group>"; };
+		08370ACDDE3F89166CCA7642 /* PasteboardFlavors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardFlavors.swift; sourceTree = "<group>"; };
+		EC3A99ECEC67DA2B442C6562 /* HistoryViewModel+Paste.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HistoryViewModel+Paste.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -270,6 +274,7 @@
 				9BCA595BCDB2590748970DA2 /* ContentDetector.swift */,
 				CA00D147AE2F2208BD020E46 /* PermissionsState.swift */,
 				21E1603736DA17D63541CE68 /* ShortcutManager.swift */,
+				08370ACDDE3F89166CCA7642 /* PasteboardFlavors.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -335,6 +340,7 @@
 				1483F6B905BDDB7A85B066AA /* HistoryViewModel+Files.swift */,
 				47A10955400EBE5FEE3C4CB9 /* HistoryViewModel+Folders.swift */,
 				06B8D3DFF6742AF6DD334273 /* HistoryViewModel+Shortcuts.swift */,
+				EC3A99ECEC67DA2B442C6562 /* HistoryViewModel+Paste.swift */,
 			);
 			path = History;
 			sourceTree = "<group>";
@@ -533,6 +539,8 @@
 				B71FB4F3ED2547CD62F3BB9E /* HistoryViewModel+Files.swift in Sources */,
 				30B8521EABF195DBA743E265 /* HistoryViewModel+Folders.swift in Sources */,
 				5F4C640276CE69AF0918C862 /* HistoryViewModel+Shortcuts.swift in Sources */,
+				F98CC5EA3333E08542C07B53 /* PasteboardFlavors.swift in Sources */,
+				F46E13F8FD2BE823669ED78B /* HistoryViewModel+Paste.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
