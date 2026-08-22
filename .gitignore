@@ -90,3 +90,6 @@ reference
 !dist/*.zip
 build-gate.log
 tests-gate.log
+
+# personal data backups made by scripts/install_local.sh - never commit
+releases/backup-*/
