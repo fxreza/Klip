@@ -21,14 +21,14 @@ A lightweight, beautiful clipboard manager for macOS with organized history, ric
 - **Pin & Star** - Pin favorites to keep them at the top; star for quick filtering
 - **Inline Editing** - Edit text/code snippets directly in the app; auto-saves to clipboard
 - **History Limit** - Configurable 1K / 5K / 10K / Unlimited; locked items never evicted
-- **Accessibility** - Requires Accessibility permission for auto-paste (requested on first launch)
+- **Permissions panel** - shows exactly what Klip needs (only Accessibility, for auto-paste) with one-click access to System Settings
 
 ---
 
 ## Requirements
 
 - macOS 13.0 or later
-- Accessibility permission for global hotkey and auto-paste (granted on first launch)
+- Accessibility permission for auto-paste into other apps (the global hotkey works without it; Klip asks on first launch)
 
 ---
 
@@ -36,8 +36,8 @@ A lightweight, beautiful clipboard manager for macOS with organized history, ric
 
 Download from [GitHub Releases](https://github.com/fxreza/Klip/releases).
 
-1. Download the `.dmg` file for your architecture (Apple Silicon or Intel)
-2. Drag **Klip.app** to your **Applications** folder
+1. Download `Klip_Universal.zip` (Apple Silicon + Intel) - or the `.dmg` files when a notarized build is published
+2. Unzip and drag **Klip.app** to your **Applications** folder
 3. Launch Klip - it appears in the menu bar
 4. First launch prompts for Accessibility permission; grant it to enable the hotkey and auto-paste
 5. **Gatekeeper note**: The build is signed with a local identity and not notarized. Right-click Klip.app and select "Open" the first time to bypass the warning.
