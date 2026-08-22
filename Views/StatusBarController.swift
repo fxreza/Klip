@@ -37,7 +37,7 @@ class StatusBarController {
         
         // Use SF Symbol for clipboard
         let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        let image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "Buffer")
+        let image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "Klip")
         image?.isTemplate = true
         button.image = image?.withSymbolConfiguration(config)
         
@@ -104,7 +104,7 @@ class StatusBarController {
         menu.addItem(NSMenuItem.separator())
         
         // Quit
-        let quitItem = NSMenuItem(title: "Quit Buffer", action: #selector(quit), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit Klip", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
         
@@ -201,7 +201,7 @@ class StatusBarController {
         
         let symbolName = paused ? "doc.on.clipboard.fill" : "doc.on.clipboard"
         let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Buffer")
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Klip")
         image?.isTemplate = true
         button.image = image?.withSymbolConfiguration(config)
     }

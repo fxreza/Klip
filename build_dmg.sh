@@ -3,8 +3,12 @@ set -e
 
 echo "📦 Loading environment..."
 set -a # automatically export all variables
-source .env
+[ -f .env ] && source .env
 set +a
+
+APP_NAME=${APP_NAME:-Klip}
+DEPLOY_TARGET=${DEPLOY_TARGET:-13.0}
+BUNDLE_ID=${BUNDLE_ID:-com.fxreza.klip}
 
 BUILD_DIR="build"
 
@@ -26,7 +30,7 @@ swiftc \
 -framework Cocoa \
 -framework SwiftUI \
 -framework Carbon \
-*.swift Models/*.swift Services/*.swift Views/*.swift \
+*.swift $(find Models Services Views -name '*.swift') \
 -o ${BUILD_DIR}/${APP_NAME}_arm64
 
 echo "🔨 Compiling Swift for x86_64 (Intel)..."
@@ -37,7 +41,7 @@ swiftc \
 -framework Cocoa \
 -framework SwiftUI \
 -framework Carbon \
-*.swift Models/*.swift Services/*.swift Views/*.swift \
+*.swift $(find Models Services Views -name '*.swift') \
 -o ${BUILD_DIR}/${APP_NAME}_x86_64
 
 package_app() {
@@ -76,6 +80,8 @@ package_app() {
 <string>${BUNDLE_ID}</string>
 <key>CFBundleName</key>
 <string>${APP_NAME}</string>
+<key>CFBundleDisplayName</key>
+<string>${APP_NAME}</string>
 <key>CFBundlePackageType</key>
 <string>APPL</string>
 <key>CFBundleShortVersionString</key>
@@ -104,25 +110,30 @@ EOF
     echo "APPL????" > ${APP_DIR}/Contents/PkgInfo
 
     echo "🔏 Signing..."
-    SIGN_OK=false
-    for attempt in 1 2 3; do
-        if codesign \
-            --force \
-            --deep \
-            --timestamp \
-            --options runtime \
-            --sign "${SIGN_IDENTITY}" \
-            --entitlements Buffer.entitlements \
-            ${APP_DIR}; then
-            SIGN_OK=true
-            break
+    if [ -z "${SIGN_IDENTITY:-}" ]; then
+        echo "⚠️  SIGN_IDENTITY not set — skipping real signing, ad-hoc signing instead."
+        codesign --force --deep --sign - ${APP_DIR}
+    else
+        SIGN_OK=false
+        for attempt in 1 2 3; do
+            if codesign \
+                --force \
+                --deep \
+                --timestamp \
+                --options runtime \
+                --sign "${SIGN_IDENTITY}" \
+                --entitlements Klip.entitlements \
+                ${APP_DIR}; then
+                SIGN_OK=true
+                break
+            fi
+            echo "⚠️  Signing attempt ${attempt} failed (timestamp server unreachable?), retrying in 3s..."
+            sleep 3
+        done
+        if [ "$SIGN_OK" = false ]; then
+            echo "❌ Signing failed after 3 attempts. Check internet connectivity to timestamp.apple.com"
+            exit 1
         fi
-        echo "⚠️  Signing attempt ${attempt} failed (timestamp server unreachable?), retrying in 3s..."
-        sleep 3
-    done
-    if [ "$SIGN_OK" = false ]; then
-        echo "❌ Signing failed after 3 attempts. Check internet connectivity to timestamp.apple.com"
-        exit 1
     fi
 
     echo "🔍 Verifying..."
@@ -147,13 +158,19 @@ EOF
     ${DMG_NAME}
 
     echo "🔏 Signing DMG..."
-    codesign \
-    --force \
-    --sign "${SIGN_IDENTITY}" \
-    ${DMG_NAME}
+    if [ -z "${SIGN_IDENTITY:-}" ]; then
+        echo "⚠️  SIGN_IDENTITY not set — skipping DMG signing."
+    else
+        codesign \
+        --force \
+        --sign "${SIGN_IDENTITY}" \
+        ${DMG_NAME}
+    fi
 
     echo "📤 Notarizing DMG..."
-    if xcrun notarytool submit ${DMG_NAME} --keychain-profile "${NOTARY_PROFILE}" --wait; then
+    if [ -z "${NOTARY_PROFILE:-}" ]; then
+        echo "⚠️  NOTARY_PROFILE not set — skipping notarization."
+    elif xcrun notarytool submit ${DMG_NAME} --keychain-profile "${NOTARY_PROFILE}" --wait; then
         echo "📎 Stapling DMG..."
         xcrun stapler staple ${DMG_NAME}
     else

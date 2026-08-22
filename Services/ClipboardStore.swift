@@ -19,32 +19,75 @@ class ClipboardStore: ObservableObject {
     private let saveQueue = DispatchQueue(label: "com.buffer.save", qos: .utility)
     
     private var storageDirectory: URL {
+        if let override = ProcessInfo.processInfo.environment["KLIP_DATA_DIR"], !override.isEmpty {
+            let expanded = (override as NSString).expandingTildeInPath
+            return URL(fileURLWithPath: expanded, isDirectory: true)
+        }
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("Buffer", isDirectory: true)
+        return appSupport.appendingPathComponent("Klip", isDirectory: true)
     }
-    
+
     private var historyFileURL: URL {
         storageDirectory.appendingPathComponent("history.json")
     }
-    
+
     private var imagesDirectory: URL {
         storageDirectory.appendingPathComponent("images", isDirectory: true)
     }
-    
+
     private var textsDirectory: URL {
         storageDirectory.appendingPathComponent("texts", isDirectory: true)
     }
-    
+
     init() {
+        migrateFromBufferIfNeeded()
         ensureDirectoriesExist()
         loadHistory()
-        
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleLimitChanged),
             name: .bufferHistoryLimitChanged,
             object: nil
         )
+    }
+
+    /// One-time, copy-only migration of history from the old "Buffer" app's data
+    /// directory into the new "Klip" one. Never touches or deletes the originals.
+    /// Skipped entirely when KLIP_DATA_DIR is set (test/dev runs should not inherit
+    /// the user's real history).
+    private func migrateFromBufferIfNeeded() {
+        guard ProcessInfo.processInfo.environment["KLIP_DATA_DIR"] == nil else { return }
+
+        let root = storageDirectory
+        let historyDest = root.appendingPathComponent("history.json")
+        guard !fileManager.fileExists(atPath: historyDest.path) else { return }
+
+        let bufferRoot = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Buffer", isDirectory: true)
+        let bufferHistory = bufferRoot.appendingPathComponent("history.json")
+        guard fileManager.fileExists(atPath: bufferHistory.path) else { return }
+
+        do {
+            try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+            try fileManager.copyItem(at: bufferHistory, to: historyDest)
+
+            let bufferImages = bufferRoot.appendingPathComponent("images", isDirectory: true)
+            let imagesDest = root.appendingPathComponent("images", isDirectory: true)
+            if fileManager.fileExists(atPath: bufferImages.path) && !fileManager.fileExists(atPath: imagesDest.path) {
+                try fileManager.copyItem(at: bufferImages, to: imagesDest)
+            }
+
+            let bufferTexts = bufferRoot.appendingPathComponent("texts", isDirectory: true)
+            let textsDest = root.appendingPathComponent("texts", isDirectory: true)
+            if fileManager.fileExists(atPath: bufferTexts.path) && !fileManager.fileExists(atPath: textsDest.path) {
+                try fileManager.copyItem(at: bufferTexts, to: textsDest)
+            }
+
+            print("[Buffer] Migrated history from ~/Library/Application Support/Buffer (copy only, originals untouched)")
+        } catch {
+            print("[Buffer] Migration from Buffer data directory failed, continuing with an empty store: \(error)")
+        }
     }
     
     @objc private func handleLimitChanged() {

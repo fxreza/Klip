@@ -5,9 +5,9 @@ class UpdateService {
     static let shared = UpdateService()
     private init() {}
 
-    private let releasesURL = URL(string: "https://api.github.com/repos/samirpatil2000/Buffer/releases")!
+    private let releasesURL = URL(string: "https://api.github.com/repos/fxreza/Klip/releases")!
     private let lastCheckKey = "lastUpdateCheckDate"
-    private let repoBaseURL = "https://github.com/samirpatil2000/Buffer"
+    private let repoBaseURL = "https://github.com/fxreza/Klip"
     private var progressWindow: NSWindow?
     private var toastWindow: NSWindow?
     private var pendingReleaseURL: URL?
@@ -103,7 +103,9 @@ class UpdateService {
     private func stripTagPrefix(_ tag: String) -> String {
         var v = tag
         let lower = v.lowercased()
-        if lower.hasPrefix("buffer-v") {
+        if lower.hasPrefix("klip-v") {
+            v = String(v.dropFirst("klip-v".count))
+        } else if lower.hasPrefix("buffer-v") {
             v = String(v.dropFirst("buffer-v".count))
         } else if lower.hasPrefix("v") {
             v = String(v.dropFirst(1))
@@ -127,8 +129,8 @@ class UpdateService {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.icon = NSApp.applicationIconImage
-        alert.messageText = "Buffer \(version) is available"
-        alert.informativeText = "A new version of Buffer is ready to download and install."
+        alert.messageText = "Klip \(version) is available"
+        alert.informativeText = "A new version of Klip is ready to download and install."
         alert.addButton(withTitle: "Update Now")
         alert.addButton(withTitle: "Later")
         let response = alert.runModal()
@@ -143,7 +145,7 @@ class UpdateService {
         let alert = NSAlert()
         alert.icon = NSApp.applicationIconImage
         alert.messageText = "You're up to date"
-        alert.informativeText = "Buffer is already on the latest version."
+        alert.informativeText = "Klip is already on the latest version."
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
@@ -198,7 +200,7 @@ class UpdateService {
             .withSymbolConfiguration(iconConfig)
         blur.addSubview(iconView)
 
-        let titleString = version.isEmpty ? "Buffer" : "Buffer \(version)"
+        let titleString = version.isEmpty ? "Klip" : "Klip \(version)"
         let title = NSTextField(labelWithString: titleString)
         title.font = .boldSystemFont(ofSize: 13)
         title.textColor = .white
@@ -206,7 +208,7 @@ class UpdateService {
         title.frame = NSRect(x: 0, y: 98, width: w, height: 20)
         blur.addSubview(title)
 
-        let subtitle = NSTextField(labelWithString: "The best Buffer yet.")
+        let subtitle = NSTextField(labelWithString: "The best Klip yet.")
         subtitle.font = .systemFont(ofSize: 11)
         subtitle.textColor = NSColor.white.withAlphaComponent(0.55)
         subtitle.alignment = .center
@@ -284,10 +286,10 @@ class UpdateService {
             // 1. UUID-based temp dir — not guessable by other processes
             let fm = FileManager.default
             let tmpBase = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("BufferUpdate_\(UUID().uuidString)")
+                .appendingPathComponent("KlipUpdate_\(UUID().uuidString)")
             let zipURL    = tmpBase.appendingPathComponent("update.zip")
             let extractURL = tmpBase.appendingPathComponent("extracted")
-            let newAppURL  = extractURL.appendingPathComponent("Buffer.app")
+            let newAppURL  = extractURL.appendingPathComponent("Klip.app")
             let scriptURL  = tmpBase.appendingPathComponent("install.sh")
 
             do {
@@ -313,9 +315,9 @@ class UpdateService {
                 return fail("Failed to run ditto: \(error)")
             }
 
-            // 3. Confirm Buffer.app is actually present after extraction
+            // 3. Confirm Klip.app is actually present after extraction
             guard fm.fileExists(atPath: newAppURL.path) else {
-                return fail("Buffer.app not found in extracted zip at \(newAppURL.path)")
+                return fail("Klip.app not found in extracted zip at \(newAppURL.path)")
             }
 
             // 4. Verify code signature before replacing anything
@@ -337,21 +339,21 @@ class UpdateService {
             #!/bin/bash
             sleep 2
 
-            rm -rf "/Applications/Buffer.app"
+            rm -rf "/Applications/Klip.app"
             if [ $? -ne 0 ]; then
-                osascript -e 'display alert "Buffer Update Failed" message "Could not remove old app. Try updating manually."'
+                osascript -e 'display alert "Klip Update Failed" message "Could not remove old app. Try updating manually."'
                 exit 1
             fi
 
-            cp -R "\(newAppURL.path)" "/Applications/Buffer.app"
+            cp -R "\(newAppURL.path)" "/Applications/Klip.app"
             if [ $? -ne 0 ]; then
-                osascript -e 'display alert "Buffer Update Failed" message "Could not copy new app. Try updating manually."'
+                osascript -e 'display alert "Klip Update Failed" message "Could not copy new app. Try updating manually."'
                 exit 1
             fi
 
-            xattr -cr "/Applications/Buffer.app"
+            xattr -cr "/Applications/Klip.app"
             sleep 1
-            /bin/launchctl asuser $(id -u) /usr/bin/open "/Applications/Buffer.app"
+            /bin/launchctl asuser $(id -u) /usr/bin/open "/Applications/Klip.app"
             """
             do {
                 try script.write(to: scriptURL, atomically: true, encoding: .utf8)
@@ -432,7 +434,7 @@ class UpdateService {
             blur.addSubview(iconView)
 
             // Title
-            let title = NSTextField(labelWithString: "Updating Buffer...")
+            let title = NSTextField(labelWithString: "Updating Klip...")
             title.font = .boldSystemFont(ofSize: 13)
             title.textColor = .white
             title.alignment = .center
