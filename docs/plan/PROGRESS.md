@@ -15,7 +15,9 @@ Read this first if you are resuming as the manager. Plan: `PLAN.md`. Briefs: `br
 | Phase 0 | 0.2 build_local.sh/run_app.sh (Haiku), 0.3 swiftc test runner (Sonnet), 0.4 Klip rebrand + data-dir override + Buffer migration + debug hooks (Sonnet), 0.5 upstream baseline build in `releases/v2.5.0-upstream/` | `v3.0.0-phase0` |
 | Phase 1 | 1A HistoryWindow split -> `Views/History/*` + `HistoryViewModel` + `FilterState` (Opus); 1B model/store: `isLocked`, `folderID`, `kind`, `FileAttachment`, `Folder`, v2 schema, atomic+debounced saves, `HistoryLimit` k1/k5/k10/unlimited with cap on unprotected items only (Opus); 1C `SettingsManager` ObservableObject, `Views/Theme/*`, `FontScale`, tabbed Settings (Sonnet). Integration removed shims, `gate.sh` added. 56 tests. | `v3.0.0-alpha1` |
 | Phase 3 early | 3E part 1 shortcuts model/manager/recorder/Settings tab (Sonnet) - 70 tests; 3G permissions/onboarding/toast (Sonnet) - 76; 3C ContentDetector + capture-time kind + backfill (Sonnet) - 90. All merged to main. | - |
-| Phase 2 | 2A Clipfield UI shell (Opus) - RUNNING | pending `v3.0.0-alpha2` |
+| Phase 2 | 2A Clipfield UI shell (Opus): sidebar/chips/rows/preview/prompts, 11 offscreen renders, 70/70 view-model behaviors; merged clean; `.file` case added; 99 tests | `v3.0.0-alpha2` |
+| Phase 3 wave 1 | 3A lock UX (Sonnet), 3B folders + drag/drop (Opus), 3F file clips + QuickLook (Sonnet), 3E part 2 monitor wiring (Sonnet) - RUNNING in parallel worktrees | - |
+| Phase 3 wave 2 | 3D context menu + rich capture + plain paste, 3H font sweep (Haiku), 3C part 2 search upgrade - briefs written, start after wave 1 merges; then 2B refute-review -> `v3.0.0-beta1` | - |
 
 ## Decisions made on the fly (all consistent with the approved D-table)
 - `mailto:` links classify as `.email` (Clipfield does the same).
