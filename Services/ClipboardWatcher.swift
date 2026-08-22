@@ -111,13 +111,17 @@ class ClipboardWatcher: ObservableObject {
                 
                 if textSize <= inlineTextLimit {
                     // Small text: store inline (current behavior)
-                    let item = ClipboardItem.text(text, sourceApp: sourceApp)
+                    var item = ClipboardItem.text(text, sourceApp: sourceApp)
+                    item.kind = ContentDetector.detect(for: item, fullText: text)
                     store.add(item)
                 } else {
                     // Large text: save to file, store preview inline
                     let preview = String(text.prefix(previewLength))
                     if let filename = store.saveText(text) {
-                        let item = ClipboardItem.largeText(preview: preview, filename: filename, sourceApp: sourceApp)
+                        var item = ClipboardItem.largeText(preview: preview, filename: filename, sourceApp: sourceApp)
+                        // Detect against the full captured text (not just the
+                        // inline preview) — we already have it in memory here.
+                        item.kind = ContentDetector.detect(for: item, fullText: text)
                         store.add(item)
                         print("[Buffer] Large text (\(textSize / 1024) KB) saved to file: \(filename)")
                     }
@@ -136,7 +140,8 @@ class ClipboardWatcher: ObservableObject {
                 
                 // Save image to disk
                 if let filename = store.saveImage(imageData) {
-                    let item = ClipboardItem.image(filename: filename, sourceApp: sourceApp)
+                    var item = ClipboardItem.image(filename: filename, sourceApp: sourceApp)
+                    item.kind = .image
                     store.add(item)
                 }
             }
@@ -197,7 +202,8 @@ class ClipboardWatcher: ObservableObject {
             
             // Save image to disk and add to store
             if let filename = store.saveImage(pngData) {
-                let item = ClipboardItem.image(filename: filename, sourceApp: sourceApp)
+                var item = ClipboardItem.image(filename: filename, sourceApp: sourceApp)
+                item.kind = .image
                 DispatchQueue.main.async { [weak self] in
                     self?.lastContentHash = hash
                     self?.store.add(item)

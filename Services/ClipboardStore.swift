@@ -86,6 +86,7 @@ class ClipboardStore: ObservableObject {
         migrateFromBufferIfNeeded()
         ensureDirectoriesExist()
         loadHistory()
+        backfillKindsIfNeeded()
         loadFolders()
 
         NotificationCenter.default.addObserver(
@@ -357,6 +358,41 @@ class ClipboardStore: ObservableObject {
             self.scheduleSave()
         }
         return result
+    }
+
+    // MARK: - Content kind backfill
+
+    /// Computes `kind` for every item that doesn't have one yet — history
+    /// captured before Phase 3C, or anything restored/imported without it.
+    /// Detection runs on a background utility queue so it never blocks
+    /// launch; results are applied to `items` in a single batch on the main
+    /// actor and then saved (debounced). Idempotent: once every item has a
+    /// kind, a repeat call finds nothing to do and returns immediately.
+    func backfillKindsIfNeeded() {
+        let candidates = items.filter { $0.kind == nil }
+        guard !candidates.isEmpty else { return }
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            var computed: [UUID: ContentKind] = [:]
+            computed.reserveCapacity(candidates.count)
+            for item in candidates {
+                computed[item.id] = ContentDetector.detect(for: item, fullText: nil)
+            }
+
+            self?.runOnMain {
+                guard let self = self else { return }
+                var changed = false
+                for index in self.items.indices {
+                    let id = self.items[index].id
+                    guard self.items[index].kind == nil, let kind = computed[id] else { continue }
+                    self.items[index].kind = kind
+                    changed = true
+                }
+                if changed {
+                    self.scheduleSave()
+                }
+            }
+        }
     }
 
     // MARK: - Folders

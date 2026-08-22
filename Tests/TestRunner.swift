@@ -68,6 +68,7 @@ let allSuites: [(String, [(String, () throws -> Void)])] = [
     ("FolderTests", FolderTests.tests),
     ("FilterStateTests", FilterStateTests.tests),
     ("SettingsManagerTests", SettingsManagerTests.tests),
+    ("ContentDetectorTests", ContentDetectorTests.tests),
 ]
 
 // MARK: - Runner

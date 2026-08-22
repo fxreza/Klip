@@ -23,6 +23,9 @@ enum ClipboardStoreTests {
         ("clear_keepProtectedFalse_stillKeepsLocked", testClearAllStillKeepsLocked),
         ("itemSize_usesFileAttachmentByteSize", testItemSizeFileAttachment),
         ("delete_removesFilesFlavorsAndRtfAssets", testDeleteRemovesAssets),
+        ("backfillKindsIfNeeded_fillsMissingKindsAndPersists", testBackfillFillsMissingKinds),
+        ("backfillKindsIfNeeded_leavesExistingKindsUntouched", testBackfillLeavesExistingKindAlone),
+        ("backfillKindsIfNeeded_secondCall_isIdempotent", testBackfillIsIdempotent),
     ]
 
     // MARK: - Harness
@@ -66,6 +69,19 @@ enum ClipboardStoreTests {
 
     static func makeItem(_ text: String, at seconds: TimeInterval) -> ClipboardItem {
         ClipboardItem(type: .text, timestamp: Date(timeIntervalSince1970: seconds), textContent: text)
+    }
+
+    /// `backfillKindsIfNeeded()` computes on a background utility queue and
+    /// applies its results via `DispatchQueue.main.async`, but this test
+    /// binary's `main` never spins a run loop on its own (see
+    /// `TestRunner.swift`'s `TestMain`), so a queued main-queue block would
+    /// otherwise never get a chance to run before the test moves on. Pumping
+    /// `RunLoop.main` briefly lets it drain.
+    static func pumpMainRunLoop(until condition: () -> Bool, timeout: TimeInterval = 2.0) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
     }
 
     // MARK: - HistoryLimit
@@ -458,6 +474,112 @@ enum ClipboardStoreTests {
             try expect(!fm.fileExists(atPath: itemFiles.path), "files/<uuid>/ should be removed")
             try expect(!fm.fileExists(atPath: flavors.path), "flavors/<uuid>.plist should be removed")
             try expect(!fm.fileExists(atPath: rtf.path), "texts/<uuid>.rtf should be removed")
+        }
+    }
+
+    // MARK: - Content kind backfill (Phase 3C)
+
+    /// Seeds a bare v2 history file (as `loadHistory()` would read on
+    /// startup) with one item missing `kind` and one that already has one,
+    /// bypassing `store.add(_:)` entirely so nothing sets `kind` up front —
+    /// exactly the shape of history saved before Phase 3C existed.
+    private static func seedHistory(_ dir: URL, itemsJSON: String) throws {
+        let json = "{\"version\": 2, \"items\": [\(itemsJSON)]}"
+        try Data(json.utf8).write(to: historyURL(dir))
+    }
+
+    static func testBackfillFillsMissingKinds() throws {
+        let linkID = UUID()
+        try withStore(seed: { dir in
+            try seedHistory(dir, itemsJSON: """
+            {
+              "id": "\(linkID.uuidString)",
+              "type": "text",
+              "timestamp": 1700000000,
+              "textContent": "https://example.com",
+              "isPinned": false,
+              "isBookmarked": false,
+              "tags": []
+            }
+            """)
+        }) { store, dir in
+            // ClipboardStore.init() calls backfillKindsIfNeeded() right after
+            // loadHistory(), but the work happens on a background queue —
+            // right after construction the kind should still be nil.
+            guard let beforeIndex = store.items.firstIndex(where: { $0.id == linkID }) else {
+                throw TestFailure(message: "seeded item missing right after load", file: #file, line: #line)
+            }
+            try expectNil(store.items[beforeIndex].kind, "backfill must not block init/loadHistory synchronously")
+
+            pumpMainRunLoop(until: { store.items.first(where: { $0.id == linkID })?.kind != nil })
+
+            let kind = store.items.first(where: { $0.id == linkID })?.kind
+            try expectEqual(kind, .link, "a bare URL clip should backfill to .link")
+
+            store.flushPendingSave()
+            let onDisk = try readHistoryFile(dir)
+            try expectEqual(onDisk.items.first(where: { $0.id == linkID })?.kind, .link, "the backfilled kind should be saved to disk")
+        }
+    }
+
+    static func testBackfillLeavesExistingKindAlone() throws {
+        let linkID = UUID()
+        let colorID = UUID()
+        try withStore(seed: { dir in
+            try seedHistory(dir, itemsJSON: """
+            {
+              "id": "\(linkID.uuidString)",
+              "type": "text",
+              "timestamp": 1700000000,
+              "textContent": "https://example.com",
+              "isPinned": false,
+              "isBookmarked": false,
+              "tags": []
+            },
+            {
+              "id": "\(colorID.uuidString)",
+              "type": "text",
+              "timestamp": 1700000001,
+              "textContent": "#336699",
+              "isPinned": false,
+              "isBookmarked": false,
+              "tags": [],
+              "kind": "code"
+            }
+            """)
+        }) { store, _ in
+            // The color item already has a kind (deliberately "code", which
+            // detection would never produce for this text) — backfill only
+            // touches items whose kind is nil, so this must survive as-is.
+            pumpMainRunLoop(until: { store.items.first(where: { $0.id == linkID })?.kind != nil })
+
+            let preExistingKind = store.items.first(where: { $0.id == colorID })?.kind
+            try expectEqual(preExistingKind, .code, "an item that already had a kind must not be recomputed")
+        }
+    }
+
+    static func testBackfillIsIdempotent() throws {
+        let id = UUID()
+        try withStore(seed: { dir in
+            try seedHistory(dir, itemsJSON: """
+            {
+              "id": "\(id.uuidString)",
+              "type": "text",
+              "timestamp": 1700000000,
+              "textContent": "just some plain text",
+              "isPinned": false,
+              "isBookmarked": false,
+              "tags": []
+            }
+            """)
+        }) { store, _ in
+            pumpMainRunLoop(until: { store.items.first(where: { $0.id == id })?.kind != nil })
+            try expectEqual(store.items.first(where: { $0.id == id })?.kind, .text)
+
+            // Nothing left to compute — a second call must be a harmless no-op.
+            store.backfillKindsIfNeeded()
+            pumpMainRunLoop(until: { false }, timeout: 0.2)
+            try expectEqual(store.items.first(where: { $0.id == id })?.kind, .text, "a repeat call must not change an already-set kind")
         }
     }
 }
