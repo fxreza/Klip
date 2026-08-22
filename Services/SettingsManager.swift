@@ -114,6 +114,17 @@ final class SettingsManager: ObservableObject {
         }
     }
 
+    /// Whether the first-run `OnboardingView` has already been shown (and
+    /// dismissed, by any path — granted, skipped, or auto-closed on grant).
+    /// Once true, `AppDelegate` never shows it again automatically; the user
+    /// reaches Permissions… from the status-bar menu instead.
+    @Published var hasCompletedOnboarding: Bool = false {
+        didSet {
+            guard isLoaded, hasCompletedOnboarding != oldValue else { return }
+            defaults.set(hasCompletedOnboarding, forKey: "onboarding.completed")
+        }
+    }
+
     // MARK: - Appearance / layout (new in Phase 1C; consumed by Phase 2+)
 
     /// Scales list-row fonts (`fontScale.list`), range 0.8...1.6.
@@ -217,6 +228,9 @@ final class SettingsManager: ObservableObject {
 
         // Load hide status bar
         self.hideStatusBar = defaults.bool(forKey: "hideStatusBar")
+
+        // Load onboarding-completed flag
+        self.hasCompletedOnboarding = defaults.bool(forKey: "onboarding.completed")
 
         // Load appearance / layout settings
         if let raw = defaults.object(forKey: "fontScale.list") as? Double {

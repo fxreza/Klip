@@ -157,6 +157,14 @@ class PasteController {
     
     /// Simulate Command + V keystroke
     private static func simulatePaste() {
+        // Content is already on the pasteboard by the time this runs (today's
+        // behavior, unchanged) — without Accessibility access the synthesized
+        // ⌘V below won't reach the frontmost app, so let the UI know it still
+        // needs a manual ⌘V.
+        if !AXIsProcessTrusted() {
+            NotificationCenter.default.post(name: .klipPasteNeedsAccessibility, object: nil)
+        }
+
         let source = CGEventSource(stateID: .hidSystemState)
         
         // Key code for 'V' is 9

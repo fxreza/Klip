@@ -17,6 +17,8 @@ struct SettingsView: View {
                     .tabItem { Label("History", systemImage: "clock") }
                 AppearanceSettingsTab()
                     .tabItem { Label("Appearance", systemImage: "paintbrush") }
+                PermissionsView()
+                    .tabItem { Label("Permissions", systemImage: "lock.shield") }
             }
 
             Divider()
