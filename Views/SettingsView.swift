@@ -1,36 +1,67 @@
 import SwiftUI
 
-/// Settings view for configuring Buffer preferences
+// TEMP-SHIM remove at integration: `Services/SettingsManager.swift`'s
+// `HistoryLimit` enum still has today's essential/deep/unlimited(=1000)
+// cases. A concurrent worktree is replacing it with the target API from
+// docs/plan/briefs/1C-settings-theme.md:
+//   enum HistoryLimit: Int, CaseIterable { case k1 = 1000, k5 = 5000, k10 = 10000, unlimited = 0 }
+//   static let default, maxItems: Int?, isUnlimited, label, subtitle, static func from(storedRaw:)
+// This extension backfills just enough of that API (in terms of *today's*
+// cases) so this file can be written directly against the target shape.
+// `maxItems` never returns nil today because the old enum has no "unlimited"
+// case in the new sense — that's expected of a shim, and the real
+// implementation's nil-for-unlimited case is exactly what `isDowngrade(from:to:)`
+// below already accounts for.
+extension HistoryLimit {
+    static var `default`: HistoryLimit { .essential }
+
+    var maxItems: Int? { rawValue }
+
+    var isUnlimited: Bool { false }
+
+    static func from(storedRaw: Int?) -> HistoryLimit {
+        guard let raw = storedRaw, let match = HistoryLimit(rawValue: raw) else { return .default }
+        return match
+    }
+}
+
+/// Settings window for Klip preferences. Every control binds directly to
+/// `SettingsManager.shared` — there is no separate view-model layer, and
+/// every change applies immediately (this matches how native macOS Settings
+/// panes behave, and loses nothing versus the old explicit "Save" flow: the
+/// only thing that flow ever did was copy a local draft back into
+/// `SettingsManager` and call `.save()`, which now happens as soon as you
+/// touch a control).
 struct SettingsView: View {
-    @StateObject private var settings = SettingsViewModel()
-    @State private var isRecording = false
-    @State private var recordedKeyCode: UInt16 = 0
-    @State private var recordedModifiers = HotkeyModifiers()
-    @State private var showingTrimAlert = false
-    @State private var pendingTier: HistoryLimit?
-    
     var body: some View {
-        VStack(spacing: 20) {
-            // Header
-            HStack {
-                Image(systemName: "keyboard")
-                    .font(.system(size: 24))
-                    .foregroundColor(.accentColor)
-                Text("Klip Settings")
-                    .font(.system(size: 16, weight: .semibold))
-                Spacer()
+        VStack(spacing: 0) {
+            TabView {
+                GeneralSettingsTab()
+                    .tabItem { Label("General", systemImage: "gearshape") }
+                HistorySettingsTab()
+                    .tabItem { Label("History", systemImage: "clock") }
+                AppearanceSettingsTab()
+                    .tabItem { Label("Appearance", systemImage: "paintbrush") }
             }
-            
+
             Divider()
-            
-            // Hotkey section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Keyboard Shortcut")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.secondary)
-                
+            AboutFooter()
+                .padding(.vertical, 10)
+        }
+        .frame(width: 520, height: 460)
+    }
+}
+
+// MARK: - General
+
+private struct GeneralSettingsTab: View {
+    @ObservedObject private var settings = SettingsManager.shared
+    @State private var isRecording = false
+
+    var body: some View {
+        Form {
+            Section("Global Shortcut") {
                 HStack(spacing: 12) {
-                    // Current shortcut display
                     HStack(spacing: 4) {
                         Text(settings.hotkeyModifiers.displayString)
                             .font(.system(size: 14, weight: .medium, design: .monospaced))
@@ -47,31 +78,22 @@ struct SettingsView: View {
                         RoundedRectangle(cornerRadius: 6)
                             .stroke(isRecording ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: 1)
                     )
-                    
+
                     Button(action: { isRecording.toggle() }) {
                         Text(isRecording ? "Cancel" : "Change")
                             .font(.system(size: 12, weight: .medium))
                     }
                     .buttonStyle(.bordered)
-                    
+
                     Spacer()
                 }
-                
+
                 if isRecording {
                     Text("Press your new shortcut...")
-                        .font(.system(size: 11))
-                        .foregroundColor(.accentColor)
+                        .font(.caption)
+                        .foregroundStyle(Color.accentColor)
                 }
-            }
-            
-            Divider()
-            
-            // Preset shortcuts
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Quick Presets")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.secondary)
-                
+
                 HStack(spacing: 8) {
                     presetButton(label: "⇧⌘V", mods: HotkeyModifiers(shift: true, command: true), keyCode: 9)
                     presetButton(label: "⌥⌘V", mods: HotkeyModifiers(command: true, option: true), keyCode: 9)
@@ -79,170 +101,46 @@ struct SettingsView: View {
                     presetButton(label: "⌘B", mods: HotkeyModifiers(command: true), keyCode: 11)
                 }
             }
-            
-            Divider()
-            
-            // System section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("System")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.secondary)
-                
-                HStack {
-                    Text("Launch at Login")
-                        .font(.system(size: 13, weight: .medium))
-                    Spacer()
-                    Toggle("", isOn: $settings.launchAtLogin)
-                        .labelsHidden()
-                        .onChange(of: settings.launchAtLogin) { newValue in
-                            SettingsManager.shared.toggleLaunchAtLogin(newValue)
-                            DispatchQueue.main.async {
-                                settings.launchAtLogin = SettingsManager.shared.launchAtLogin
-                            }
-                        }
-                        .toggleStyle(.switch)
-                }
-                
-                HStack {
-                    Text("Include Pre-release Updates")
-                        .font(.system(size: 13, weight: .medium))
-                    Spacer()
-                    Toggle("", isOn: $settings.includePrereleases)
-                        .labelsHidden()
-                        .onChange(of: settings.includePrereleases) { newValue in
-                            settings.save()
-                            if newValue {
-                                UpdateService.shared.checkForUpdates(silent: true)
-                            }
-                        }
-                        .toggleStyle(.switch)
-                }
 
-                HStack {
-                    Text("Hide Menu Bar Icon")
-                        .font(.system(size: 13, weight: .medium))
-                    Spacer()
-                    Toggle("", isOn: $settings.hideStatusBar)
-                        .labelsHidden()
-                        .onChange(of: settings.hideStatusBar) { _ in
-                            settings.save()
+            Section("Startup") {
+                Toggle("Launch at Login", isOn: Binding(
+                    get: { settings.launchAtLogin },
+                    set: { SettingsManager.shared.toggleLaunchAtLogin($0) }
+                ))
+            }
+
+            Section("Updates") {
+                Toggle("Include Pre-release Updates", isOn: Binding(
+                    get: { settings.includePrereleases },
+                    set: { newValue in
+                        settings.includePrereleases = newValue
+                        if newValue {
+                            UpdateService.shared.checkForUpdates(silent: true)
                         }
-                        .toggleStyle(.switch)
-                }
-                
-                // History Size Section
-                Divider()
-                    .padding(.vertical, 4)
-                
-                Text("History Size")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.secondary)
-                
-                HStack(spacing: 12) {
-                    ForEach(HistoryLimit.allCases, id: \.self) { tier in
-                        Button(action: { 
-                            // 1B-compat: unlimited is rawValue 0, so compare
-                            // caps (nil = unlimited = largest) not raw values.
-                            if (tier.maxItems ?? Int.max) < (settings.historyLimit.maxItems ?? Int.max) {
-                                pendingTier = tier
-                                showingTrimAlert = true
-                            } else {
-                                settings.historyLimit = tier
-                                settings.save()
-                            }
-                        }) {
-                            VStack(alignment: .center, spacing: 6) {
-                                if settings.historyLimit == tier {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.accentColor)
-                                        .font(.system(size: 14))
-                                } else {
-                                    Image(systemName: "circle")
-                                        .foregroundColor(.secondary.opacity(0.3))
-                                        .font(.system(size: 14))
-                                }
-                                
-                                Text(tier.label)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(settings.historyLimit == tier ? .primary : .secondary)
-                                
-                                Text(tier.subtitle)
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.secondary.opacity(0.8))
-                            }
-                            .padding(.vertical, 14)
-                            .frame(maxWidth: .infinity)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(settings.historyLimit == tier 
-                                          ? Color.accentColor.opacity(0.1) 
-                                          : Color(NSColor.controlBackgroundColor))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(settings.historyLimit == tier 
-                                            ? Color.accentColor : Color.clear, lineWidth: settings.historyLimit == tier ? 1.5 : 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
                     }
+                ))
+
+                Button("Check for Updates…") {
+                    UpdateService.shared.checkForUpdates(silent: false)
                 }
             }
-            
-            Divider()
 
-            // About
-            VStack(spacing: 6) {
-                Text("Designed to disappear. Built to remember.")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary.opacity(0.5))
-                    .italic()
-
-                Text("Klip \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") · based on Buffer by @samirpatil2000")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary.opacity(0.4))
-
-                HStack(spacing: 8) {
-                    Link("⭐ Star on GitHub", destination: URL(string: "https://github.com/samirpatil2000/Buffer")!)
-                        .font(.system(size: 10, weight: .medium))
-
-                    Text("·")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary.opacity(0.4))
-
-                    Link("Report an Issue", destination: URL(string: "https://github.com/samirpatil2000/Buffer/issues/new")!)
-                        .font(.system(size: 10, weight: .medium))
-                }
+            Section("Menu Bar") {
+                Toggle("Hide Menu Bar Icon", isOn: $settings.hideStatusBar)
             }
-            .frame(maxWidth: .infinity)
-            .multilineTextAlignment(.center)
         }
-        .padding(24)
-        .frame(width: 380)
-        .alert("Reduce History Limit?", isPresented: $showingTrimAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Reduce & Delete", role: .destructive) {
-                if let tier = pendingTier {
-                    settings.historyLimit = tier
-                    settings.save()
-                }
-            }
-        } message: {
-            Text("This will permanently delete your oldest unbookmarked items to fit the new size. This action cannot be undone.")
-        }
+        .formStyle(.grouped)
         .background(KeyRecorder(isRecording: $isRecording) { keyCode, modifiers in
             settings.hotkeyKeyCode = keyCode
             settings.hotkeyModifiers = modifiers
-            settings.save()
             isRecording = false
         })
     }
-    
+
     private func presetButton(label: String, mods: HotkeyModifiers, keyCode: UInt16) -> some View {
         Button(action: {
             settings.hotkeyModifiers = mods
             settings.hotkeyKeyCode = keyCode
-            settings.save()
         }) {
             Text(label)
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
@@ -253,17 +151,229 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - History
+
+private struct HistorySettingsTab: View {
+    @ObservedObject private var settings = SettingsManager.shared
+    @State private var pendingTier: HistoryLimit?
+    @State private var showingTrimAlert = false
+
+    var body: some View {
+        Form {
+            Section("History Size") {
+                HStack(spacing: 12) {
+                    ForEach(HistoryLimit.allCases, id: \.self) { tier in
+                        tierButton(tier)
+                    }
+                }
+                Text("Older unpinned, unbookmarked, untagged items are removed once the limit is reached.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .alert("Reduce History Limit?", isPresented: $showingTrimAlert) {
+            Button("Cancel", role: .cancel) { pendingTier = nil }
+            Button("Reduce & Delete", role: .destructive) {
+                if let tier = pendingTier {
+                    apply(tier)
+                }
+                pendingTier = nil
+            }
+        } message: {
+            Text("This will permanently delete your oldest unbookmarked items to fit the new size. This action cannot be undone.")
+        }
+    }
+
+    private func tierButton(_ tier: HistoryLimit) -> some View {
+        let isSelected = settings.historyLimit == tier
+        return Button(action: { select(tier) }) {
+            VStack(alignment: .center, spacing: 6) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(isSelected ? .accentColor : .secondary.opacity(0.3))
+                    .font(.system(size: 14))
+
+                Text(tier.label)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(isSelected ? .primary : .secondary)
+
+                Text(tier.subtitle)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary.opacity(0.8))
+            }
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.rowCornerRadius)
+                    .fill(isSelected ? Color.accentColor.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.rowCornerRadius)
+                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: isSelected ? 1.5 : 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func select(_ tier: HistoryLimit) {
+        if isDowngrade(from: settings.historyLimit, to: tier) {
+            pendingTier = tier
+            showingTrimAlert = true
+        } else {
+            apply(tier)
+        }
+    }
+
+    private func apply(_ tier: HistoryLimit) {
+        settings.historyLimit = tier
+        settings.save()
+        NotificationCenter.default.post(name: .bufferHistoryLimitChanged, object: nil)
+    }
+
+    /// True when `new` keeps fewer items than `current` — i.e. items could be
+    /// trimmed. `nil` `maxItems` means "unlimited" (see the TEMP-SHIM above).
+    private func isDowngrade(from current: HistoryLimit, to new: HistoryLimit) -> Bool {
+        switch (current.maxItems, new.maxItems) {
+        case (nil, nil): return false
+        case (nil, .some): return true
+        case (.some, nil): return false
+        case let (.some(currentMax), .some(newMax)): return newMax < currentMax
+        }
+    }
+}
+
+// MARK: - Appearance
+
+private struct AppearanceSettingsTab: View {
+    @ObservedObject private var settings = SettingsManager.shared
+
+    var body: some View {
+        Form {
+            Section("Theme") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Accent color")
+                    accentPicker
+                }
+                .padding(.vertical, 2)
+
+                Picker("Appearance", selection: $settings.colorScheme) {
+                    ForEach(AppColorScheme.allCases) { scheme in
+                        Text(scheme.label).tag(scheme)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Section("Text Size") {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("List text size")
+                        Spacer()
+                        Text("\(Int(settings.listFontScale * 100))%")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(value: $settings.listFontScale, in: 0.8...1.6)
+                    Text("Sample clipboard item")
+                        .font(.klip(.rowTitle))
+                }
+                .padding(.vertical, 4)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Preview text size")
+                        Spacer()
+                        Text("\(Int(settings.previewFontScale * 100))%")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(value: $settings.previewFontScale, in: 0.8...1.6)
+                    Text("Sample preview text")
+                        .font(.klip(.preview))
+                }
+                .padding(.vertical, 4)
+            }
+
+            Section("Layout") {
+                Toggle("Show preview pane", isOn: $settings.showPreviewPane)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var accentPicker: some View {
+        HStack(spacing: 10) {
+            ForEach(AccentTheme.allCases) { theme in
+                let selected = settings.accentTheme == theme
+                Button {
+                    settings.accentTheme = theme
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(theme == .system ? AnyShapeStyle(.gray.gradient) : AnyShapeStyle(theme.color.gradient))
+                            .frame(width: 22, height: 22)
+                        if theme == .system {
+                            Image(systemName: "circle.lefthalf.filled")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.white)
+                        }
+                        if selected {
+                            Circle()
+                                .strokeBorder(Color.primary.opacity(0.85), lineWidth: 2)
+                                .frame(width: 28, height: 28)
+                        }
+                    }
+                    .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .help(theme.label)
+            }
+        }
+    }
+}
+
+// MARK: - About footer
+
+private struct AboutFooter: View {
+    var body: some View {
+        VStack(spacing: 6) {
+            Text("Designed to disappear. Built to remember.")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary.opacity(0.5))
+                .italic()
+
+            Text("Klip \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") · based on Buffer by @samirpatil2000")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary.opacity(0.4))
+
+            HStack(spacing: 8) {
+                Link("⭐ Star on GitHub", destination: URL(string: "https://github.com/samirpatil2000/Buffer")!)
+                    .font(.system(size: 10, weight: .medium))
+
+                Text("·")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary.opacity(0.4))
+
+                Link("Report an Issue", destination: URL(string: "https://github.com/samirpatil2000/Buffer/issues/new")!)
+                    .font(.system(size: 10, weight: .medium))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .multilineTextAlignment(.center)
+    }
+}
+
 /// Records keyboard shortcuts when active
 struct KeyRecorder: NSViewRepresentable {
     @Binding var isRecording: Bool
     let onRecord: (UInt16, HotkeyModifiers) -> Void
-    
+
     func makeNSView(context: Context) -> KeyRecorderView {
         let view = KeyRecorderView()
         view.onRecord = onRecord
         return view
     }
-    
+
     func updateNSView(_ nsView: KeyRecorderView, context: Context) {
         nsView.isRecording = isRecording
         if isRecording {
@@ -277,15 +387,15 @@ struct KeyRecorder: NSViewRepresentable {
 class KeyRecorderView: NSView {
     var isRecording = false
     var onRecord: ((UInt16, HotkeyModifiers) -> Void)?
-    
+
     override var acceptsFirstResponder: Bool { true }
-    
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let window = self.window {
             // Set level to be above other apps but below system items
             window.level = .floating
-            
+
             // Use a tiny delay to allow the window to be properly added to the window list
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 window.makeKeyAndOrderFront(nil)
@@ -294,87 +404,28 @@ class KeyRecorderView: NSView {
             }
         }
     }
-    
+
     override func keyDown(with event: NSEvent) {
         guard isRecording else {
             super.keyDown(with: event)
             return
         }
-        
+
         // Ignore modifier-only presses
         if event.keyCode == 56 || event.keyCode == 59 || event.keyCode == 58 || event.keyCode == 55 {
             return
         }
-        
+
         let mods = HotkeyModifiers(
             shift: event.modifierFlags.contains(.shift),
             command: event.modifierFlags.contains(.command),
             option: event.modifierFlags.contains(.option),
             control: event.modifierFlags.contains(.control)
         )
-        
+
         // Require at least one modifier
         if mods.shift || mods.command || mods.option || mods.control {
             onRecord?(event.keyCode, mods)
         }
-    }
-}
-
-/// ViewModel wrapper for SettingsManager to avoid crashes
-class SettingsViewModel: ObservableObject {
-    @Published var hotkeyModifiers: HotkeyModifiers
-    @Published var hotkeyKeyCode: UInt16
-    @Published var launchAtLogin: Bool
-    @Published var historyLimit: HistoryLimit
-    @Published var includePrereleases: Bool
-    @Published var hideStatusBar: Bool
-    
-    private let defaults = UserDefaults.standard
-    private let hotkeyModifiersKey = "hotkeyModifiers"
-    private let hotkeyKeyCodeKey = "hotkeyKeyCode"
-    
-    init() {
-        // Load modifiers
-        if let savedMods = defaults.array(forKey: hotkeyModifiersKey) as? [String] {
-            self.hotkeyModifiers = HotkeyModifiers(from: savedMods)
-        } else {
-            self.hotkeyModifiers = HotkeyModifiers(shift: true, command: true, option: false, control: false)
-        }
-        
-        // Load keycode (default to V = 9)
-        let savedKeyCode = defaults.integer(forKey: hotkeyKeyCodeKey)
-        self.hotkeyKeyCode = savedKeyCode > 0 ? UInt16(savedKeyCode) : 9
-        
-        // Load launch at login status from manager natively via SMAppService
-        self.launchAtLogin = SettingsManager.shared.launchAtLogin
-        
-        // Load history limit
-        // 1B-compat: legacy raw values (100/500/1000) map through from(storedRaw:).
-        self.historyLimit = HistoryLimit.from(storedRaw: defaults.object(forKey: "historyLimit") as? Int)
-        
-        // Load pre-release updates toggle
-        self.includePrereleases = defaults.bool(forKey: "includePrereleases")
-
-        // Load hide status bar
-        self.hideStatusBar = defaults.bool(forKey: "hideStatusBar")
-    }
-    
-    func save() {
-        defaults.set(hotkeyModifiers.toArray(), forKey: hotkeyModifiersKey)
-        defaults.set(Int(hotkeyKeyCode), forKey: hotkeyKeyCodeKey)
-        defaults.set(historyLimit.rawValue, forKey: "historyLimit")
-        defaults.set(includePrereleases, forKey: "includePrereleases")
-        defaults.set(hideStatusBar, forKey: "hideStatusBar")
-
-        SettingsManager.shared.hotkeyModifiers = hotkeyModifiers
-        SettingsManager.shared.hotkeyKeyCode = hotkeyKeyCode
-        SettingsManager.shared.historyLimit = historyLimit
-        SettingsManager.shared.includePrereleases = includePrereleases
-        SettingsManager.shared.hideStatusBar = hideStatusBar
-        SettingsManager.shared.save()
-
-        NotificationCenter.default.post(name: .bufferHotkeyChanged, object: nil)
-        NotificationCenter.default.post(name: .bufferHistoryLimitChanged, object: nil)
-        NotificationCenter.default.post(name: .bufferStatusBarVisibilityChanged, object: nil)
     }
 }
