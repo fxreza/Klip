@@ -71,6 +71,7 @@ struct HistoryContentView: View {
                     ActionBar(viewModel: viewModel, settings: settings)
                 }
                 .frame(minWidth: 320, maxWidth: .infinity)
+                .overlay(alignment: .bottom) { ToastOverlay(toast: viewModel.toast) }
             }
 
             if viewModel.showNewFolderPrompt {

@@ -177,7 +177,13 @@ struct PreviewPane: View {
                 help: item.isBookmarked ? "Remove from Favorites (⌘B)" : "Add to Favorites — protects from cleanup (⌘B)"
             ) { viewModel.toggleBookmarkOnSelection() }
 
-            iconButton("trash", tint: .secondary, help: item.isLocked ? "Locked — unlock first" : "Delete (⌘⌫)") {
+            iconButton(
+                item.isLocked ? "lock.fill" : "lock.open",
+                tint: item.isLocked ? Theme.lockTint : .secondary,
+                help: item.isLocked ? "Unlock (⌘L)" : "Lock (⌘L)"
+            ) { viewModel.toggleLockSelection() }
+
+            iconButton("trash", tint: .secondary, help: item.isLocked ? "Locked - unlock to delete" : "Delete (⌘⌫)") {
                 viewModel.deleteSelection()
             }
             .disabled(item.isLocked)

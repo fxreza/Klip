@@ -155,34 +155,55 @@ class StatusBarController {
     @objc private func checkboxToggled(_ sender: NSButton) {
         guard let alert = activeAlert else { return }
         if sender.state == .on {
-            alert.informativeText = "This will permanently delete all unpinned, unbookmarked, and untagged items."
+            alert.informativeText = "Clear history? Pinned, starred, tagged, locked and folder clips are kept."
         } else {
-            alert.informativeText = "This will permanently delete all clipboard items, including pinned, bookmarked, and tagged items."
+            alert.informativeText = "This will permanently delete every clip except locked ones - a lock always outranks Clear History."
         }
     }
-    
+
     @objc private func clearHistory() {
         let alert = NSAlert()
         alert.messageText = "Clear Clipboard History?"
-        alert.informativeText = "This will permanently delete all unpinned, unbookmarked, and untagged items."
+        alert.informativeText = "Clear history? Pinned, starred, tagged, locked and folder clips are kept."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Clear")
         alert.addButton(withTitle: "Cancel")
-        
-        let checkbox = NSButton(checkboxWithTitle: "Keep pinned, bookmarked, and tagged items", target: self, action: #selector(checkboxToggled(_:)))
+
+        let checkbox = NSButton(checkboxWithTitle: "Keep pinned, starred, tagged, locked and folder clips", target: self, action: #selector(checkboxToggled(_:)))
         checkbox.state = .on
         checkbox.sizeToFit()
         checkbox.frame = NSRect(x: 0, y: 0, width: max(checkbox.frame.width, 350), height: 24)
         alert.accessoryView = checkbox
-        
+
         activeAlert = alert
-        
+
         if alert.runModal() == .alertFirstButtonReturn {
             let keepProtected = checkbox.state == .on
-            store.clear(keepProtected: keepProtected)
+            let result = store.clear(keepProtected: keepProtected)
+            showClearResult(result)
         }
-        
+
         activeAlert = nil
+    }
+
+    /// Reports the outcome of Clear History. The history window may not be
+    /// open (no `HistoryViewModel` to hand a toast to from here), so this
+    /// always uses a follow-up `NSAlert` - informational, auto-dismissible
+    /// with Return/Esc.
+    private func showClearResult(_ result: ClipboardStore.DeleteResult) {
+        let alert = NSAlert()
+        alert.messageText = "History Cleared"
+        let kept = result.skippedLocked
+        let clipsWord = result.deleted == 1 ? "clip" : "clips"
+        if kept > 0 {
+            let protectedWord = kept == 1 ? "protected clip" : "protected clips"
+            alert.informativeText = "Cleared \(result.deleted) \(clipsWord); \(kept) \(protectedWord) kept."
+        } else {
+            alert.informativeText = "Cleared \(result.deleted) \(clipsWord)."
+        }
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     @objc private func visibilityChanged() {
