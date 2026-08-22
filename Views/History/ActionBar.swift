@@ -3,11 +3,14 @@ import SwiftUI
 /// Bottom bar: layout toggles on the left, the shortcut legend in the middle,
 /// the Paste button on the right.
 ///
-/// The legend text is still hardcoded — Phase 3E makes it read the user's key
-/// bindings.
+/// The legend is built from `ShortcutManager.shared.displayString(for:)`, so
+/// rebinding a key in Settings > Shortcuts updates it immediately — the
+/// `@ObservedObject var shortcuts` subscription below is what makes that
+/// live rather than a one-time read.
 struct ActionBar: View {
     @ObservedObject var viewModel: HistoryViewModel
     @ObservedObject var settings: SettingsManager
+    @ObservedObject private var shortcuts = ShortcutManager.shared
 
     var body: some View {
         HStack(spacing: 12) {
@@ -16,11 +19,8 @@ struct ActionBar: View {
             Divider()
                 .frame(height: 14)
 
-            // Scrolls rather than pushing the Paste button off a narrow window.
-            ScrollView(.horizontal, showsIndicators: false) {
-                legend
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            legend
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer(minLength: 8)
                 .frame(maxWidth: 8)
@@ -69,34 +69,96 @@ struct ActionBar: View {
     }
 
     // MARK: - Middle: shortcut legend
+    //
+    // `ViewThatFits` picks the first tier whose items all fit in the space
+    // left by the toggles/divider/Paste button, so the row never wraps and
+    // never pushes the Paste button off a narrow window — lower-priority
+    // items (window toggles, then tag/copy/plain-paste, then item actions)
+    // are the ones that disappear first as the window narrows.
 
     @ViewBuilder
     private var legend: some View {
         if viewModel.isEditing {
-            HStack(spacing: 10) {
-                Text("Editing")
-                    .font(.klip(.caption))
-                    .fontWeight(.semibold)
-                    .foregroundStyle(Theme.accent)
-                legendItem("Esc", "exit")
-                legendItem("⌘E", "save")
-            }
+            editingLegend
         } else {
-            HStack(spacing: 10) {
-                legendItem("↑↓", "navigate")
-                legendItem("⌘↑↓", "multi-select")
-                legendItem("⌘P", "pin")
-                legendItem("⌘B", "star")
-                if let item = viewModel.selectedItem, item.isEditable {
-                    legendItem("⌘E", "edit")
-                }
-                if viewModel.selectedItem?.type == .image {
-                    legendItem("⌘S", "save")
-                }
-                legendItem("⌘[ ]", "scope")
+            ViewThatFits(in: .horizontal) {
+                legendRow(fullLegendItems)
+                legendRow(reducedLegendItems)
+                legendRow(minimalLegendItems)
             }
-            .lineLimit(1)
         }
+    }
+
+    private var editingLegend: some View {
+        HStack(spacing: 10) {
+            Text("Editing")
+                .font(.klip(.caption))
+                .fontWeight(.semibold)
+                .foregroundStyle(Theme.accent)
+            legendItem(shortcuts.displayString(for: .escape), "exit")
+            legendItem(shortcuts.displayString(for: .edit), "save")
+        }
+    }
+
+    /// Everything: navigation, every item action, both scope keys and both
+    /// window toggles.
+    private var fullLegendItems: [(key: String, label: String)] {
+        var items = baseLegendItems
+        items.append((shortcuts.displayString(for: .addTag), "tag"))
+        items.append((shortcuts.displayString(for: .copy), "copy"))
+        items.append((shortcuts.displayString(for: .pastePlain), "paste plain"))
+        items.append((scopeKey, "scope"))
+        items.append((shortcuts.displayString(for: .toggleSidebar), "sidebar"))
+        items.append((shortcuts.displayString(for: .togglePreview), "preview"))
+        return items
+    }
+
+    /// Drops the window toggles and the less-used copy/tag/plain-paste
+    /// shortcuts, keeps the item actions and scope cycling.
+    private var reducedLegendItems: [(key: String, label: String)] {
+        var items = baseLegendItems
+        items.append((scopeKey, "scope"))
+        return items
+    }
+
+    /// Guaranteed to fit almost anywhere: navigate + pin only.
+    private var minimalLegendItems: [(key: String, label: String)] {
+        [
+            ("↑↓", "navigate"),
+            (shortcuts.displayString(for: .pin), "pin"),
+        ]
+    }
+
+    /// Shared by the full and reduced tiers: navigate, multi-select, pin,
+    /// star, lock, and the two contextual item actions (edit / save image).
+    private var baseLegendItems: [(key: String, label: String)] {
+        var items: [(key: String, label: String)] = [
+            ("↑↓", "navigate"),
+            ("⇧↑↓", "multi-select"),
+            (shortcuts.displayString(for: .pin), "pin"),
+            (shortcuts.displayString(for: .star), "star"),
+            (shortcuts.displayString(for: .lock), "lock"),
+        ]
+        if let item = viewModel.selectedItem, item.isEditable {
+            items.append((shortcuts.displayString(for: .edit), "edit"))
+        }
+        if viewModel.selectedItem?.type == .image {
+            items.append((shortcuts.displayString(for: .saveToDisk), "save"))
+        }
+        return items
+    }
+
+    private var scopeKey: String {
+        "\(shortcuts.displayString(for: .previousScope))\(shortcuts.displayString(for: .nextScope))"
+    }
+
+    private func legendRow(_ items: [(key: String, label: String)]) -> some View {
+        HStack(spacing: 10) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                legendItem(item.key, item.label)
+            }
+        }
+        .lineLimit(1)
     }
 
     private func legendItem(_ key: String, _ label: String) -> some View {

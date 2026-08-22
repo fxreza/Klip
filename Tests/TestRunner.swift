@@ -69,6 +69,7 @@ let allSuites: [(String, [(String, () throws -> Void)])] = [
     ("FilterStateTests", FilterStateTests.tests),
     ("SettingsManagerTests", SettingsManagerTests.tests),
     ("ShortcutTests", ShortcutTests.tests),
+    ("KeyMonitorTests", KeyMonitorTests.tests),
     ("PermissionsTests", PermissionsTests.tests),
     ("ContentDetectorTests", ContentDetectorTests.tests),
 ]

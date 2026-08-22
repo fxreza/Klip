@@ -14,6 +14,11 @@ struct ShortcutsTab: View {
         Form {
             Section("Global") {
                 globalHotkeyRow
+                if let conflict = globalHotkeyConflict {
+                    Text("Also bound in-window to \(conflict.label) — while Klip is the frontmost app, whichever handler runs first wins.")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
                 Text("Opens or hides the Klip window from anywhere, even while another app is focused.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -63,6 +68,22 @@ struct ShortcutsTab: View {
 
     private var globalDisplay: String {
         settings.hotkeyModifiers.displayString + (keyCodeNames[settings.hotkeyKeyCode] ?? "?")
+    }
+
+    /// The in-window action, if any, that currently shares the global
+    /// open-Klip hotkey's exact key + modifier combination. The global
+    /// hotkey is a system-wide `HotkeyManager` registration, so a collision
+    /// does not stop either handler from firing — this is purely an
+    /// informational note in the tab, not an enforced conflict like
+    /// `ShortcutManager.set(_:for:)`'s in-window check.
+    private var globalHotkeyConflict: ShortcutAction? {
+        var modifiers: KeyModifiers = []
+        if settings.hotkeyModifiers.command { modifiers.insert(.command) }
+        if settings.hotkeyModifiers.shift { modifiers.insert(.shift) }
+        if settings.hotkeyModifiers.option { modifiers.insert(.option) }
+        if settings.hotkeyModifiers.control { modifiers.insert(.control) }
+        let globalBinding = KeyBinding(keyCode: settings.hotkeyKeyCode, modifiers: modifiers)
+        return ShortcutAction.allCases.first { shortcuts.binding(for: $0) == globalBinding }
     }
 }
 

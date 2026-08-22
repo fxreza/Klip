@@ -139,7 +139,9 @@ struct PreviewPane: View {
                 iconButton(
                     "square.and.pencil",
                     tint: viewModel.isEditing ? Theme.accent : .secondary,
-                    help: viewModel.isEditing ? "Stop editing (auto-saved) (⌘E or Esc)" : "Edit item (⌘E)"
+                    help: viewModel.isEditing
+                        ? "Stop editing (auto-saved) (\(ShortcutManager.shared.displayString(for: .edit)) or \(ShortcutManager.shared.displayString(for: .escape)))"
+                        : "Edit item (\(ShortcutManager.shared.displayString(for: .edit)))"
                 ) { viewModel.toggleEditMode() }
             }
 
@@ -148,7 +150,7 @@ struct PreviewPane: View {
             }
 
             if item.type == .image && viewModel.previewImage != nil {
-                iconButton("arrow.down.to.line", tint: .secondary, help: "Save image (⌘S)") {
+                iconButton("arrow.down.to.line", tint: .secondary, help: "Save image (\(ShortcutManager.shared.displayString(for: .saveToDisk)))") {
                     viewModel.saveSelectedImage()
                 }
             }
@@ -168,16 +170,20 @@ struct PreviewPane: View {
             iconButton(
                 item.isPinned ? "pin.fill" : "pin",
                 tint: item.isPinned ? Theme.pinTint : .secondary,
-                help: item.isPinned ? "Unpin (⌘P)" : "Pin to top (⌘P)"
+                help: item.isPinned
+                    ? "Unpin (\(ShortcutManager.shared.displayString(for: .pin)))"
+                    : "Pin to top (\(ShortcutManager.shared.displayString(for: .pin)))"
             ) { viewModel.togglePinOnSelection() }
 
             iconButton(
                 item.isBookmarked ? "star.fill" : "star",
                 tint: item.isBookmarked ? Theme.bookmarkTint : .secondary,
-                help: item.isBookmarked ? "Remove from Favorites (⌘B)" : "Add to Favorites — protects from cleanup (⌘B)"
+                help: item.isBookmarked
+                    ? "Remove from Favorites (\(ShortcutManager.shared.displayString(for: .star)))"
+                    : "Add to Favorites — protects from cleanup (\(ShortcutManager.shared.displayString(for: .star)))"
             ) { viewModel.toggleBookmarkOnSelection() }
 
-            iconButton("trash", tint: .secondary, help: item.isLocked ? "Locked — unlock first" : "Delete (⌘⌫)") {
+            iconButton("trash", tint: .secondary, help: item.isLocked ? "Locked — unlock first" : "Delete (\(ShortcutManager.shared.displayString(for: .delete)))") {
                 viewModel.deleteSelection()
             }
             .disabled(item.isLocked)

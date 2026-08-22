@@ -81,7 +81,7 @@ struct SearchBar: View {
                     .foregroundStyle(TagChip.color(for: tag).opacity(0.6))
             }
             .buttonStyle(.plain)
-            .help("Clear tag filter")
+            .help("Clear tag filter (\(ShortcutManager.shared.displayString(for: .clearFilter)))")
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
