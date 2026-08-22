@@ -349,29 +349,12 @@ private struct AppearanceSettingsTab: View {
 
 private struct AboutFooter: View {
     var body: some View {
-        VStack(spacing: 6) {
-            Text("Designed to disappear. Built to remember.")
-                .font(.caption.weight(.medium))
-                .foregroundColor(.secondary.opacity(0.5))
-                .italic()
-
-            Text("Klip \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") · based on Buffer by @samirpatil2000")
-                .font(.caption2)
-                .foregroundColor(.secondary.opacity(0.4))
-
-            HStack(spacing: 8) {
-                Link("⭐ Star on GitHub", destination: URL(string: "https://github.com/samirpatil2000/Buffer")!)
-                    .font(.caption2.weight(.medium))
-
-                Text("·")
-                    .font(.caption2)
-                    .foregroundColor(.secondary.opacity(0.4))
-
-                Link("Report an Issue", destination: URL(string: "https://github.com/samirpatil2000/Buffer/issues/new")!)
-                    .font(.caption2.weight(.medium))
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .multilineTextAlignment(.center)
+        // 3.0.2: dropped the tagline and the Star on GitHub / Report an
+        // Issue links per request; only the version line remains.
+        Text("Klip \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") · based on Buffer by @samirpatil2000")
+            .font(.caption2)
+            .foregroundColor(.secondary.opacity(0.4))
+            .frame(maxWidth: .infinity)
+            .multilineTextAlignment(.center)
     }
 }

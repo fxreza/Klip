@@ -1,14 +1,21 @@
 import SwiftUI
 
-/// Horizontal row of tag suggestions, shown while the search field starts with `#`.
+/// Horizontal row of tag suggestions.
+///
+/// Two call sites in `HistoryContentView` feed different lists via `tags`:
+/// typing `#` in search shows `viewModel.tagSuggestions` (prefix-filtered,
+/// alphabetical) above the chip row, unchanged from before task 6B. The Tags
+/// chip shows `viewModel.tagsByUsage` (most-used first) under the chip row.
+/// Both route a tap through `applyTagFilter`, which sets `activeTagFilter`.
 struct TagAutocompleteBar: View {
     @ObservedObject var store: ClipboardStore
     @ObservedObject var viewModel: HistoryViewModel
+    let tags: [String]
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(viewModel.tagSuggestions, id: \.self) { tag in
+                ForEach(tags, id: \.self) { tag in
                     Button(action: {
                         viewModel.applyTagFilter(tag)
                     }) {

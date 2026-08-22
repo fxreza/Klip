@@ -21,6 +21,10 @@ enum FilterStateTests {
         ("chip_file_matchesItemsWithAnAttachment", testChipFile),
         ("chip_text_isTheCatchAllForUndetectedText", testChipText),
         ("chip_specificKinds_requireAnExactKindMatch", testChipSpecificKinds),
+        // Task 6B — Tags chip
+        ("chip_tagged_matchesAnyTaggedItemRegardlessOfWhichTag", testChipTagged),
+        ("chip_taggedCombinedWithScope_narrowsBoth", testChipTaggedWithScope),
+        ("chip_taggedCombinedWithHashTag_narrowsToThatTagOnly", testChipTaggedWithTagFilter),
         ("scopeChipTagAndQuery_combine", testScopeChipCombine),
         ("query_matchesOCRText_onImagesWithNoTextContent", testQueryMatchesOCRText),
         ("query_matchesTagNames_withoutHashPrefix", testQueryMatchesTagNameWithoutHash),
@@ -313,6 +317,53 @@ enum FilterStateTests {
             0,
             "an item with kind == nil never matches a specific-kind chip"
         )
+    }
+
+    // MARK: - Tags chip (task 6B)
+
+    /// `.tagged` keeps any item carrying at least one tag, regardless of
+    /// which — it does not narrow to a specific tag (that's `FilterState.tag`).
+    static func testChipTagged() throws {
+        let items = [
+            text("has a work tag", tags: ["work"]),
+            text("has a home tag", tags: ["home"]),
+            image(tags: ["work"]),
+            text("untagged"),
+            file("Untagged.pdf"),
+        ]
+
+        let result = FilterState.apply(items, FilterState(chip: .tagged))
+        try expectEqual(contents(result), ["has a work tag", "has a home tag", "<image>"], "any tagged item, any tag")
+
+        let untaggedOnly = [text("a"), text("b"), file("c.txt")]
+        try expectEqual(FilterState.apply(untaggedOnly, FilterState(chip: .tagged)).count, 0, "no tagged items means an empty list")
+    }
+
+    /// The Tags chip narrows within a scope like every other chip.
+    static func testChipTaggedWithScope() throws {
+        let folderID = UUID()
+        let items = [
+            text("tagged in folder", tags: ["work"], folder: folderID),
+            text("tagged elsewhere", tags: ["work"]),
+            text("untagged in folder", folder: folderID),
+        ]
+
+        let result = FilterState.apply(items, FilterState(scope: .folder(folderID), chip: .tagged))
+        try expectEqual(contents(result), ["tagged in folder"], "only the tagged item that is also in scope")
+    }
+
+    /// Combining the Tags chip with an exact `#tag` filter (`FilterState.tag`)
+    /// narrows further, to just that tag — the chip alone would have let the
+    /// other tagged item through too.
+    static func testChipTaggedWithTagFilter() throws {
+        let items = [
+            text("work item", tags: ["work"]),
+            text("home item", tags: ["home"]),
+            text("untagged"),
+        ]
+
+        let result = FilterState.apply(items, FilterState(tag: "work", chip: .tagged))
+        try expectEqual(contents(result), ["work item"], "chip plus exact tag narrows to that one tag")
     }
 
     /// Scope → tag → chip → query, all four at once.

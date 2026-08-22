@@ -4,12 +4,19 @@
 import SwiftUI
 
 /// Capsule chips under the search field: All / Text / Link / Image / File /
-/// Color / Code / Email / Phone.
+/// Color / Code / Email / Phone / Tags.
 ///
-/// The chips are wired to `ContentKind`. Detection itself is Phase 3C — until
-/// it backfills `ClipboardItem.kind`, the Image / File / Text chips still work
-/// (they key off the storage type) and the rest correctly show nothing. See
-/// `FilterState.matches(_:chip:)`.
+/// The content-kind chips are wired to `ContentKind`. Detection itself is
+/// Phase 3C — until it backfills `ClipboardItem.kind`, the Image / File / Text
+/// chips still work (they key off the storage type) and the rest correctly
+/// show nothing. See `FilterState.matches(_:chip:)`.
+///
+/// Tags (task 6B) is different: activating it narrows the list to any item
+/// carrying at least one tag and shows `TagAutocompleteBar` under this row so
+/// the user can click a tag into `activeTagFilter`. It also lights up
+/// whenever `activeTagFilter` is set some other way (typing `#tag` in
+/// search), even without the chip having been tapped — see
+/// `HistoryViewModel.chipIsActive(_:)`.
 struct FilterChipBar: View {
     @ObservedObject var viewModel: HistoryViewModel
 
@@ -29,11 +36,14 @@ struct FilterChipBar: View {
 
     @ViewBuilder
     private func chip(_ filter: ChipFilter) -> some View {
-        let active = viewModel.chipFilter == filter
+        // Selection semantics (including the Tags-specific "toggle clears
+        // both chip and tag filter" rule) live on the view model —
+        // `viewModel.tapChip(_:)` / `chipIsActive(_:)` — so they can be unit
+        // tested without instantiating SwiftUI (task 6B).
+        let active = viewModel.chipIsActive(filter)
         Button {
             withAnimation(Theme.selectionSpring) {
-                // Tapping the active chip clears back to All.
-                viewModel.chipFilter = (active && filter != .all) ? .all : filter
+                viewModel.tapChip(filter)
             }
         } label: {
             HStack(spacing: 4) {
@@ -46,8 +56,17 @@ struct FilterChipBar: View {
             .padding(.vertical, 5)
             .background {
                 if active {
-                    Capsule().fill(Theme.accentGradient)
-                        .matchedGeometryEffect(id: "chipSel", in: chipNS)
+                    // The geometry match is reserved for the chip that is
+                    // *actually* `chipFilter` — Tags can read active purely
+                    // via `activeTagFilter` while some other chip holds
+                    // `chipFilter`, and matching the same id on two chips at
+                    // once is undefined.
+                    if filter == viewModel.chipFilter {
+                        Capsule().fill(Theme.accentGradient)
+                            .matchedGeometryEffect(id: "chipSel", in: chipNS)
+                    } else {
+                        Capsule().fill(Theme.accentGradient)
+                    }
                 } else {
                     Capsule().fill(Theme.chipInactive)
                 }
