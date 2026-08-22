@@ -16,7 +16,7 @@ struct SettingsView: View {
                 Image(systemName: "keyboard")
                     .font(.system(size: 24))
                     .foregroundColor(.accentColor)
-                Text("Buffer Settings")
+                Text("Klip Settings")
                     .font(.system(size: 16, weight: .semibold))
                 Spacer()
             }
@@ -196,7 +196,7 @@ struct SettingsView: View {
                     .foregroundColor(.secondary.opacity(0.5))
                     .italic()
 
-                Text("Buffer \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") · by @samirpatil2000")
+                Text("Klip \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") · based on Buffer by @samirpatil2000")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary.opacity(0.4))
 
