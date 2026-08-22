@@ -163,7 +163,7 @@ final class ShortcutManager: ObservableObject {
     /// default automatically applies to anyone who never rebound that action.
     @Published var bindings: [ShortcutAction: KeyBinding]
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = KlipDefaults.standard) {
         self.defaults = defaults
         var resolved: [ShortcutAction: KeyBinding] = [:]
         for action in ShortcutAction.allCases {

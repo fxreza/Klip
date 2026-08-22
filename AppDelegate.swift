@@ -35,7 +35,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide dock icon - we're menu bar only
         NSApp.setActivationPolicy(.accessory)
 
-        let defaults = UserDefaults.standard
+        let defaults = KlipDefaults.standard
         if !defaults.bool(forKey: "hasLaunchedBefore") {
             // Give it a tiny delay to ensure everything is loaded before registering SMAppService
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
@@ -181,7 +181,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func migrateUserDefaultsFromBufferIfNeeded() {
         guard ProcessInfo.processInfo.environment["KLIP_DATA_DIR"] == nil else { return }
 
-        let defaults = UserDefaults.standard
+        let defaults = KlipDefaults.standard
         guard !defaults.bool(forKey: "klip.migratedDefaults") else { return }
 
         if let bufferDefaults = defaults.persistentDomain(forName: "com.samirpatil.Buffer") {

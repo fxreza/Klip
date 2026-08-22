@@ -5,7 +5,7 @@ import SwiftUI
 // docs/plan/briefs/1C-settings-theme.md): AccentTheme / AppColorScheme
 // round-trips, Color(hexString:) parsing, and the font-scale math in
 // Views/Theme/FontScale.swift. `SettingsManager` itself is a `@MainActor`
-// singleton backed directly by `UserDefaults.standard` (no injectable
+// singleton backed directly by `KlipDefaults.standard` (no injectable
 // suite), so the handful of tests that need to flip a live setting to
 // observe its effect go through `MainActor.assumeIsolated` (the same
 // bridge `Tests/TestRunner.swift`'s `TestMain.main()` already uses) and

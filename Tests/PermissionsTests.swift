@@ -73,9 +73,9 @@ enum PermissionsTests {
         defer { settings.hasCompletedOnboarding = original }
 
         settings.hasCompletedOnboarding = true
-        try expect(UserDefaults.standard.bool(forKey: "onboarding.completed"), "true should persist to onboarding.completed")
+        try expect(KlipDefaults.standard.bool(forKey: "onboarding.completed"), "true should persist to onboarding.completed")
 
         settings.hasCompletedOnboarding = false
-        try expect(!UserDefaults.standard.bool(forKey: "onboarding.completed"), "false should persist to onboarding.completed")
+        try expect(!KlipDefaults.standard.bool(forKey: "onboarding.completed"), "false should persist to onboarding.completed")
     }
 }

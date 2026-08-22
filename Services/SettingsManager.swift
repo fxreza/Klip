@@ -71,7 +71,7 @@ enum HistoryLimit: Int, CaseIterable, Codable {
 final class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
 
-    private let defaults = UserDefaults.standard
+    private let defaults = KlipDefaults.standard
     private var isLoaded = false
 
     // Keys
