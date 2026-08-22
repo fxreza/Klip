@@ -110,8 +110,12 @@ class ClipboardWatcher: ObservableObject {
             }
 
             let urls = filePaths.map { URL(fileURLWithPath: $0) }
+            // 5A-29: the last fingerprint is read here, on the main thread that
+            // owns it, and passed into the background closure instead of being
+            // read across threads.
+            let previousFingerprint = lastFileFingerprint
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                self?.processFileURLs(urls, sourceApp: sourceApp)
+                self?.processFileURLs(urls, sourceApp: sourceApp, previousFingerprint: previousFingerprint)
             }
             return  // Prevent .string branch from also processing this change
         }
@@ -260,15 +264,21 @@ class ClipboardWatcher: ObservableObject {
 
     /// Build a `.file` item for any non-single-image set of file URLs from
     /// Finder — one file of any type, or several files/directories of mixed
-    /// types. `ClipboardStore.makeFileItem` decides copy-vs-reference against
-    /// the configured cap and returns a fingerprint used to skip a repeat
-    /// capture of the same files, mirroring the text/image dedupe above.
-    private func processFileURLs(_ urls: [URL], sourceApp: String?) {
-        guard let (item, fingerprint) = store.makeFileItem(from: urls, sourceApp: sourceApp) else { return }
-        guard fingerprint != lastFileFingerprint else { return }
+    /// types. `ClipboardStore.planFileCapture` fingerprints the selection (used
+    /// to skip a repeat capture, mirroring the text/image dedupe above) and
+    /// `makeFileItem` then decides copy-vs-reference against the configured cap.
+    ///
+    /// 5A-08: the fingerprint is computed from the URL list **before** anything
+    /// is copied, so a repeat ⌘C of the same files costs a few `stat`s instead
+    /// of a full second copy that is then thrown away (leaving `files/<uuid>/`
+    /// orphaned forever).
+    private func processFileURLs(_ urls: [URL], sourceApp: String?, previousFingerprint: String?) {
+        guard let plan = store.planFileCapture(from: urls) else { return }
+        guard plan.fingerprint != previousFingerprint else { return }
+        guard let item = store.makeFileItem(from: plan, sourceApp: sourceApp) else { return }
 
         DispatchQueue.main.async { [weak self] in
-            self?.lastFileFingerprint = fingerprint
+            self?.lastFileFingerprint = plan.fingerprint
             self?.store.add(item)
         }
     }

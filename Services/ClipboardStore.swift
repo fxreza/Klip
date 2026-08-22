@@ -28,9 +28,16 @@ class ClipboardStore: ObservableObject {
     /// save; bursts collapse into one atomic write.
     private static let saveDebounceInterval: TimeInterval = 0.3
 
+    /// Hard ceiling on how long a mutation can sit unwritten (5A-13). A burst
+    /// faster than `saveDebounceInterval` can postpone the trailing write
+    /// indefinitely; this makes the worst-case loss on a SIGKILL bounded.
+    static let saveMaxDelay: TimeInterval = 2.0
+
     // Guarded by `saveQueue`.
     private var pendingItems: [ClipboardItem]?
     private var pendingSaveWorkItem: DispatchWorkItem?
+    /// When the oldest unwritten mutation was scheduled. `saveQueue` only.
+    private var firstPendingMutationAt: Date?
 
     // MARK: - On-disk schema
 
@@ -96,6 +103,8 @@ class ClipboardStore: ObservableObject {
         backfillKindsIfNeeded()
         loadFolders()
         loadSyncIgnore()   // Phase 4A
+        trimToLimitAtLaunch()   // 5A-02
+        sweepOrphanedAssets()   // 5A-08
 
         NotificationCenter.default.addObserver(
             self,
@@ -193,13 +202,20 @@ class ClipboardStore: ObservableObject {
         // always kept: an add can only ever push out an *older* non-protected item.
         if let limit = maxItems {
             var unprotectedCount = items.reduce(0) { $0 + ($1.isProtected ? 0 : 1) }
+            // 5A-02: the eviction ids are collected here and handed to
+            // `noteEvicted` **once** after the loop. Calling it per item made
+            // every eviction re-encode and synchronously rewrite the whole
+            // `sync-ignore.json` (measured at 118 s for a single `add()` on a
+            // store 9,000 items over its cap).
+            var evicted: [UUID] = []
             while unprotectedCount > limit,
                   let indexToRemove = items.lastIndex(where: { !$0.isProtected }) {
                 let removed = items.remove(at: indexToRemove)
                 deleteAssociatedFiles(for: removed)
-                noteEvicted([removed.id])   // Phase 4A
+                evicted.append(removed.id)
                 unprotectedCount -= 1
             }
+            noteEvicted(evicted)   // Phase 4A — one batched sync-ignore write
         }
 
         print("[Buffer] Store: New count: \(items.count)")
@@ -735,8 +751,12 @@ class ClipboardStore: ObservableObject {
                 return (exactChunkStr, totalBytes, reachedEOF)
 
             } catch {
-                print("[Buffer] Failed to read text chunk: \(error)")
-                return nil
+                // 5A-28: the backing file is gone. `fullText` already falls
+                // back to the inline preview, so the chunked preview does too
+                // rather than rendering an empty pane with no explanation.
+                print("[Buffer] Failed to read text chunk, falling back to the inline preview: \(error)")
+                let content = item.textContent ?? ""
+                return (String(content.prefix(charCount)), content.utf8.count, content.count <= charCount)
             }
         } else {
             // Inline text
@@ -828,7 +848,7 @@ class ClipboardStore: ObservableObject {
 
     /// Everything needed to decide copy-vs-reference and detect a repeat
     /// capture of the same files.
-    private struct FileCaptureEntry {
+    fileprivate struct FileCaptureEntry {
         let url: URL
         let size: Int64
         let modificationDate: Date
@@ -850,7 +870,19 @@ class ClipboardStore: ObservableObject {
     /// Returns the item together with a stable fingerprint (SHA-256 of every
     /// path + size + modification date) so the caller can dedupe a repeat
     /// capture of the same files, the same way text/image content is deduped.
-    func makeFileItem(from urls: [URL], sourceApp: String?) -> (item: ClipboardItem, fingerprint: String)? {
+    /// Everything `makeFileItem` needs, computed **without copying anything**
+    /// (5A-08): the caller fingerprints first, drops a repeat capture, and only
+    /// then asks for the item. Copying first and deduping afterwards left a
+    /// full second copy of every re-copied file orphaned under `files/`.
+    struct FileCapturePlan {
+        let fingerprint: String
+        fileprivate let entries: [FileCaptureEntry]
+        fileprivate let totalSize: Int64
+    }
+
+    /// Stats the URLs and computes the dedupe fingerprint. No I/O beyond
+    /// metadata reads; safe to call for every capture.
+    func planFileCapture(from urls: [URL]) -> FileCapturePlan? {
         guard !urls.isEmpty else { return nil }
 
         var entries: [FileCaptureEntry] = []
@@ -866,6 +898,21 @@ class ClipboardStore: ObservableObject {
         guard !entries.isEmpty else { return nil }
 
         let fingerprint = Self.fingerprint(for: entries.map { ($0.url.path, $0.size, $0.modificationDate) })
+        return FileCapturePlan(fingerprint: fingerprint, entries: entries, totalSize: totalSize)
+    }
+
+    /// Convenience for callers that do not need to dedupe before copying
+    /// (tests, and any single-shot capture).
+    func makeFileItem(from urls: [URL], sourceApp: String?) -> (item: ClipboardItem, fingerprint: String)? {
+        guard let plan = planFileCapture(from: urls) else { return nil }
+        guard let item = makeFileItem(from: plan, sourceApp: sourceApp) else { return nil }
+        return (item, plan.fingerprint)
+    }
+
+    func makeFileItem(from plan: FileCapturePlan, sourceApp: String?) -> ClipboardItem? {
+        let entries = plan.entries
+        let totalSize = plan.totalSize
+        guard !entries.isEmpty else { return nil }
 
         let names = entries.map { $0.url.lastPathComponent }
         let firstName = names[0]
@@ -882,9 +929,8 @@ class ClipboardStore: ObservableObject {
         // `item.id`, not a separately-generated one.
         let itemID = UUID()
 
-        if withinCap, let attachment = copyIntoStorage(id: itemID, entries: entries, firstName: firstName, restNames: restNames, uti: uti, totalSize: totalSize) {
-            let item = ClipboardItem(id: itemID, type: .file, sourceApp: sourceApp, kind: .file, fileAttachment: attachment)
-            return (item, fingerprint)
+        if withinCap, let attachment = copyIntoStorage(id: itemID, entries: entries, uti: uti, totalSize: totalSize) {
+            return ClipboardItem(id: itemID, type: .file, sourceApp: sourceApp, kind: .file, fileAttachment: attachment)
         }
 
         // Above the cap, or the copy failed: keep only a reference to the
@@ -900,8 +946,7 @@ class ClipboardStore: ObservableObject {
             uti: uti,
             byteSize: totalSize
         )
-        let item = ClipboardItem(id: itemID, type: .file, sourceApp: sourceApp, kind: .file, fileAttachment: attachment)
-        return (item, fingerprint)
+        return ClipboardItem(id: itemID, type: .file, sourceApp: sourceApp, kind: .file, fileAttachment: attachment)
     }
 
     /// Copies every entry into a fresh `files/<id>/` directory (named after
@@ -909,36 +954,66 @@ class ClipboardStore: ObservableObject {
     /// names. Returns `nil` (leaving nothing behind) if any copy fails, so
     /// the caller can fall back to a reference instead of leaving a
     /// half-copied directory around.
+    ///
+    /// 5A-09: two files with the same basename in one selection
+    /// (`~/a/report.pdf` + `~/b/report.pdf`) used to make the second
+    /// `copyItem` throw, which threw away the whole copy and degraded the clip
+    /// to a reference to the *first* file only — the second was unrecoverable.
+    /// Duplicate names are uniquified (`report (2).pdf`) instead, and the
+    /// stored names are what the attachment records, so `fileURLs(for:)`
+    /// resolves every file.
     private func copyIntoStorage(
         id uuid: UUID,
         entries: [FileCaptureEntry],
-        firstName: String,
-        restNames: [String],
         uti: String?,
         totalSize: Int64
     ) -> FileAttachment? {
         let destDir = filesDirectory.appendingPathComponent(uuid.uuidString, isDirectory: true)
+        var storedNames: [String] = []
         do {
             try fileManager.createDirectory(at: destDir, withIntermediateDirectories: true)
+            var used = Set<String>()
             for entry in entries {
-                let dest = destDir.appendingPathComponent(entry.url.lastPathComponent)
-                try fileManager.copyItem(at: entry.url, to: dest)
+                let name = Self.uniqueName(entry.url.lastPathComponent, taken: &used)
+                storedNames.append(name)
+                try fileManager.copyItem(at: entry.url, to: destDir.appendingPathComponent(name))
             }
         } catch {
             print("[Buffer] Failed to copy files into storage, falling back to a reference: \(error)")
             try? fileManager.removeItem(at: destDir)
             return nil
         }
+        guard let firstStored = storedNames.first else { return nil }
 
         return FileAttachment(
-            originalName: firstName,
-            additionalNames: restNames,
+            originalName: firstStored,
+            additionalNames: Array(storedNames.dropFirst()),
             storedRelativePath: "files/\(uuid.uuidString)",
             referencePath: nil,
             bookmark: nil,
             uti: uti,
             byteSize: totalSize
         )
+    }
+
+    /// `report.pdf` → `report (2).pdf` → `report (3).pdf` … Mirrors
+    /// `PasteController.uniqueURL`'s naming so the two agree.
+    static func uniqueName(_ name: String, taken: inout Set<String>) -> String {
+        if !taken.contains(name) {
+            taken.insert(name)
+            return name
+        }
+        let base = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        var counter = 2
+        while true {
+            let candidate = ext.isEmpty ? "\(base) (\(counter))" : "\(base) (\(counter)).\(ext)"
+            if !taken.contains(candidate) {
+                taken.insert(candidate)
+                return candidate
+            }
+            counter += 1
+        }
     }
 
     private func fileSize(_ url: URL) -> Int64 {
@@ -992,17 +1067,32 @@ class ClipboardStore: ObservableObject {
         saveQueue.async { [weak self] in
             guard let self = self else { return }
             self.pendingItems = snapshot
+            let now = Date()
+            if self.firstPendingMutationAt == nil { self.firstPendingMutationAt = now }
             self.pendingSaveWorkItem?.cancel()
 
             let work = DispatchWorkItem { [weak self] in
                 guard let self = self else { return }
                 self.pendingSaveWorkItem = nil
+                self.firstPendingMutationAt = nil
                 guard let toSave = self.pendingItems else { return }
                 self.pendingItems = nil
                 self.saveHistoryToDisk(toSave)
             }
             self.pendingSaveWorkItem = work
-            self.saveQueue.asyncAfter(deadline: .now() + Self.saveDebounceInterval, execute: work)
+
+            // 5A-13: trailing debounce **with a maximum delay**. A mutation
+            // source faster than the 300 ms window (a scripted burst, a remote
+            // merge loop) would otherwise re-arm the timer forever and nothing
+            // would ever reach disk; the oldest unwritten mutation can never be
+            // more than `saveMaxDelay` old.
+            let firstPending = self.firstPendingMutationAt ?? now
+            let deadline = min(
+                now.addingTimeInterval(Self.saveDebounceInterval),
+                firstPending.addingTimeInterval(Self.saveMaxDelay)
+            )
+            let delay = max(0, deadline.timeIntervalSince(now))
+            self.saveQueue.asyncAfter(deadline: .now() + delay, execute: work)
         }
     }
 
@@ -1012,9 +1102,18 @@ class ClipboardStore: ObservableObject {
         saveQueue.sync {
             self.pendingSaveWorkItem?.cancel()
             self.pendingSaveWorkItem = nil
-            guard let toSave = self.pendingItems else { return }
-            self.pendingItems = nil
-            self.saveHistoryToDisk(toSave)
+            self.firstPendingMutationAt = nil
+            if let toSave = self.pendingItems {
+                self.pendingItems = nil
+                self.saveHistoryToDisk(toSave)
+            }
+            // Phase 4A / 5A-03: the sync-ignore write is debounced too.
+            self.pendingSyncIgnoreWorkItem?.cancel()
+            self.pendingSyncIgnoreWorkItem = nil
+            if let ignore = self.pendingSyncIgnore {
+                self.pendingSyncIgnore = nil
+                self.writeSyncIgnore(ignore.entries, to: ignore.url)
+            }
         }
     }
 
@@ -1070,6 +1169,59 @@ class ClipboardStore: ObservableObject {
         }
     }
 
+    /// Same as `quarantine`, but keeps the original in place: used when the
+    /// file decoded *partially* (5A-05) — the good records are loaded and will
+    /// be re-saved over the original, so the raw bytes are preserved next to it
+    /// instead of being lost by that rewrite.
+    private func quarantineCopy(_ url: URL, prefix: String) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let stamp = formatter.string(from: Date())
+        var destination = url.deletingLastPathComponent()
+            .appendingPathComponent("\(prefix).corrupt-\(stamp).json")
+
+        var suffix = 1
+        while fileManager.fileExists(atPath: destination.path) {
+            destination = url.deletingLastPathComponent()
+                .appendingPathComponent("\(prefix).corrupt-\(stamp)-\(suffix).json")
+            suffix += 1
+        }
+
+        do {
+            try fileManager.copyItem(at: url, to: destination)
+            print("[Buffer] Kept a copy of the partially-decodable \(url.lastPathComponent) as \(destination.lastPathComponent)")
+        } catch {
+            print("[Buffer] Failed to copy \(url.lastPathComponent) aside: \(error)")
+        }
+    }
+
+    /// Decodes one element without letting its failure take the whole array
+    /// down (5A-05). `value` is `nil` for a record that could not be decoded.
+    private struct Failable<T: Decodable>: Decodable {
+        let value: T?
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            value = try? container.decode(T.self)
+        }
+    }
+
+    private struct LenientHistoryFile: Decodable {
+        var version: Int
+        var items: [Failable<ClipboardItem>]
+    }
+
+    private struct LenientFoldersFile: Decodable {
+        var version: Int
+        var folders: [Failable<Folder>]
+    }
+
+    /// True when `history.json` decoded with nothing dropped and nothing
+    /// quarantined. The launch-time orphan sweep only runs in that case: after
+    /// a partial or failed load the store does not know about every asset it
+    /// owns, and deleting the "unreferenced" ones would destroy real data.
+    private var historyLoadWasClean = true
+
     private func loadHistory() {
         guard fileManager.fileExists(atPath: historyFileURL.path) else {
             print("[Buffer] No history file found")
@@ -1081,6 +1233,7 @@ class ClipboardStore: ObservableObject {
             data = try Data(contentsOf: historyFileURL)
         } catch {
             print("[Buffer] Failed to read history: \(error)")
+            historyLoadWasClean = false
             return
         }
 
@@ -1101,7 +1254,36 @@ class ClipboardStore: ObservableObject {
             return
         }
 
+        // 5A-05: one undecodable record must not cost the user the whole
+        // history (including every locked clip). Retry per record, keep what
+        // decodes, and preserve a copy of the raw file for inspection.
+        if let lenient = try? decoder.decode(LenientHistoryFile.self, from: data) {
+            let salvaged = lenient.items.compactMap { $0.value }
+            let dropped = lenient.items.count - salvaged.count
+            if !salvaged.isEmpty {
+                self.items = salvaged
+                historyLoadWasClean = false
+                print("[Buffer] Loaded \(salvaged.count) items from history (v\(lenient.version)); skipped \(dropped) undecodable record(s)")
+                quarantineCopy(historyFileURL, prefix: "history")
+                scheduleSave()
+                return
+            }
+        }
+        if let lenientLegacy = try? decoder.decode([Failable<ClipboardItem>].self, from: data) {
+            let salvaged = lenientLegacy.compactMap { $0.value }
+            let dropped = lenientLegacy.count - salvaged.count
+            if !salvaged.isEmpty {
+                self.items = salvaged
+                historyLoadWasClean = false
+                print("[Buffer] Loaded \(salvaged.count) items from a v1 history file; skipped \(dropped) undecodable record(s)")
+                quarantineCopy(historyFileURL, prefix: "history")
+                scheduleSave()
+                return
+            }
+        }
+
         print("[Buffer] Failed to decode history; starting empty")
+        historyLoadWasClean = false
         quarantine(historyFileURL, prefix: "history")
     }
 
@@ -1145,61 +1327,97 @@ class ClipboardStore: ObservableObject {
             return
         }
 
+        // 5A-05: same per-record leniency as the history file.
+        if let lenient = try? decoder.decode(LenientFoldersFile.self, from: data) {
+            let salvaged = lenient.folders.compactMap { $0.value }
+            if !salvaged.isEmpty {
+                self.folders = salvaged
+                sortFolders()
+                historyLoadWasClean = false
+                print("[Buffer] Loaded \(salvaged.count) folders (v\(lenient.version)); skipped \(lenient.folders.count - salvaged.count) undecodable record(s)")
+                quarantineCopy(foldersFileURL, prefix: "folders")
+                saveFolders()
+                return
+            }
+        }
+
         print("[Buffer] Failed to decode folders; starting with none")
+        historyLoadWasClean = false
         quarantine(foldersFileURL, prefix: "folders")
     }
 
     /// Folders are tiny and mutated rarely, so they are written straight
-    /// through (atomically) rather than debounced.
+    /// through (atomically) rather than debounced — but **asynchronously**
+    /// (5A-24): `saveQueue` is also where the debounced 10,000-item history
+    /// encode runs, so a synchronous hop blocked the UI for however long that
+    /// write had left. Nothing needs the result; `flushPendingSave()` drains
+    /// the queue when a caller (or a test) needs the bytes on disk.
     private func saveFolders() {
         notifySyncOfLocalMutation()   // Phase 4A
-        let snapshot = folders
-        saveQueue.sync {
+        let url = foldersFileURL
+        let data: Data
+        do {
+            data = try JSONEncoder().encode(FoldersFile(version: Self.foldersSchemaVersion, folders: folders))
+        } catch {
+            print("[Buffer] Failed to encode folders: \(error)")
+            return
+        }
+        saveQueue.async {
             do {
-                let file = FoldersFile(version: Self.foldersSchemaVersion, folders: snapshot)
-                let data = try JSONEncoder().encode(file)
-                try data.write(to: self.foldersFileURL, options: .atomic)
+                try data.write(to: url, options: .atomic)
             } catch {
                 print("[Buffer] Failed to save folders: \(error)")
             }
         }
     }
 
-    private func deleteImageFile(for item: ClipboardItem) {
-        guard item.type == .image, let filename = item.imageFilename else { return }
-        let url = imagesDirectory.appendingPathComponent(filename)
-        try? fileManager.removeItem(at: url)
-    }
-
-    private func deleteTextFile(for item: ClipboardItem) {
-        guard let filename = item.textFilename else { return }
-        let url = textsDirectory.appendingPathComponent(filename)
-        try? fileManager.removeItem(at: url)
-    }
-
     /// Delete every on-disk asset belonging to an item: image, text file,
     /// copied file payload (`files/<uuid>/`), archived flavors
     /// (`flavors/<uuid>.plist`) and the RTF flavor (`texts/<uuid>.rtf`).
-    private func deleteAssociatedFiles(for item: ClipboardItem) {
-        deleteImageFile(for: item)
-        deleteTextFile(for: item)
+    private func deleteAssociatedFiles(for item: ClipboardItem, keeping referenced: Set<String> = []) {
+        if item.type == .image, let filename = item.imageFilename, !referenced.contains("images/\(filename)") {
+            try? fileManager.removeItem(at: imagesDirectory.appendingPathComponent(filename))
+        }
+        if let filename = item.textFilename, !referenced.contains("texts/\(filename)") {
+            try? fileManager.removeItem(at: textsDirectory.appendingPathComponent(filename))
+        }
 
-        let itemFiles = filesDirectory.appendingPathComponent(item.id.uuidString, isDirectory: true)
-        if fileManager.fileExists(atPath: itemFiles.path) {
-            try? fileManager.removeItem(at: itemFiles)
+        if !referenced.contains("files/\(item.id.uuidString)") {
+            let itemFiles = filesDirectory.appendingPathComponent(item.id.uuidString, isDirectory: true)
+            if fileManager.fileExists(atPath: itemFiles.path) {
+                try? fileManager.removeItem(at: itemFiles)
+            }
         }
 
         let flavors = item.flavorsFilename ?? "\(item.id.uuidString).plist"
-        let flavorsURL = flavorsDirectory.appendingPathComponent(flavors)
-        if fileManager.fileExists(atPath: flavorsURL.path) {
-            try? fileManager.removeItem(at: flavorsURL)
+        if !referenced.contains("flavors/\(flavors)") {
+            let flavorsURL = flavorsDirectory.appendingPathComponent(flavors)
+            if fileManager.fileExists(atPath: flavorsURL.path) {
+                try? fileManager.removeItem(at: flavorsURL)
+            }
         }
 
         let rtf = item.rtfFilename ?? "\(item.id.uuidString).rtf"
-        let rtfURL = textsDirectory.appendingPathComponent(rtf)
-        if fileManager.fileExists(atPath: rtfURL.path) {
-            try? fileManager.removeItem(at: rtfURL)
+        if !referenced.contains("texts/\(rtf)") {
+            let rtfURL = textsDirectory.appendingPathComponent(rtf)
+            if fileManager.fileExists(atPath: rtfURL.path) {
+                try? fileManager.removeItem(at: rtfURL)
+            }
         }
+    }
+
+    /// Storage-relative names every one of `items` still points at — what a
+    /// delete must not touch (5A-18).
+    private func referencedAssetNames(in items: [ClipboardItem]) -> Set<String> {
+        var referenced = Set<String>()
+        for item in items {
+            if let name = item.imageFilename { referenced.insert("images/\(name)") }
+            if let name = item.textFilename { referenced.insert("texts/\(name)") }
+            if let name = item.rtfFilename { referenced.insert("texts/\(name)") }
+            if let name = item.flavorsFilename { referenced.insert("flavors/\(name)") }
+            if let relative = item.fileAttachment?.storedRelativePath { referenced.insert(relative) }
+        }
+        return referenced
     }
 
     // ==========================================================================
@@ -1296,10 +1514,41 @@ class ClipboardStore: ObservableObject {
         onFolderDeleted?(id)
     }
 
+    /// True when the sync-ignore list is worth maintaining at all (5A-03).
+    ///
+    /// `sync-ignore.json` only ever matters to `SyncMerge`, so on a Mac that has
+    /// never turned iCloud sync on it is pure overhead — and it is paid on the
+    /// main thread on *every* copy once the history sits at its cap. "Has ever
+    /// been on" is judged by the setting itself, an existing `sync-ignore.json`,
+    /// or a recorded push/pull (which only happen once a device directory has
+    /// been created). Turning sync on mid-session flips this on immediately.
+    private var syncBookkeepingNeeded: Bool {
+        if syncIsEnabledNow {
+            syncWasEverEnabled = true
+            return true
+        }
+        return syncWasEverEnabled
+    }
+
+    private var syncIsEnabledNow: Bool {
+        if let raw = ProcessInfo.processInfo.environment["KLIP_SYNC_ENABLED"], !raw.isEmpty {
+            return raw == "1"
+        }
+        return SettingsManager.shared.syncEnabled
+    }
+
+    private lazy var syncWasEverEnabled: Bool = fileManager.fileExists(atPath: syncIgnoreFileURL.path)
+        || SettingsManager.shared.syncLastPush != nil
+        || SettingsManager.shared.syncLastPull != nil
+
     /// Records a cap eviction. Deliberately does **not** produce a tombstone:
     /// other devices keep their copy, this one just does not want it back.
     private func noteEvicted(_ ids: [UUID]) {
         guard !isApplyingRemoteMerge else { return }
+        // 5A-03: nothing reads this list unless sync is (or has been) on, and
+        // maintaining it costs a main-thread rewrite of the whole file on every
+        // copy once the history sits at its cap.
+        guard syncBookkeepingNeeded else { return }
         recordEvictions(ids)
     }
 
@@ -1339,6 +1588,89 @@ class ClipboardStore: ObservableObject {
         recordEvictions(evicted)
     }
 
+    /// Trims a store that is already over its cap at launch, once, in one pass
+    /// (5A-02). Without this a `history.json` holding 10,000 clips under a
+    /// 1,000 cap stayed over the cap forever, and the *next* copy paid for all
+    /// 9,000 evictions inside a single `add()` on the main thread.
+    private func trimToLimitAtLaunch() {
+        guard let limit = maxItems else { return }
+        var unprotectedCount = items.reduce(0) { $0 + ($1.isProtected ? 0 : 1) }
+        guard unprotectedCount > limit else { return }
+
+        var evicted: [UUID] = []
+        while unprotectedCount > limit,
+              let index = items.lastIndex(where: { !$0.isProtected }) {
+            let removed = items.remove(at: index)
+            deleteAssociatedFiles(for: removed)
+            evicted.append(removed.id)
+            unprotectedCount -= 1
+        }
+        print("[Buffer] Trimmed \(evicted.count) items over the history limit at launch")
+        noteEvicted(evicted)
+        scheduleSave()
+    }
+
+    /// Assets on disk that no item references any more, deleted once per launch
+    /// on a utility queue (5A-08). Sources of orphans: a capture that was
+    /// deduped after its bytes were written, a `kill -9` inside the save
+    /// debounce, an interrupted merge.
+    ///
+    /// Deliberately conservative: it never runs when the history did not load
+    /// cleanly (a partially decoded file does not know about all of its
+    /// assets), and it skips anything modified in the last minute so a capture
+    /// in flight can never be swept out from under itself.
+    private func sweepOrphanedAssets() {
+        guard historyLoadWasClean else {
+            print("[Buffer] Orphan sweep skipped: the history did not load cleanly")
+            return
+        }
+        var referenced = Set<String>()
+        for item in items {
+            if let name = item.imageFilename { referenced.insert("images/\(name)") }
+            if let name = item.textFilename { referenced.insert("texts/\(name)") }
+            if let name = item.rtfFilename { referenced.insert("texts/\(name)") }
+            if let name = item.flavorsFilename { referenced.insert("flavors/\(name)") }
+            // `deleteAssociatedFiles` also probes these id-derived defaults, so
+            // an item that carries the file without recording the name keeps it.
+            referenced.insert("texts/\(item.id.uuidString).rtf")
+            referenced.insert("flavors/\(item.id.uuidString).plist")
+            referenced.insert("files/\(item.id.uuidString)")
+            if let relative = item.fileAttachment?.storedRelativePath { referenced.insert(relative) }
+        }
+
+        let directories: [(String, URL)] = [
+            ("images", imagesDirectory),
+            ("texts", textsDirectory),
+            ("files", filesDirectory),
+            ("flavors", flavorsDirectory),
+        ]
+        let cutoff = Date().addingTimeInterval(-60)
+        let manager = fileManager
+
+        DispatchQueue.global(qos: .utility).async {
+            var removed = 0
+            var bytes: Int64 = 0
+            for (label, directory) in directories {
+                guard let contents = try? manager.contentsOfDirectory(
+                    at: directory,
+                    includingPropertiesForKeys: [.contentModificationDateKey, .totalFileAllocatedSizeKey],
+                    options: [.skipsHiddenFiles]
+                ) else { continue }
+                for url in contents {
+                    let relative = "\(label)/\(url.lastPathComponent)"
+                    guard !referenced.contains(relative) else { continue }
+                    let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .totalFileAllocatedSizeKey])
+                    if let modified = values?.contentModificationDate, modified > cutoff { continue }
+                    bytes += Int64(values?.totalFileAllocatedSize ?? 0)
+                    if (try? manager.removeItem(at: url)) != nil { removed += 1 }
+                }
+            }
+            if removed > 0 {
+                print("[Buffer] Orphan sweep: removed \(removed) unreferenced asset(s) (~\(bytes / 1024) KB)")
+            }
+        }
+    }
+
     private func pruneSyncIgnore(now: Date) {
         let cutoff = now.addingTimeInterval(-SyncMerge.ignoreLifetime)
         syncIgnoredIDs = syncIgnoredIDs.filter { $0.value > cutoff }
@@ -1356,20 +1688,47 @@ class ClipboardStore: ObservableObject {
         }
     }
 
+    /// Debounce for the sync-ignore write, on the same principle as the history
+    /// write: a burst of evictions must collapse into one file rewrite.
+    private static let syncIgnoreDebounceInterval: TimeInterval = 0.3
+
+    // `saveQueue` only.
+    private var pendingSyncIgnore: (entries: [SyncIgnoreEntry], url: URL)?
+    private var pendingSyncIgnoreWorkItem: DispatchWorkItem?
+
+    /// Writes `sync-ignore.json` **asynchronously and debounced** (5A-02,
+    /// 5A-03). It used to be a `saveQueue.sync` + full re-encode per evicted
+    /// id, on the main thread — 24 ms per copy with 9,000 entries, and 118 s
+    /// for one `add()` that evicted 9,000 items.
     private func saveSyncIgnore() {
-        let snapshot = syncIgnoredIDs
+        let entries = syncIgnoredIDs.map { SyncIgnoreEntry(id: $0.key, date: $0.value) }
         let url = syncIgnoreFileURL
-        saveQueue.sync {
-            do {
-                let file = SyncIgnoreFile(
-                    version: 1,
-                    ignored: snapshot.map { SyncIgnoreEntry(id: $0.key, date: $0.value) }
-                        .sorted { $0.id.uuidString < $1.id.uuidString }
-                )
-                try JSONEncoder().encode(file).write(to: url, options: .atomic)
-            } catch {
-                print("[Klip] Sync: failed to write sync-ignore.json: \(error)")
+        saveQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.pendingSyncIgnore = (entries, url)
+            self.pendingSyncIgnoreWorkItem?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self = self else { return }
+                self.pendingSyncIgnoreWorkItem = nil
+                guard let pending = self.pendingSyncIgnore else { return }
+                self.pendingSyncIgnore = nil
+                self.writeSyncIgnore(pending.entries, to: pending.url)
             }
+            self.pendingSyncIgnoreWorkItem = work
+            self.saveQueue.asyncAfter(deadline: .now() + Self.syncIgnoreDebounceInterval, execute: work)
+        }
+    }
+
+    /// `saveQueue` only.
+    private func writeSyncIgnore(_ entries: [SyncIgnoreEntry], to url: URL) {
+        do {
+            let file = SyncIgnoreFile(
+                version: 1,
+                ignored: entries.sorted { $0.id.uuidString < $1.id.uuidString }
+            )
+            try JSONEncoder().encode(file).write(to: url, options: .atomic)
+        } catch {
+            print("[Klip] Sync: failed to write sync-ignore.json: \(error)")
         }
     }
 
@@ -1385,10 +1744,38 @@ class ClipboardStore: ObservableObject {
             self.isApplyingRemoteMerge = true
             defer { self.isApplyingRemoteMerge = false }
 
-            for removed in result.removedItems {
-                self.deleteAssociatedFiles(for: removed)
+            // 5A-06 / 4B #3: a lock is absolute. `SyncMerge` already refuses to
+            // let a tombstone delete a locked record; this is the second line
+            // of defence — nothing a merge decided can drop a locked local clip
+            // or its bytes, whatever produced the decision.
+            var merged = result.items
+            let survivingIDs = Set(merged.map { $0.id })
+            let rescued = result.removedItems.filter { $0.isLocked && !survivingIDs.contains($0.id) }
+            if !rescued.isEmpty {
+                print("[Klip] Sync: kept \(rescued.count) locked clip(s) another Mac deleted")
+                merged.append(contentsOf: rescued)
+                merged.sort { lhs, rhs in
+                    lhs.timestamp == rhs.timestamp
+                        ? lhs.id.uuidString < rhs.id.uuidString
+                        : lhs.timestamp > rhs.timestamp
+                }
             }
-            self.items = result.items
+
+            // 5A-18: an asset a *surviving* item still points at is never
+            // deleted. Two records can share one `images/<name>.png` (that is
+            // exactly what the image dedupe folds), and the fold's loser used
+            // to take the survivor's file with it. Content-equal survivors
+            // (the dedupe path) keep the loser's payload too — the bytes are
+            // still the item's, just under the winner's id.
+            let keptIDs = Set(merged.map { $0.id })
+            let referenced = self.referencedAssetNames(in: merged)
+            let survivingContentKeys = Set(merged.compactMap { SyncMerge.dedupeKey($0) })
+            for removed in result.removedItems where !keptIDs.contains(removed.id) {
+                if let key = SyncMerge.dedupeKey(removed), survivingContentKeys.contains(key) { continue }
+                self.deleteAssociatedFiles(for: removed, keeping: referenced)
+            }
+
+            self.items = merged
             self.folders = result.folders
             self.sortFolders()
             self.trimToLimitAfterMerge()

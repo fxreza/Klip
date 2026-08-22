@@ -45,14 +45,18 @@ enum PasteboardFlavors {
             var map: [String: Data] = [:]
             for type in item.types {
                 if let data = item.data(forType: type) {
-                    map[type.rawValue] = data
                     total += data.count
+                    // 5A-31: bail as soon as the cap is passed instead of
+                    // materialising the whole (arbitrarily large) pasteboard in
+                    // memory on the main thread only to discard it.
+                    guard total <= maxRawBytes else { return nil }
+                    map[type.rawValue] = data
                 }
             }
             if !map.isEmpty { bundle.append(map) }
         }
 
-        guard !bundle.isEmpty, total <= maxRawBytes else { return nil }
+        guard !bundle.isEmpty else { return nil }
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
         return try? encoder.encode(Bundle(items: bundle))
