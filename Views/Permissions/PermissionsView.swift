@@ -111,7 +111,7 @@ private struct PermissionRow<Actions: View>: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.body.weight(.medium))
                     .foregroundStyle(Theme.accent)
                     .frame(width: 20)
 

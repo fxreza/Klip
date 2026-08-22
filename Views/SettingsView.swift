@@ -120,14 +120,14 @@ private struct HistorySettingsTab: View {
             VStack(alignment: .center, spacing: 6) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundColor(isSelected ? .accentColor : .secondary.opacity(0.3))
-                    .font(.system(size: 14))
+                    .font(.body)
 
                 Text(tier.label)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.footnote.weight(.semibold))
                     .foregroundColor(isSelected ? .primary : .secondary)
 
                 Text(tier.subtitle)
-                    .font(.system(size: 10))
+                    .font(.caption2)
                     .foregroundColor(.secondary.opacity(0.8))
             }
             .padding(.vertical, 14)
@@ -242,7 +242,7 @@ private struct AppearanceSettingsTab: View {
                             .frame(width: 22, height: 22)
                         if theme == .system {
                             Image(systemName: "circle.lefthalf.filled")
-                                .font(.system(size: 11))
+                                .font(.caption)
                                 .foregroundStyle(.white)
                         }
                         if selected {
@@ -266,24 +266,24 @@ private struct AboutFooter: View {
     var body: some View {
         VStack(spacing: 6) {
             Text("Designed to disappear. Built to remember.")
-                .font(.system(size: 11, weight: .medium))
+                .font(.caption.weight(.medium))
                 .foregroundColor(.secondary.opacity(0.5))
                 .italic()
 
             Text("Klip \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") · based on Buffer by @samirpatil2000")
-                .font(.system(size: 10))
+                .font(.caption2)
                 .foregroundColor(.secondary.opacity(0.4))
 
             HStack(spacing: 8) {
                 Link("⭐ Star on GitHub", destination: URL(string: "https://github.com/samirpatil2000/Buffer")!)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.caption2.weight(.medium))
 
                 Text("·")
-                    .font(.system(size: 10))
+                    .font(.caption2)
                     .foregroundColor(.secondary.opacity(0.4))
 
                 Link("Report an Issue", destination: URL(string: "https://github.com/samirpatil2000/Buffer/issues/new")!)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.caption2.weight(.medium))
             }
         }
         .frame(maxWidth: .infinity)
