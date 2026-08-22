@@ -235,20 +235,30 @@ class ClipboardWatcher: ObservableObject {
     /// `public.webp` -> `.webp` — or `nil` if none of the five are present,
     /// in which case the caller falls back to `rawImageData`/`pngData`.
     private func verbatimImageData(from pasteboard: NSPasteboard) -> VerbatimImage? {
-        let candidates: [(NSPasteboard.PasteboardType, String, String)] = [
-            (NSPasteboard.PasteboardType("public.jpeg"), "jpg", "public.jpeg"),
-            (.png, "png", "public.png"),
-            (NSPasteboard.PasteboardType("public.heic"), "heic", "public.heic"),
-            (NSPasteboard.PasteboardType("com.compuserve.gif"), "gif", "com.compuserve.gif"),
-            (NSPasteboard.PasteboardType("public.webp"), "webp", "public.webp"),
-        ]
-        for (type, ext, uti) in candidates {
+        // Only formats the source app actually DECLARED count. Asking
+        // `data(forType:)` for an undeclared type makes the pasteboard server
+        // translate on the fly (a PNG screenshot happily yields a synthesized
+        // JPEG), which is exactly the re-encoding this feature must avoid.
+        // Among declared formats, honor the declaring app's own order: the
+        // first type it listed is the one it considers canonical.
+        guard let declared = pasteboard.types else { return nil }
+        for type in declared {
+            guard let match = Self.verbatimFormats[type.rawValue] else { continue }
             if let data = pasteboard.data(forType: type) {
-                return VerbatimImage(data: data, fileExtension: ext, uti: uti)
+                return VerbatimImage(data: data, fileExtension: match.ext, uti: match.uti)
             }
         }
         return nil
     }
+
+    /// Raster formats stored byte-for-byte when declared on the pasteboard.
+    nonisolated static let verbatimFormats: [String: (ext: String, uti: String)] = [
+        "public.jpeg": ("jpg", "public.jpeg"),
+        "public.png": ("png", "public.png"),
+        "public.heic": ("heic", "public.heic"),
+        "com.compuserve.gif": ("gif", "com.compuserve.gif"),
+        "public.webp": ("webp", "public.webp"),
+    ]
 
     /// Background half of a verbatim pasteboard image capture (6C): the
     /// bytes are stored exactly as received, so the dedupe hash is the hash

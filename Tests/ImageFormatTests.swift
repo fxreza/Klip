@@ -25,6 +25,7 @@ enum ImageFormatTests {
     static let tests: [(String, () throws -> Void)] = [
         ("capture_jpegOnPasteboard_storedByteIdenticalAsJpgWithRealUTI", testCaptureJPEGVerbatim),
         ("capture_pngOnPasteboard_stillStoredAsPng", testCapturePNGVerbatim),
+        ("capture_screenshotDeclaresPngAndTiff_storesPngNeverTranslatedJpeg", testCaptureScreenshotStaysPNG),
         ("capture_tiffOnly_fallsBackToPngConversion", testCaptureTIFFOnlyFallsBack),
         ("capture_finderJpegFile_storedByteIdenticalWithRealUTI", testCaptureFinderJPEGFile),
         ("writeImage_jpegItem_publicJpegIsFirstTypeWithIdenticalBytes", testWriteImageJPEGVerbatim),
@@ -122,6 +123,31 @@ enum ImageFormatTests {
     }
 
     // MARK: - Capture: pasteboard verbatim paths
+
+    /// A macOS screenshot (⌃⇧⌘4 / `screencapture -c`) declares only
+    /// `public.png` + `public.tiff`. The pasteboard server can still hand out a
+    /// translated JPEG for an undeclared `public.jpeg` request, which is exactly
+    /// the silent re-encoding this feature exists to prevent. Only declared
+    /// formats may win, in the order the source declared them.
+    static func testCaptureScreenshotStaysPNG() throws {
+        try withWatcher { watcher, store, dir, pasteboard in
+            let png = try makePNGData()
+            let tiff = try makeTIFFData()
+            pasteboard.clearContents()
+            pasteboard.declareTypes([.png, .tiff], owner: nil)
+            pasteboard.setData(png, forType: .png)
+            pasteboard.setData(tiff, forType: .tiff)
+            watcher.capture(from: pasteboard)
+
+            try expect(pump { store.items.count == 1 }, "the screenshot clip should reach the store")
+            let item = store.items[0]
+            try expectEqual(item.imageUTI, "public.png", "a PNG screenshot must stay PNG, never a translated JPEG")
+            let filename = try require(item.imageFilename, "the item should carry an image filename")
+            try expect(filename.hasSuffix(".png"), "expected a .png file, got \(filename)")
+            let stored = try storedImageData(dir, filename: filename)
+            try expectEqual(stored, png, "the stored bytes must be the declared PNG, byte for byte")
+        }
+    }
 
     static func testCaptureJPEGVerbatim() throws {
         try withWatcher { watcher, store, dir, pasteboard in

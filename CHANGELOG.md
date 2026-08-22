@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## 3.0.4 (2026-08-22)
+
+### Fixed
+- A macOS screenshot (PNG + TIFF on the clipboard) was stored as JPEG: the watcher asked the pasteboard for JPEG first and macOS translated the PNG on demand. Only formats the source app actually declares are accepted now, in the order it declared them - PNG screenshots stay PNG, JPEGs from a JPEG-producing app stay JPEG.
+
 ## 3.0.3 (2026-08-22)
 
 ### Fixed
