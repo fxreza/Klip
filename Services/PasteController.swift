@@ -44,20 +44,70 @@ class PasteController {
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         return tempDir
     }
-    
-    /// Save image with proper filename and return file URL
-    private static func saveImageToTemp(_ image: NSImage, fileName: String) -> URL? {
+
+    /// Writes `data` verbatim to `fileName` under the paste temp directory
+    /// and returns its URL — no decode, no re-encode. Used by
+    /// `pasteMultiple`'s per-image batch, where `fileName` carries the
+    /// item's original extension (6C: `image-0001.jpg`, not always `.png`).
+    private static func saveImageToTemp(_ data: Data, fileName: String) -> URL? {
         guard let tempDir = getTempDirectory() else { return nil }
-        
         let fileURL = tempDir.appendingPathComponent(fileName)
-        
-        if let tiffData = image.tiffRepresentation,
-           let bitmapImage = NSBitmapImageRep(data: tiffData),
-           let pngData = bitmapImage.representation(using: .png, properties: [:]) {
-            try? pngData.write(to: fileURL)
+        do {
+            try data.write(to: fileURL)
             return fileURL
+        } catch {
+            return nil
         }
-        return nil
+    }
+
+    /// Extension to give a temp/saved copy of `item`'s image, derived from
+    /// its stored filename. Defaults to `png` for a malformed item with no
+    /// filename. Not `private`: exercised directly by the 6C test suite
+    /// alongside `writeImageData(for:store:to:)`, since Save to Disk's own
+    /// entry points drive an `NSSavePanel` and can't run headlessly.
+    static func imageFileExtension(for item: ClipboardItem) -> String {
+        guard let filename = item.imageFilename else { return "png" }
+        let ext = (filename as NSString).pathExtension.lowercased()
+        return ext.isEmpty ? "png" : ext
+    }
+
+    /// Writes `item`'s original stored image bytes to `destination` — no
+    /// decode, no re-encode. This is the actual byte-writing step behind
+    /// `saveImageToDisk`/`saveToDisk`/Save All, pulled out from the
+    /// `NSSavePanel` glue so it can be exercised directly in tests. Returns
+    /// whether the write succeeded.
+    @discardableResult
+    static func writeImageData(for item: ClipboardItem, store: ClipboardStore, to destination: URL) -> Bool {
+        guard let data = store.imageData(for: item) else { return false }
+        do {
+            try data.write(to: destination)
+            return true
+        } catch {
+            print("[Buffer] Failed to save image to disk: \(error)")
+            return false
+        }
+    }
+
+    /// Writes a `.image` item's bytes onto `pasteboard`: the stored bytes,
+    /// under their real UTI, as the primary type (6C — a captured JPEG stays
+    /// `public.jpeg`, never silently becomes PNG), plus a TIFF representation
+    /// decoded from those same bytes as a second type so apps that only
+    /// accept PNG/TIFF still get a paste. For a stored PNG the primary type
+    /// is `.png` and the TIFF fallback is exactly today's behavior. Neither
+    /// type write touches the primary bytes — an app that understands the
+    /// real UTI gets the original file exactly.
+    ///
+    /// Shared by `copyToClipboard` and `paste`, like `writeText` above.
+    /// Deliberately not `private` — the watcher-test pattern (a private
+    /// `NSPasteboard(name:)`) needs a paste/copy path that isn't hardwired to
+    /// `NSPasteboard.general`.
+    static func writeImage(_ item: ClipboardItem, store: ClipboardStore, to pasteboard: NSPasteboard) {
+        guard let data = store.imageData(for: item) else { return }
+        let uti = item.resolvedImageUTI ?? "public.png"
+        pasteboard.setData(data, forType: NSPasteboard.PasteboardType(rawValue: uti))
+        if let image = NSImage(data: data), let tiffData = image.tiffRepresentation {
+            pasteboard.setData(tiffData, forType: .tiff)
+        }
     }
     
     /// Copy a bare string to `pasteboard` — the OCR text under an image
@@ -91,10 +141,7 @@ class PasteController {
         case .text:
             writeText(item, store: store, mode: mode, to: pasteboard)
         case .image:
-            if let image = store.image(for: item),
-               let tiffData = image.tiffRepresentation {
-                pasteboard.setData(tiffData, forType: .tiff)
-            }
+            writeImage(item, store: store, to: pasteboard)
         case .file:
             writeFileURLs(for: [item], store: store, to: pasteboard)
         }
@@ -135,17 +182,7 @@ class PasteController {
         case .text:
             writeText(item, store: store, mode: mode, to: pasteboard)
         case .image:
-            if let image = store.image(for: item) {
-                // Save image to temp with proper name
-                if let fileURL = saveImageToTemp(image, fileName: "image-0001.png") {
-                    pasteboard.writeObjects([fileURL as NSPasteboardWriting])
-                } else {
-                    // Fallback to TIFF if file save fails
-                    if let tiffData = image.tiffRepresentation {
-                        pasteboard.setData(tiffData, forType: .tiff)
-                    }
-                }
-            }
+            writeImage(item, store: store, to: pasteboard)
         case .file:
             writeFileURLs(for: [item], store: store, to: pasteboard)
         }
@@ -193,10 +230,10 @@ class PasteController {
 
             var urls: [URL] = []
             for (index, imageItem) in imageItems.enumerated() {
-                if let image = store.image(for: imageItem) {
+                if let data = store.imageData(for: imageItem) {
                     let paddedNumber = String(format: "%04d", index + 1)
-                    let fileName = "image-\(paddedNumber).png"
-                    if let fileURL = saveImageToTemp(image, fileName: fileName) {
+                    let fileName = "image-\(paddedNumber).\(imageFileExtension(for: imageItem))"
+                    if let fileURL = saveImageToTemp(data, fileName: fileName) {
                         urls.append(fileURL)
                     }
                 }
@@ -271,48 +308,44 @@ class PasteController {
         }
     }
     
-    /// Save an image to disk using NSSavePanel
-    static func saveImageToDisk(_ image: NSImage) {
+    /// Save an image item to disk using NSSavePanel, writing its original
+    /// stored bytes exactly — no NSImage decode/re-encode round-trip (6C).
+    /// The save panel's allowed type and appended extension come from the
+    /// item's stored filename/UTI, so a captured JPEG saves as a `.jpg` file
+    /// with the exact bytes that were captured.
+    static func saveImageToDisk(for item: ClipboardItem, store: ClipboardStore) {
+        guard store.imageData(for: item) != nil else { return }
+        let ext = imageFileExtension(for: item)
+
         DispatchQueue.main.async {
             let panel = NSSavePanel()
-            panel.allowedContentTypes = [.png]
-            
+            panel.allowedContentTypes = UTType(filenameExtension: ext).map { [$0] } ?? [.png]
+
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyyMMdd-HHmmss"
             let timestamp = formatter.string(from: Date())
-            
+
             panel.nameFieldStringValue = "Image-\(timestamp)"
             panel.canCreateDirectories = true
-            
+
             if panel.runModal() == .OK, let url = panel.url {
-                guard let tiffData = image.tiffRepresentation,
-                      let bitmapRep = NSBitmapImageRep(data: tiffData),
-                      let pngData = bitmapRep.representation(using: .png, properties: [:]) else {
-                    print("[Buffer] Failed to create PNG data from image")
-                    return
-                }
-                
-                do {
-                    try pngData.write(to: url)
-                } catch {
-                    print("[Buffer] Failed to save image to disk: \(error)")
-                }
+                writeImageData(for: item, store: store, to: url)
             }
         }
     }
 
     // MARK: - Save to disk, generalized (Phase 3F)
 
-    /// Save one item to disk, whatever its kind: images as PNG (today's
-    /// `saveImageToDisk`), text as a `.txt` file, and files either straight to
-    /// a chosen path (single file) or into a chosen folder (multiple files in
-    /// one attachment). This is what ⌘S ("Save to Disk") and the multi-select
+    /// Save one item to disk, whatever its kind: images write their original
+    /// stored bytes under their original extension (6C — no PNG conversion),
+    /// text as a `.txt` file, and files either straight to a chosen path
+    /// (single file) or into a chosen folder (multiple files in one
+    /// attachment). This is what ⌘S ("Save to Disk") and the multi-select
     /// "Save All…" button use.
     static func saveToDisk(_ item: ClipboardItem, store: ClipboardStore) {
         switch item.type {
         case .image:
-            guard let image = store.image(for: item) else { return }
-            saveImageToDisk(image)
+            saveImageToDisk(for: item, store: store)
         case .text:
             saveTextToDisk(item, store: store)
         case .file:

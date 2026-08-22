@@ -76,6 +76,7 @@ let allSuites: [(String, [(String, () throws -> Void)])] = [
     ("PermissionsTests", PermissionsTests.tests),
     ("ContentDetectorTests", ContentDetectorTests.tests),
     ("ClipboardWatcherTests", ClipboardWatcherTests.tests),
+    ("ImageFormatTests", ImageFormatTests.tests),
     ("LockTests", LockTests.tests),
     ("FileClipTests", FileClipTests.tests),
     ("RichCaptureTests", RichCaptureTests.tests),

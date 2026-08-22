@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## 3.0.3 (2026-08-22)
+
+### Fixed
+
+- **Copied images were silently re-encoded to PNG** - Klip always decoded a copied image via `NSImage` and re-saved it as PNG, so a JPEG (e.g. a compressed screenshot from a Raycast script or Preview's "Export") lost its original compression and grew several times larger on every copy/paste round-trip. Capture now stores the pasteboard's `public.jpeg`/`public.png`/`public.heic`/`com.compuserve.gif`/`public.webp` bytes verbatim - same file, same size, same quality - and a single image file copied in Finder keeps its own bytes and extension the same way. Paste and Copy write those bytes back under their real type (plus a TIFF representation as a fallback for apps that only accept PNG/TIFF), Save to Disk and Save All write the original extension, and sync mirrors the same bytes to every Mac. Only pasteboard content with no raster representation at all (TIFF-only, or a vector/PDF image) still goes through the old NSImage → PNG conversion, now capped at 4096 px on the long edge. Existing `.png` history entries are unaffected.
+
+---
+
 ## 3.0.2 (2026-08-22)
 
 ### Added

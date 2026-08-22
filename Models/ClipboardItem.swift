@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import UniformTypeIdentifiers
 
 /// Represents a single item in the clipboard history
 ///
@@ -21,6 +22,13 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
 
     // For image items — filename reference (stored separately)
     let imageFilename: String?
+
+    /// The UTI (`public.jpeg`, `public.png`, `public.heic`,
+    /// `com.compuserve.gif`, `public.webp`, ...) of the exact bytes stored at
+    /// `imageFilename`. `nil` for items captured before this field existed —
+    /// `resolvedImageUTI` derives a best-effort guess from the filename's
+    /// extension for those.
+    var imageUTI: String? = nil
 
     // Pin state (protected + floats to top)
     var isPinned: Bool = false
@@ -70,6 +78,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         textContent: String? = nil,
         textFilename: String? = nil,
         imageFilename: String? = nil,
+        imageUTI: String? = nil,
         isPinned: Bool = false,
         isBookmarked: Bool = false,
         tags: [String] = [],
@@ -89,6 +98,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.textContent = textContent
         self.textFilename = textFilename
         self.imageFilename = imageFilename
+        self.imageUTI = imageUTI
         self.isPinned = isPinned
         self.isBookmarked = isBookmarked
         self.tags = tags
@@ -104,6 +114,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id, type, timestamp, sourceApp, textContent, textFilename, imageFilename
+        case imageUTI
         case isPinned, isBookmarked, tags, ocrText
         case isLocked, folderID, kind, fileAttachment, rtfFilename, flavorsFilename
         case updatedAt
@@ -118,6 +129,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.textContent = try container.decodeIfPresent(String.self, forKey: .textContent)
         self.textFilename = try container.decodeIfPresent(String.self, forKey: .textFilename)
         self.imageFilename = try container.decodeIfPresent(String.self, forKey: .imageFilename)
+        self.imageUTI = try container.decodeIfPresent(String.self, forKey: .imageUTI)
         self.isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         self.isBookmarked = try container.decodeIfPresent(Bool.self, forKey: .isBookmarked) ?? false
         self.tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
@@ -142,6 +154,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(textContent, forKey: .textContent)
         try container.encodeIfPresent(textFilename, forKey: .textFilename)
         try container.encodeIfPresent(imageFilename, forKey: .imageFilename)
+        try container.encodeIfPresent(imageUTI, forKey: .imageUTI)
         try container.encode(isPinned, forKey: .isPinned)
         try container.encode(isBookmarked, forKey: .isBookmarked)
         try container.encode(tags, forKey: .tags)
@@ -164,13 +177,45 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         )
     }
 
-    /// Create an image clipboard item
-    static func image(filename: String, sourceApp: String? = nil) -> ClipboardItem {
+    /// Create an image clipboard item. `uti` is the UTI of the exact bytes
+    /// stored at `filename` (`public.jpeg`, `public.png`, `public.heic`,
+    /// `com.compuserve.gif`, `public.webp`, ...); pass `nil` when unknown and
+    /// `resolvedImageUTI` will derive a guess from `filename`'s extension.
+    static func image(filename: String, uti: String? = nil, sourceApp: String? = nil) -> ClipboardItem {
         ClipboardItem(
             type: .image,
             sourceApp: sourceApp,
-            imageFilename: filename
+            imageFilename: filename,
+            imageUTI: uti
         )
+    }
+
+    /// Maps a lowercased file extension to the UTI Klip stores images under.
+    /// The five recognized raster formats get their canonical UTI; anything
+    /// else falls back to `UTType(filenameExtension:)`'s best guess (still
+    /// useful for e.g. `.tiff`/`.bmp` fallback captures), or `nil` if even
+    /// that can't identify the extension.
+    static func uti(forExtension ext: String) -> String? {
+        switch ext.lowercased() {
+        case "jpg", "jpeg": return "public.jpeg"
+        case "png": return "public.png"
+        case "heic": return "public.heic"
+        case "gif": return "com.compuserve.gif"
+        case "webp": return "public.webp"
+        default:
+            return UTType(filenameExtension: ext)?.identifier
+        }
+    }
+
+    /// This item's image UTI, falling back to a guess derived from
+    /// `imageFilename`'s extension when `imageUTI` is nil (every item
+    /// captured before this field existed, and any `.png` migrated from the
+    /// old always-PNG capture path).
+    var resolvedImageUTI: String? {
+        if let imageUTI { return imageUTI }
+        guard let filename = imageFilename else { return nil }
+        let ext = (filename as NSString).pathExtension
+        return ClipboardItem.uti(forExtension: ext)
     }
 
     /// Create a file clipboard item. Capture of files is Phase 3F; this factory

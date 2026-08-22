@@ -14,7 +14,8 @@ import Combine
 ///   devices/<deviceID>/history.json     {"version":1,"device":{…},"items":[…]}
 ///   devices/<deviceID>/folders.json     {"version":1,"folders":[…]}
 ///   devices/<deviceID>/tombstones.json  {"version":1,"deleted":[…],"deletedFolders":[…]}
-///   images/<uuid>.png  texts/<uuid>.txt|.rtf  files/<uuid>/<name>  flavors/<uuid>.plist
+///   images/<uuid>.<ext>  texts/<uuid>.txt|.rtf  files/<uuid>/<name>  flavors/<uuid>.plist
+///   (image `<ext>` is whatever was captured — jpg/png/heic/gif/webp/... — 6C)
 /// ```
 ///
 /// Each device only ever writes its own `devices/<id>/` directory, so two Macs
