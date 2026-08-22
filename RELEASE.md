@@ -80,3 +80,20 @@ Verify that the output files are present in the project root:
      --notes-file release_notes.md
    ```
    *(Add `--prerelease` if publishing a pre-release).*
+
+---
+
+## Keeping the Xcode project in sync
+
+The canonical build (`scripts/build_local.sh` / `build_dmg.sh`) globs its Swift sources, so it never goes stale. `Klip.xcodeproj` does not - it's a convenience for anyone who opens the project in Xcode - so after adding, removing, or moving any `.swift` file under `Models/`, `Services/`, or `Views/` (or at the repo root), run:
+
+```bash
+python3 scripts/sync_xcodeproj.py
+```
+
+This adds/removes the corresponding `PBXFileReference`/`PBXBuildFile`/group/`Sources` entries and re-checks the linked frameworks and `SWIFT_DEFAULT_ACTOR_ISOLATION` build setting. It's idempotent, so running it with nothing to sync is a no-op.
+
+CI-style check (fails without writing if the project file is out of sync):
+```bash
+python3 scripts/sync_xcodeproj.py --check
+```
