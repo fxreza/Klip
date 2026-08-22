@@ -171,6 +171,11 @@ struct ClipList: View {
             }
         }
         .contextMenu {
+            // Right-clicking a row outside the current selection selects it
+            // first; right-clicking inside an existing multi-selection
+            // leaves it untouched (Phase 3D) — see
+            // `HistoryViewModel.selectForContextMenu`.
+            let _ = viewModel.selectForContextMenu(item.id)
             RowContextMenu(viewModel: viewModel, item: item)
         }
     }

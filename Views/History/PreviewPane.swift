@@ -226,14 +226,24 @@ struct PreviewPane: View {
         } else if item.isFileBacked || (item.textContent?.count ?? 0) > 5000 {
             chunkedText(item)
         } else if viewModel.isEditing {
-            TextEditor(text: $viewModel.editText)
-                .font(.klip(.previewMono))
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .frame(minHeight: 200, maxHeight: .infinity)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.hairline, lineWidth: 1))
-                .focused($isTextEditorFocused)
+            VStack(alignment: .leading, spacing: 6) {
+                TextEditor(text: $viewModel.editText)
+                    .font(.klip(.previewMono))
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(minHeight: 200, maxHeight: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.hairline, lineWidth: 1))
+                    .focused($isTextEditorFocused)
+
+                // Phase 3D deliverable 3: editing a rich item saves plain
+                // text and drops its RTF/flavors on commit.
+                if item.rtfFilename != nil || item.flavorsFilename != nil {
+                    Text("Editing keeps plain text only — formatting will be dropped when you save.")
+                        .font(.klip(.caption))
+                        .foregroundStyle(.secondary)
+                }
+            }
         } else {
             Text(item.textContent ?? "")
                 .font(.klip(item.displayKind == .code ? .previewMono : .preview))

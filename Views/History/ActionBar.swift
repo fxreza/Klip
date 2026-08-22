@@ -26,10 +26,17 @@ struct ActionBar: View {
                 .frame(maxWidth: 8)
 
             // Unchanged: the button pastes the focused item (Enter is what
-            // pastes a whole multi-selection).
-            PasteButton(action: {
-                if let item = viewModel.selectedItem { viewModel.onPaste(item) }
-            })
+            // pastes a whole multi-selection). Phase 3D: mode comes from the
+            // "Always paste as plain text" setting; the split button's menu
+            // offers the explicit alternate.
+            PasteButton(
+                action: {
+                    if let item = viewModel.selectedItem { viewModel.onPaste(item, viewModel.defaultPasteMode) }
+                },
+                pasteAlternate: {
+                    if let item = viewModel.selectedItem { viewModel.onPaste(item, viewModel.alternatePasteMode) }
+                }
+            )
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)

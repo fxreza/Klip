@@ -1,9 +1,43 @@
 import Cocoa
 import UniformTypeIdentifiers
 
+/// Rich-vs-plain paste/copy mode (Phase 3D, decision D5).
+///
+/// `.rich` restores the full captured pasteboard flavors when available
+/// (byte-perfect replay), else RTF + a plain-text fallback, else plain text.
+/// `.plain` always writes only the plain-text string. Images and files ignore
+/// the mode entirely — there is nothing "rich" to strip from either.
+enum PasteMode: Equatable {
+    case rich
+    case plain
+}
+
 /// Handles pasting content into the frontmost application
 class PasteController {
-    
+
+    /// Writes a `.text` item's plain/RTF/flavors payload onto `pasteboard`
+    /// according to `mode`. Shared by `copyToClipboard` and `paste`.
+    private static func writeText(_ item: ClipboardItem, store: ClipboardStore, mode: PasteMode, to pasteboard: NSPasteboard) {
+        guard let text = store.fullText(for: item) else { return }
+
+        if mode == .plain {
+            pasteboard.setString(text, forType: .string)
+            return
+        }
+
+        // Rich: prefer a byte-perfect replay of every captured pasteboard
+        // flavor (Clipfield's `PasteboardFlavors.restore`); else fall back to
+        // RTF + a plain-text sibling; else plain text alone.
+        if let flavors = store.flavorsData(for: item), PasteboardFlavors.restore(flavors, to: pasteboard) {
+            return
+        }
+        if let rtf = store.rtfData(for: item) {
+            pasteboard.setData(rtf, forType: .rtf)
+        }
+        pasteboard.setString(text, forType: .string)
+    }
+
+
     /// Get or create temp directory for paste operations
     private static func getTempDirectory() -> URL? {
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("BufferPaste")
@@ -26,17 +60,15 @@ class PasteController {
         return nil
     }
     
-    /// Copy item content back to system clipboard
-    static func copyToClipboard(_ item: ClipboardItem, store: ClipboardStore) {
+    /// Copy item content back to system clipboard. `mode` only affects `.text`
+    /// items — see `PasteMode`.
+    static func copyToClipboard(_ item: ClipboardItem, store: ClipboardStore, mode: PasteMode = .rich) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        
+
         switch item.type {
         case .text:
-            // Use full text from file if file-backed, otherwise use inline content
-            if let text = store.fullText(for: item) {
-                pasteboard.setString(text, forType: .string)
-            }
+            writeText(item, store: store, mode: mode, to: pasteboard)
         case .image:
             if let image = store.image(for: item),
                let tiffData = image.tiffRepresentation {
@@ -72,16 +104,15 @@ class PasteController {
         return true
     }
     
-    /// Paste item into the frontmost application
-    static func paste(_ item: ClipboardItem, store: ClipboardStore, previousApp: NSRunningApplication? = nil) {
+    /// Paste item into the frontmost application. `mode` only affects `.text`
+    /// items — see `PasteMode`.
+    static func paste(_ item: ClipboardItem, store: ClipboardStore, previousApp: NSRunningApplication? = nil, mode: PasteMode = .rich) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        
+
         switch item.type {
         case .text:
-            if let text = store.fullText(for: item) {
-                pasteboard.setString(text, forType: .string)
-            }
+            writeText(item, store: store, mode: mode, to: pasteboard)
         case .image:
             if let image = store.image(for: item) {
                 // Save image to temp with proper name
@@ -107,10 +138,16 @@ class PasteController {
         }
     }
     
-    /// Paste multiple items into the frontmost application
+    /// Paste multiple items into the frontmost application.
     /// Text items are joined with newlines; images and files go out together as
     /// file URLs (like a Finder multi-select).
-    static func pasteMultiple(_ items: [ClipboardItem], store: ClipboardStore, previousApp: NSRunningApplication? = nil) {
+    ///
+    /// `mode` is accepted for API symmetry with `paste(_:mode:)` but does not
+    /// currently change anything: joining several items' *rich* text into one
+    /// paste is out of scope (Phase 3D task brief), so the joined text is
+    /// always plain, exactly as before — this is called out in the paste
+    /// menu's help text.
+    static func pasteMultiple(_ items: [ClipboardItem], store: ClipboardStore, previousApp: NSRunningApplication? = nil, mode: PasteMode = .rich) {
         guard !items.isEmpty else { return }
 
         let pasteboard = NSPasteboard.general

@@ -210,6 +210,20 @@ final class SettingsManager: ObservableObject {
         }
     }
 
+    // MARK: - Paste (Phase 3D, decision D5)
+
+    /// When on, an unmarked Copy/Paste writes plain text only (today's
+    /// pre-3D behavior) and the explicit "Paste/Copy as Plain Text" actions
+    /// swap to "... with Formatting" instead — the same key/menu item always
+    /// gives you the mode you didn't just get by default. Key
+    /// `paste.alwaysPlain`, default false (rich by default, per D5).
+    @Published var alwaysPastePlain: Bool = false {
+        didSet {
+            guard isLoaded, alwaysPastePlain != oldValue else { return }
+            defaults.set(alwaysPastePlain, forKey: "paste.alwaysPlain")
+        }
+    }
+
     private init() {
         // Initialize with defaults first, then load saved values
         let defaultMods = HotkeyModifiers(shift: true, command: true, option: false, control: false)
@@ -271,6 +285,8 @@ final class SettingsManager: ObservableObject {
         if let raw = defaults.object(forKey: "files.copyCapMB") as? Int {
             self.fileCopyCapMB = raw
         }
+
+        self.alwaysPastePlain = defaults.bool(forKey: "paste.alwaysPlain")
 
         isLoaded = true
     }
