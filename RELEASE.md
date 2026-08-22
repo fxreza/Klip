@@ -1,99 +1,163 @@
-# Buffer Release Workflow Guide
+# Klip Release Workflow Guide
 
-This guide outlines the step-by-step process to bump the version, build, notarize, and publish a new release of Buffer.
-
----
-
-## Step 1: Pre-Release & Version Check
-
-1. **Verify Git Status**:
-   Ensure your working directory is clean and you are on the release branch (typically `main`).
-   ```bash
-   git status
-   ```
-
-2. **Inspect Previous Releases**:
-   List existing release tags to identify the next version number.
-   ```bash
-   git tag --sort=-v:refname -n10
-   ```
-
-3. **Check Remote Status**:
-   ```bash
-   gh release list
-   ```
+This guide outlines the release process for Klip. A release creates tagged builds in `releases/<version>/` and `dist/` directories, publishes to GitHub, and updates the app's auto-updater.
 
 ---
 
-## Step 2: Version Configuration Bumps
+## Prerequisites
 
-1. **Update Info.plist**:
-   Open `Info.plist` and update the following values:
-   - `CFBundleShortVersionString` $\rightarrow$ Target Version (e.g., `2.5.0`)
-   - `CFBundleVersion` $\rightarrow$ Increment the Build Number integer (e.g., `7`)
-
-2. **Update README.md**:
-   Open `README.md` and update all references to the version string in the download badges and download URLs:
-   - Update version strings in Shields.io badges.
-   - Update direct download URLs for both **Silicon** and **Intel** DMGs to point to the new tag.
+- Working directory is clean (`git status`)
+- You are on the `main` branch
+- (Optional) `.env` file with Apple notarization credentials for signed/notarized builds; without it, builds are ad-hoc signed locally
 
 ---
 
-## Step 3: Compile, Sign & Notarize
+## Step 1: Prepare Release Notes
 
-Run the automated compilation and packaging script:
+Create release notes at `releases/v<VERSION>/release_notes.md`:
+
 ```bash
-sh build_dmg.sh
+mkdir -p releases/v3.0.0
+# Edit releases/v3.0.0/release_notes.md with user-facing summary
 ```
 
-**What this script automates:**
-- Cleans build folders and temporary assets.
-- Compiles the Swift application for `arm64` (Apple Silicon) and `x86_64` (Intel) architectures.
-- Codesigns the `.app` packages with the Developer ID Application certificate.
-- Creates `.zip` and `.dmg` archives for both architectures.
-- Submits the DMGs to the Apple Notarization Service (`notarytool`) and waits for approval.
-- Staples the notarization tickets to the DMGs.
+---
 
-Verify that the output files are present in the project root:
-- `Buffer_Silicon.dmg` & `Buffer_Silicon.zip`
-- `Buffer_Intel.dmg` & `Buffer_Intel.zip`
+## Step 2: Build Release Artifacts
+
+Use the automated build script:
+
+```bash
+sh scripts/release.sh
+```
+
+This script:
+- Builds arm64 and x86_64 binaries
+- Signs with the local "QTranslate Dev" identity (ad-hoc if no .env)
+- Notarizes (if .env present with Apple credentials; otherwise ad-hoc)
+- Creates `.dmg` and `.zip` archives
+- Generates `checksums.txt`
+- Copies artifacts to `releases/v<VERSION>/` and `dist/`
+
+Verify output files in `releases/v3.0.0/`:
+- `Klip_Silicon.dmg` & `Klip_Silicon.zip`
+- `Klip_Intel.dmg` & `Klip_Intel.zip`
+- `checksums.txt`
+- `release_notes.md`
 
 ---
 
-## Step 4: Publish to GitHub
+## Step 3: Commit and Tag
 
-1. **Commit and Push Changes**:
-   ```bash
-   git add Info.plist README.md
-   git commit -m "release: bump version to v2.5.0"
-   # Push explicitly using refs/heads/main to avoid conflict with any 'main' tag
-   git push origin refs/heads/main
-   ```
+```bash
+git add releases/v3.0.0/ dist/ CHANGELOG.md
+git commit -m "release: v3.0.0"
 
-2. **Create GitHub Release**:
-   Prepare a markdown file `release_notes.md` containing the release description, then run:
-   ```bash
-   gh release create buffer-v2.5.0 \
-     Buffer_Silicon.dmg Buffer_Silicon.zip \
-     Buffer_Intel.dmg Buffer_Intel.zip \
-     --title "Buffer v2.5.0" \
-     --notes-file release_notes.md
-   ```
-   *(Add `--prerelease` if publishing a pre-release).*
+# Tag (format: klip-vX.Y.Z)
+git tag klip-v3.0.0
+git push origin main klip-v3.0.0
+```
 
 ---
 
-## Keeping the Xcode project in sync
+## Step 4: Publish to GitHub (Optional)
 
-The canonical build (`scripts/build_local.sh` / `build_dmg.sh`) globs its Swift sources, so it never goes stale. `Klip.xcodeproj` does not - it's a convenience for anyone who opens the project in Xcode - so after adding, removing, or moving any `.swift` file under `Models/`, `Services/`, or `Views/` (or at the repo root), run:
+Create a GitHub release with the built artifacts:
+
+```bash
+gh release create klip-v3.0.0 \
+  releases/v3.0.0/Klip_Silicon.dmg \
+  releases/v3.0.0/Klip_Silicon.zip \
+  releases/v3.0.0/Klip_Intel.dmg \
+  releases/v3.0.0/Klip_Intel.zip \
+  --title "Klip v3.0.0" \
+  --notes-file releases/v3.0.0/release_notes.md
+```
+
+The auto-updater will detect this release and offer it to users.
+
+---
+
+## Version Configuration
+
+Before building, version numbers must match in three places:
+
+1. **Info.plist**:
+   - `CFBundleShortVersionString` = `3.0.0`
+   - `CFBundleVersion` = `8` (incremented per build/rebuild)
+
+2. **CHANGELOG.md**:
+   - Add new section `## 3.0.0 (2026-08-22)`
+
+3. **releases/v3.0.0/release_notes.md**:
+   - User-facing summary
+
+---
+
+## Keeping the Xcode Project in Sync
+
+The canonical build (`scripts/build_local.sh` / `scripts/release.sh`) globs its Swift sources, so it never goes stale. `Klip.xcodeproj` does not - it's a convenience for anyone who opens the project in Xcode.
+
+After adding, removing, or moving any `.swift` file under `Models/`, `Services/`, or `Views/`:
 
 ```bash
 python3 scripts/sync_xcodeproj.py
 ```
 
-This adds/removes the corresponding `PBXFileReference`/`PBXBuildFile`/group/`Sources` entries and re-checks the linked frameworks and `SWIFT_DEFAULT_ACTOR_ISOLATION` build setting. It's idempotent, so running it with nothing to sync is a no-op.
+This adds/removes file references in the project file and is idempotent.
 
-CI-style check (fails without writing if the project file is out of sync):
+CI-style check (fails without writing if out of sync):
+
 ```bash
 python3 scripts/sync_xcodeproj.py --check
 ```
+
+---
+
+## Release Structure
+
+Releases are organized by version:
+
+```
+releases/
+  v2.5.0-upstream/       <- baseline (unmodified upstream)
+  v3.0.0/                <- first release of this fork
+    Klip_Silicon.dmg
+    Klip_Silicon.zip
+    Klip_Intel.dmg
+    Klip_Intel.zip
+    release_notes.md
+    checksums.txt
+  v3.1.0/
+    ...
+```
+
+Each folder is permanent - never overwrite a published release.
+
+The `dist/` directory holds the latest live build for quick reference.
+
+---
+
+## Tag Format
+
+Klip uses the tag format `klip-vX.Y.Z` (e.g., `klip-v3.0.0`). This matches the GitHub release URL and the auto-updater expectations.
+
+The upstream Buffer used `buffer-vX.Y.Z`; Klip's tags are distinct to avoid conflicts.
+
+---
+
+## Auto-Updater
+
+The `UpdateService` checks for new releases at:
+
+```
+https://github.com/fxreza/Klip/releases
+```
+
+When a new release is published, users see an update prompt. The service:
+- Fetches the latest release
+- Verifies the code signature
+- Downloads and installs the new build
+- Shows a native "What's New" HUD with a link to release notes
+
+To disable or point to a different fork, edit `Services/UpdateService.swift`.
