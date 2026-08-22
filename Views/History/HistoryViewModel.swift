@@ -78,11 +78,42 @@ final class HistoryViewModel: ObservableObject {
         }
     }
 
+    /// Sidebar section (All / Favorites / a folder).
+    @Published var scope: Scope = .all {
+        didSet {
+            guard scope != oldValue else { return }
+            applyFilters(resetSelection: .defaultItem)
+            scrollTrigger = true
+        }
+    }
+
+    /// Content-kind chip under the search field.
+    @Published var chipFilter: ChipFilter = .all {
+        didSet {
+            guard chipFilter != oldValue else { return }
+            applyFilters(resetSelection: .defaultItem)
+            scrollTrigger = true
+        }
+    }
+
     @Published var filteredItems: [ClipboardItem] = []
 
     var filterState: FilterState {
-        FilterState(query: debouncedSearchText, tag: activeTagFilter)
+        FilterState(query: debouncedSearchText, tag: activeTagFilter, scope: scope, chip: chipFilter)
     }
+
+    // MARK: - Inline prompts
+    //
+    // A system alert would make the borderless panel resign key and close, so
+    // every confirmation is an inline `PromptCard` over a scrim instead.
+
+    /// New-folder prompt visibility. Rename/delete prompts arrive in 3B.
+    @Published var showNewFolderPrompt = false
+    @Published var newFolderName = ""
+
+    /// True while any inline prompt owns the keyboard, so list shortcuts stand
+    /// down and Esc dismisses the prompt rather than the window.
+    var isPromptShowing: Bool { showNewFolderPrompt }
 
     // MARK: - Selection
 
@@ -102,7 +133,7 @@ final class HistoryViewModel: ObservableObject {
     }
     @Published var selectedIDs: Set<UUID> = []
     @Published var selectionAnchor: UUID?
-    /// Triggers scroll-to-selection in ClipboardListView on keyboard navigation.
+    /// Triggers scroll-to-selection in `ClipList` on keyboard navigation / scope changes.
     @Published var scrollTrigger = false
 
     // MARK: - Detail pane
@@ -124,6 +155,12 @@ final class HistoryViewModel: ObservableObject {
     @Published var isEditing = false
     @Published var editText = ""
     @Published var editingItemID: UUID?
+
+    // MARK: - Presentation
+
+    /// Drives the panel's open animation (scale 0.96 → 1 + fade). Flipped by
+    /// `HistoryWindowController` right after the window is ordered in.
+    @Published var isPresented = false
 
     // MARK: - Init
 
@@ -377,6 +414,89 @@ final class HistoryViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Scopes (sidebar)
+
+    /// Every selectable scope in sidebar order: All, Favorites, then folders.
+    var orderedScopes: [Scope] {
+        [.all, .favorites] + store.folders.map { .folder($0.id) }
+    }
+
+    var favoritesCount: Int {
+        store.items.reduce(0) { $0 + ($1.isBookmarked ? 1 : 0) }
+    }
+
+    /// Display name of the current scope, used by the empty state.
+    func title(for scope: Scope) -> String {
+        switch scope {
+        case .all: return "All"
+        case .favorites: return "Favorites"
+        case .folder(let id): return store.folders.first(where: { $0.id == id })?.name ?? "Folder"
+        }
+    }
+
+    /// ⌘] / ⌘[ — move to the next / previous sidebar scope, wrapping around.
+    func cycleScope(by delta: Int) {
+        let scopes = orderedScopes
+        guard !scopes.isEmpty else { return }
+        let current = scopes.firstIndex(of: scope) ?? 0
+        let count = scopes.count
+        let next = ((current + delta) % count + count) % count
+        scope = scopes[next]
+    }
+
+    /// Drop back to `.all` if the selected folder disappeared (deleted in 3B,
+    /// or a stale scope after a store reload).
+    func validateScope() {
+        if case .folder(let id) = scope, !store.folders.contains(where: { $0.id == id }) {
+            scope = .all
+        }
+    }
+
+    // MARK: - Folders (create; rename/delete/drag are 3B)
+
+    /// Open the inline "New Folder" prompt. A system alert cannot be used here:
+    /// it makes the borderless panel resign key, which closes the window.
+    func requestNewFolder() {
+        newFolderName = ""
+        showNewFolderPrompt = true
+    }
+
+    /// Create the folder and switch the sidebar to it.
+    func confirmNewFolder() {
+        let name = newFolderName
+        showNewFolderPrompt = false
+        newFolderName = ""
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let folder = store.createFolder(name: name)
+        scope = .folder(folder.id)
+    }
+
+    func cancelNewFolder() {
+        showNewFolderPrompt = false
+        newFolderName = ""
+    }
+
+    /// Esc while a prompt is up closes the top-most prompt only.
+    /// Returns true when a prompt was dismissed.
+    @discardableResult
+    func dismissTopPrompt() -> Bool {
+        if showNewFolderPrompt {
+            cancelNewFolder()
+            return true
+        }
+        return false
+    }
+
+    // MARK: - Layout toggles (persisted in SettingsManager)
+
+    func toggleSidebar() {
+        SettingsManager.shared.sidebarCollapsed.toggle()
+    }
+
+    func togglePreviewPane() {
+        SettingsManager.shared.showPreviewPane.toggle()
+    }
+
     // MARK: - Window lifecycle
 
     /// Runs on `.bufferWindowDidOpen`. Returns nothing; the view still owns the
@@ -393,8 +513,13 @@ final class HistoryViewModel: ObservableObject {
             searchText = ""
             debouncedSearchText = ""
             activeTagFilter = nil
+            scope = .all
+            chipFilter = .all
         } else {
             debouncedSearchText = searchText
+            // A folder deleted while the window was closed must not strand the
+            // sidebar on an empty scope.
+            validateScope()
         }
 
         // Transient UI state always resets
@@ -402,11 +527,14 @@ final class HistoryViewModel: ObservableObject {
         showTagInput = false
         tagInputText = ""
         isEditing = false
+        showNewFolderPrompt = false
+        newFolderName = ""
+        showDeleteConfirmation = false
 
         // Recalculate cache immediately and point at the restored / default item
         applyFilters(resetSelection: shouldResetOnOpen ? .defaultItem : .restore(restoreTarget))
 
-        // Trigger scroll so ClipboardListView brings the selected row into view
+        // Trigger scroll so ClipList brings the selected row into view
         scrollTrigger = true
     }
 
@@ -477,6 +605,18 @@ final class HistoryViewModel: ObservableObject {
         if selectedItem?.type == .image, let img = previewImage {
             PasteController.saveImageToDisk(img)
         }
+    }
+
+    /// Save an arbitrary image item (row context menu). Reuses the already
+    /// decoded preview when it happens to be the selected item.
+    func saveImage(for item: ClipboardItem) {
+        guard item.type == .image else { return }
+        if item.id == selectedItem?.id, let img = previewImage {
+            PasteController.saveImageToDisk(img)
+            return
+        }
+        guard let img = store.image(for: item) else { return }
+        PasteController.saveImageToDisk(img)
     }
 
     func extractTextFromSelection() async {
@@ -704,6 +844,8 @@ final class HistoryViewModel: ObservableObject {
         }
     }
 
+    /// Esc unwinds one layer at a time: edit mode → tag input → inline prompt →
+    /// close the window.
     func keyEscape() {
         if isEditing {
             exitEditMode()
@@ -712,9 +854,10 @@ final class HistoryViewModel: ObservableObject {
         if showTagInput {
             showTagInput = false
             tagInputText = ""
-        } else {
-            onDismiss()
+            return
         }
+        if dismissTopPrompt() { return }
+        onDismiss()
     }
 
     func keyDelete() {
@@ -750,6 +893,25 @@ final class HistoryViewModel: ObservableObject {
 
     func keyEdit() {
         toggleEditMode()
+    }
+
+    /// ⌘] — next sidebar scope.
+    func keyNextScope() {
+        guard !isEditing else { return }
+        cycleScope(by: 1)
+    }
+
+    /// ⌘[ — previous sidebar scope.
+    func keyPrevScope() {
+        guard !isEditing else { return }
+        cycleScope(by: -1)
+    }
+
+    /// Debug helper (`KLIP_SELECT_FIRST=1`): point the selection at the first
+    /// row so screenshots can show the selected state without driving the UI.
+    func selectFirstItem() {
+        guard let first = filteredItems.first else { return }
+        selectSingle(first.id)
     }
 
     func keyTabComplete() {

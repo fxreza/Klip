@@ -158,6 +158,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         register("com.fxreza.klip.debug.quit") {
             NSApp.terminate(nil)
         }
+        // Layout toggles, so screenshots of the collapsed-sidebar / hidden-preview
+        // states can be taken without driving the UI with synthetic clicks.
+        register("com.fxreza.klip.debug.toggleSidebar") { [weak self] in
+            self?.historyWindowController?.viewModel.toggleSidebar()
+        }
+        register("com.fxreza.klip.debug.togglePreview") { [weak self] in
+            self?.historyWindowController?.viewModel.togglePreviewPane()
+        }
 
         print("[AppDelegate] Debug notification hooks registered")
     }

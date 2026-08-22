@@ -39,6 +39,59 @@ enum Theme {
     /// Selected-row glow shadow color.
     static let selectionGlow = Color.accentColor.opacity(0.35)
 
+    // MARK: - Row / badge chrome (Phase 2A)
+
+    /// Font for a glyph-only control (SF Symbol) at a base point size, scaled by
+    /// the list or preview font-size setting.
+    ///
+    /// Symbols have no `KlipFontRole` of their own, and this keeps raw
+    /// `.font(.system(size:))` literals out of `Views/History/**` (see the
+    /// Phase 3H sweep).
+    @MainActor
+    static func icon(_ base: CGFloat, weight: Font.Weight = .regular, preview: Bool = false) -> Font {
+        .system(size: .klipScaled(base, preview: preview), weight: weight)
+    }
+
+    /// Fill behind an unselected kind icon badge.
+    static func badgeFill(_ kind: ContentKind) -> Color { kindTint(kind).opacity(0.16) }
+    /// Badge fill when the row is selected (sits on the accent gradient).
+    static let badgeFillSelected = Color.white.opacity(0.18)
+    /// Hairline around image thumbnails.
+    static let badgeStroke = Color.white.opacity(0.15)
+    /// Slightly stronger hairline around color swatches.
+    static let swatchStroke = Color.white.opacity(0.25)
+    /// Secondary (subtitle) text colour on a selected row.
+    static let onAccentSecondary = Color.white.opacity(0.82)
+    /// Opacity applied to the accent gradient for multi-selected, non-primary rows.
+    static let multiSelectFillOpacity: Double = 0.6
+    /// Divider/separator hairline drawn inside content (not the panel border).
+    static let separator = Color.primary.opacity(0.12)
+    /// Subtle `.bar`-like backing for the search bar and action bar.
+    static let barBackground = Color.primary.opacity(0.04)
+
+    /// Pin badge colour (Clipfield's rotated orange pin).
+    static let pinTint = Color.orange
+    /// Star / favourite badge colour.
+    static let bookmarkTint = Color.yellow
+    /// Lock badge colour.
+    static let lockTint = Color.secondary
+    /// Tint used for the multi-selection header pill.
+    static let multiSelectTint = Color.purple
+    /// "Large" (file-backed text) badge colour.
+    static let largeBadgeTint = Color.orange
+    /// Destructive action colour (inline delete confirmations).
+    static let destructive = Color.red
+
+    /// Drop shadow under inline prompt cards.
+    static let promptShadow = Color.black.opacity(0.3)
+    static let promptShadowRadius: CGFloat = 20
+    static let promptShadowY: CGFloat = 8
+
+    /// Accent tint for a clipboard item's semantic kind.
+    static func kindTint(_ kind: ContentKind) -> Color {
+        kindTint(kind.rawValue)
+    }
+
     /// Accent tint for a clipboard item's kind. Keyed by the raw string a
     /// `ContentKind`-style enum would produce, so this compiles and is usable
     /// before that enum lands (today's `ClipboardItemType` only has

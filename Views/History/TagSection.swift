@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Bottom strip of the detail pane: the selected item's tag chips, the inline
+/// Preview-pane footer strip: the selected item's tag chips, the inline
 /// "Add tag" input with its suggestion row, and the relative timestamp.
 struct TagSection: View {
     @ObservedObject var store: ClipboardStore
@@ -10,7 +10,7 @@ struct TagSection: View {
 
     var body: some View {
         let inputSuggestions = viewModel.showTagInput ? viewModel.tagInputSuggestions(excluding: item.tags) : []
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 4) {
@@ -23,28 +23,29 @@ struct TagSection: View {
                             HStack(spacing: 6) {
                                 TextField("tag name", text: $viewModel.tagInputText)
                                     .textFieldStyle(.plain)
-                                    .font(.system(size: 11))
+                                    .font(.klip(.chip))
                                     .focused($isTagInputFocused)
                                     .frame(minWidth: 60)
                                 Button("Cancel") {
                                     viewModel.cancelTagInput()
                                 }
                                 .buttonStyle(.plain)
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
+                                .font(.klip(.chip))
+                                .foregroundStyle(.secondary)
                             }
                         } else {
                             Button(action: { viewModel.showTagInput = true }) {
                                 HStack(spacing: 5) {
                                     Image(systemName: "plus")
-                                        .font(.system(size: 9, weight: .bold))
+                                        .font(.klip(.badge))
+                                        .fontWeight(.bold)
                                     Text("Add tag")
-                                        .font(.system(size: 11))
+                                        .font(.klip(.chip))
                                     Text("⌘T")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.secondary.opacity(0.3))
+                                        .font(.klip(.caption))
+                                        .foregroundStyle(.quaternary)
                                 }
-                                .foregroundColor(.secondary.opacity(0.7))
+                                .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
                         }
@@ -53,7 +54,7 @@ struct TagSection: View {
 
                 Spacer(minLength: 8)
 
-                RelativeTimestampView(timestamp: item.timestamp)
+                RelativeTimestampView(timestamp: item.timestamp, role: .caption, color: .secondary)
             }
             if !inputSuggestions.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -63,19 +64,17 @@ struct TagSection: View {
                                 viewModel.applyTagSuggestion(suggestion, to: item)
                             }
                             .buttonStyle(.plain)
-                            .font(.system(size: 10))
-                            .foregroundColor(TagChip.color(for: suggestion))
-                            .padding(.horizontal, 5)
+                            .font(.klip(.badge))
+                            .foregroundStyle(TagChip.color(for: suggestion))
+                            .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(TagChip.color(for: suggestion).opacity(0.10))
-                            .cornerRadius(4)
+                            .background(Capsule().fill(TagChip.color(for: suggestion).opacity(0.10)))
                         }
                     }
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
     }
 }

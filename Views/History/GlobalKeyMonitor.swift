@@ -20,6 +20,18 @@ struct GlobalKeyMonitor: NSViewRepresentable {
             let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                 let viewModel = context.coordinator.viewModel
                 let isEditing = viewModel.isEditing
+
+                // While an inline prompt owns the keyboard, list shortcuts stand
+                // down: only Esc is intercepted (to unwind one prompt layer),
+                // everything else goes to the prompt's own text field.
+                if viewModel.isPromptShowing {
+                    if event.keyCode == 53 {
+                        viewModel.keyEscape()
+                        return nil
+                    }
+                    return event
+                }
+
                 switch event.keyCode {
                 case 126: // Up
                     if isEditing { return event }
@@ -99,6 +111,20 @@ struct GlobalKeyMonitor: NSViewRepresentable {
                 case 14: // Cmd+E (E is 14)
                     if event.modifierFlags.contains(.command) {
                         viewModel.keyEdit()
+                        return nil
+                    }
+                    return event
+                case 33: // Cmd+[ — previous sidebar scope
+                    if event.modifierFlags.contains(.command) {
+                        if isEditing { return event }
+                        viewModel.keyPrevScope()
+                        return nil
+                    }
+                    return event
+                case 30: // Cmd+] — next sidebar scope
+                    if event.modifierFlags.contains(.command) {
+                        if isEditing { return event }
+                        viewModel.keyNextScope()
                         return nil
                     }
                     return event

@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// A small coloured pill for a user tag. Used in rows (tap to filter) and in
+/// the preview pane's tag strip (tap the ✕ to remove).
 struct TagChip: View {
     let label: String
     var onTap: (() -> Void)? = nil
@@ -31,31 +33,31 @@ struct TagChip: View {
             if let onTap = onTap {
                 Button(action: onTap) { chipLabel }
                     .buttonStyle(.plain)
+                    .help("Filter by #\(label)")
             } else {
                 chipLabel
             }
             if let onRemove = onRemove {
                 Button(action: onRemove) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(chipColor.opacity(0.7))
+                        .font(.klip(.badge))
+                        .fontWeight(.bold)
+                        .foregroundStyle(chipColor.opacity(0.7))
                 }
                 .buttonStyle(.plain)
+                .help("Remove tag")
             }
         }
-        .padding(.horizontal, 5)
+        .padding(.horizontal, 6)
         .padding(.vertical, 2)
-        .background(chipColor.opacity(0.12))
-        .cornerRadius(4)
-        .overlay(
-            RoundedRectangle(cornerRadius: 4)
-                .stroke(chipColor.opacity(0.25), lineWidth: 0.5)
-        )
+        .background(Capsule().fill(chipColor.opacity(0.14)))
+        .overlay(Capsule().strokeBorder(chipColor.opacity(0.25), lineWidth: 0.5))
+        .fixedSize()
     }
 
     private var chipLabel: some View {
         Text(label)
-            .font(.system(size: 10))
-            .foregroundColor(chipColor)
+            .font(.klip(.badge))
+            .foregroundStyle(chipColor)
     }
 }

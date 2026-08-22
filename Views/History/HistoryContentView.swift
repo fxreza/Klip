@@ -1,56 +1,93 @@
 import SwiftUI
+import AppKit
 
-/// Main content view - Split pane with list and detail.
+/// Root of the history window: sidebar | (search / chips / list + preview /
+/// action bar), on a `.regularMaterial` card with an 18pt radius and a hairline
+/// border — Clipfield's shell.
 ///
 /// All state lives in `HistoryViewModel` (owned by `HistoryWindowController`)
-/// except the three `@FocusState` flags, which SwiftUI only supports inside a
-/// `View`. This view is therefore just layout plus the change/notification
-/// wiring that drives the view model.
+/// except the `@FocusState` flags, which SwiftUI only supports inside a `View`.
+/// This view is layout plus the change/notification wiring that drives the view
+/// model.
 struct HistoryContentView: View {
     @ObservedObject var store: ClipboardStore
     @ObservedObject var viewModel: HistoryViewModel
+    @ObservedObject var settings: SettingsManager = .shared
 
     @FocusState private var isSearchFocused: Bool
     @FocusState private var isTagInputFocused: Bool
     @FocusState private var isTextEditorFocused: Bool
+    @FocusState private var isFolderFieldFocused: Bool
+
+    /// Reduce Motion turns the open animation into a plain cut.
+    private var reduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Search bar
-            SearchBar(store: store, viewModel: viewModel, isSearchFocused: $isSearchFocused)
+        ZStack {
+            HStack(spacing: 0) {
+                if !settings.sidebarCollapsed {
+                    Sidebar(store: store, viewModel: viewModel)
+                        .frame(width: settings.sidebarWidth)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                    PanelResizer(width: $settings.sidebarWidth, range: 120...320, side: .leading)
+                }
 
-            // Tag autocomplete (when typing #...)
-            if viewModel.showTagAutocomplete && !store.allTags.isEmpty {
-                TagAutocompleteBar(store: store, viewModel: viewModel)
+                VStack(spacing: 0) {
+                    SearchBar(store: store, viewModel: viewModel, isSearchFocused: $isSearchFocused)
+
+                    if viewModel.showTagAutocomplete && !store.allTags.isEmpty {
+                        TagAutocompleteBar(store: store, viewModel: viewModel)
+                    }
+
+                    FilterChipBar(viewModel: viewModel)
+
+                    Divider()
+
+                    HStack(spacing: 0) {
+                        // 180 keeps the list usable at the 560pt minimum window
+                        // width with the sidebar at its 120pt minimum and the
+                        // preview at its 200pt minimum.
+                        listPane
+                            .frame(minWidth: 180, maxWidth: .infinity)
+
+                        if settings.showPreviewPane {
+                            PanelResizer(width: $settings.previewWidth, range: 200...440, side: .trailing)
+                            PreviewPane(
+                                store: store,
+                                viewModel: viewModel,
+                                isTextEditorFocused: $isTextEditorFocused,
+                                isTagInputFocused: $isTagInputFocused
+                            )
+                            .frame(width: settings.previewWidth)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                        }
+                    }
+                    .frame(maxHeight: .infinity)
+
+                    Divider()
+
+                    ActionBar(viewModel: viewModel, settings: settings)
+                }
+                .frame(minWidth: 320, maxWidth: .infinity)
             }
 
-            Divider()
-
-            // Split pane: List + Detail
-            HSplitView {
-                // Left: List
-                listPane
-                    .frame(minWidth: 280, maxWidth: 350)
-
-                // Right: Detail
-                DetailPane(
-                    store: store,
-                    viewModel: viewModel,
-                    isTextEditorFocused: $isTextEditorFocused,
-                    isTagInputFocused: $isTagInputFocused
-                )
-                .frame(minWidth: 300)
+            if viewModel.showNewFolderPrompt {
+                NewFolderPrompt(viewModel: viewModel, isFieldFocused: $isFolderFieldFocused)
             }
-
-            Divider()
-
-            // Bottom action bar
-            ActionBar(viewModel: viewModel)
         }
-        .frame(minWidth: 600, minHeight: 400)
-        .background(Color(NSColor.windowBackgroundColor))
-        // searchText / debouncedSearchText / activeTagFilter reactions now live in
-        // HistoryViewModel's didSet observers (debounce + applyFilters).
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.panelCornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.panelCornerRadius)
+                .strokeBorder(Theme.hairline, lineWidth: 1)
+        )
+        .scaleEffect(viewModel.isPresented || reduceMotion ? 1 : 0.96)
+        .opacity(viewModel.isPresented || reduceMotion ? 1 : 0)
+        .tint(Theme.accent)
+        .preferredColorScheme(settings.colorScheme.swiftUI)
         .onChange(of: viewModel.showTagInput) { newValue in
             if newValue {
                 isSearchFocused = false
@@ -73,13 +110,25 @@ struct HistoryContentView: View {
                 isSearchFocused = true
             }
         }
+        .onChange(of: viewModel.showNewFolderPrompt) { newValue in
+            if newValue {
+                isSearchFocused = false
+            } else {
+                isFolderFieldFocused = false
+                isSearchFocused = true
+            }
+        }
         .onChange(of: isTextEditorFocused) { newValue in
             if !newValue && viewModel.isEditing {
                 viewModel.exitEditMode()
             }
         }
-        .onChange(of: viewModel.selectedItem?.id) { _ in
-            if viewModel.isEditing {
+        .onChange(of: viewModel.selectedItem?.id) { newID in
+            // Moving the selection *away from the item being edited* commits the
+            // edit. Comparing against `editingItemID` (rather than "is editing at
+            // all") lets an action select a row and open the editor in the same
+            // turn — the row context menu's Edit does exactly that.
+            if viewModel.isEditing && viewModel.editingItemID != newID {
                 viewModel.exitEditMode()
             }
             if viewModel.showTagInput {
@@ -89,6 +138,9 @@ struct HistoryContentView: View {
         }
         .onChange(of: store.items) { _ in
             viewModel.applyFilters(resetSelection: .preserve)
+        }
+        .onChange(of: store.folders) { _ in
+            viewModel.validateScope()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
             if viewModel.isEditing {
@@ -119,32 +171,29 @@ struct HistoryContentView: View {
         ))
     }
 
+    @ViewBuilder
     private var listPane: some View {
-        Group {
-            if viewModel.filteredItems.isEmpty {
-                VStack {
-                    Spacer()
-                    Text(viewModel.searchText.isEmpty && viewModel.activeTagFilter == nil ? "No clipboard history" : "No matches")
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-            } else {
-                ClipboardListView(
-                    items: viewModel.filteredItems,
-                    selectedIndex: $viewModel.selectedIndex,
-                    scrollTrigger: $viewModel.scrollTrigger,
-                    store: store,
-                    onSelect: { item in viewModel.copy(item) },
-                    onDismiss: { viewModel.onDismiss() },
-                    selectedID: viewModel.selectedID,
-                    selectedIDs: $viewModel.selectedIDs,
-                    onSelectSingle: { id in viewModel.selectSingle(id) },
-                    onToggleSelection: { id in viewModel.toggleSelection(id) },
-                    onExtendSelectionTo: { id in viewModel.extendSelectionTo(id) },
-                    onTagTap: { tag in viewModel.activeTagFilter = tag }
-                )
-            }
+        if viewModel.filteredItems.isEmpty {
+            emptyState
+        } else {
+            ClipList(store: store, viewModel: viewModel)
         }
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+    }
+
+    private var emptyState: some View {
+        let isFiltered = !viewModel.searchText.isEmpty
+            || viewModel.activeTagFilter != nil
+            || viewModel.chipFilter != .all
+            || viewModel.scope != .all
+
+        return VStack(spacing: 10) {
+            Image(systemName: isFiltered ? "magnifyingglass" : "doc.on.clipboard")
+                .font(Theme.icon(34))
+                .foregroundStyle(.tertiary)
+            Text(isFiltered ? "No matches" : "No clipboard history")
+                .font(.klip(.preview))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
