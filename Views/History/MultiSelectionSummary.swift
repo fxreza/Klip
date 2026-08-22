@@ -88,7 +88,7 @@ struct MultiSelectionSummary: View {
                 // Inline confirmation — a system alert would make the borderless
                 // panel resign key and close.
                 VStack(spacing: 8) {
-                    Text("Delete \(selectionCount) items permanently?")
+                    Text(deleteConfirmationText(selectionCount: selectionCount, lockedCount: lockedCount))
                         .font(.klip(.chip))
                         .fontWeight(.medium)
                         .foregroundStyle(.primary)
@@ -148,6 +148,16 @@ struct MultiSelectionSummary: View {
                 .transition(.opacity)
             }
         }
+    }
+
+    /// "Delete M clips (N locked will be kept)" when the selection includes
+    /// locked items (which `performDelete` will skip); otherwise the plain
+    /// "Delete M items permanently?" prompt.
+    private func deleteConfirmationText(selectionCount: Int, lockedCount: Int) -> String {
+        guard lockedCount > 0 else {
+            return "Delete \(selectionCount) items permanently?"
+        }
+        return "Delete \(selectionCount) clips (\(lockedCount) locked will be kept)"
     }
 
     private func statTile(_ label: String, value: String) -> some View {

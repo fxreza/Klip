@@ -589,16 +589,22 @@ final class HistoryViewModel: ObservableObject {
         if let item = selectedItem { store.toggleBookmark(for: item) }
     }
 
+    // Delete entry points below all funnel through `performDelete(ids:)`
+    // (Views/History/HistoryViewModel+Lock.swift, task 3A) so locked items are
+    // skipped consistently, kept selected, and reported via `toast` no matter
+    // which UI path triggered the delete.
+
     func deleteSelection() {
-        if let item = selectedItem { store.delete(item) }
+        guard let item = selectedItem else { return }
+        performDelete(ids: [item.id])
     }
 
     func delete(_ item: ClipboardItem) {
-        store.delete(item)
+        performDelete(ids: [item.id])
     }
 
     func deleteSelectedItems() {
-        store.delete(selectedItems)
+        performDelete(ids: selectedIDs)
     }
 
     func saveSelectedImage() {
@@ -940,4 +946,20 @@ final class HistoryViewModel: ObservableObject {
         activeTagFilter = nil
         return true
     }
+
+    // MARK: - 3A state
+
+    /// A transient bottom-of-content message (currently only used for the
+    /// "N locked clips were not deleted" notice). Methods live in
+    /// `HistoryViewModel+Lock.swift`; rendered by `Views/History/Toast.swift`.
+    struct ToastMessage: Equatable {
+        let text: String
+        let systemImage: String
+    }
+
+    @Published var toast: ToastMessage?
+
+    /// Cancelled/replaced whenever a new toast is shown, so an earlier
+    /// auto-clear never stomps a newer message.
+    var toastDismissTask: Task<Void, Never>?
 }

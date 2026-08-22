@@ -93,6 +93,12 @@ private struct HistorySettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section("Lock / Protect") {
+                Text("Locked clips can't be deleted until you unlock them. Clips inside folders are locked automatically. Pinned, starred, tagged, locked and folder clips never count toward the history limit.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .alert("Reduce History Limit?", isPresented: $showingTrimAlert) {
