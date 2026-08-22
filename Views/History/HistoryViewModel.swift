@@ -1,0 +1,781 @@
+import AppKit
+import SwiftUI
+
+/// All mutable state and behaviour of the history window.
+///
+/// Before the Phase 1 split this lived as ~35 `@State` properties plus a dozen
+/// private helpers inside `HistoryContentView`. It is owned by
+/// `HistoryWindowController` so it survives SwiftUI view identity resets, which
+/// is why `shouldResetOnOpen` / `savedSelectedID` no longer need `@Binding`
+/// plumbing back to the controller.
+///
+/// Focus is deliberately *not* here: `@FocusState` only works inside a `View`,
+/// so `HistoryContentView` owns the three focus flags and reacts to
+/// `isEditing` / `showTagInput` changes.
+@MainActor
+final class HistoryViewModel: ObservableObject {
+    let store: ClipboardStore
+
+    // MARK: - Controller callbacks (wired by HistoryWindowController)
+
+    var onCopyToClipboard: (ClipboardItem) -> Void = { _ in }
+    var onPaste: (ClipboardItem) -> Void = { _ in }
+    var onPasteMultiple: ([ClipboardItem]) -> Void = { _ in }
+    var onDismiss: () -> Void = { }
+
+    // MARK: - Controller-owned persistence of search/selection across opens
+
+    /// Set to true by `HistoryWindowController` when the window has been closed for
+    /// more than 90 seconds (or on the very first open). Search/tag state is reset
+    /// only when this is true; the open handler then writes false back so a second
+    /// notification in the same session is a no-op.
+    var shouldResetOnOpen: Bool = true
+    /// Last selected item UUID, kept in sync with `selectedID` and restored on
+    /// reopen within the threshold.
+    var savedSelectedID: UUID?
+
+    // MARK: - Search
+
+    @Published var searchText = "" {
+        didSet {
+            guard searchText != oldValue else { return }
+            let newValue = searchText
+            showTagAutocomplete = newValue.hasPrefix("#")
+
+            searchDebounceTask?.cancel()
+
+            if newValue.isEmpty {
+                // Instantly update when search text is cleared
+                debouncedSearchText = newValue
+            } else {
+                searchDebounceTask = Task { [weak self] in
+                    // 200ms debounce
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run { self?.debouncedSearchText = newValue }
+                }
+            }
+        }
+    }
+
+    @Published var debouncedSearchText = "" {
+        didSet {
+            guard debouncedSearchText != oldValue else { return }
+            // Don't reset selection when in tag autocomplete mode (list is unchanged)
+            applyFilters(resetSelection: debouncedSearchText.hasPrefix("#") ? .keep : .defaultItem)
+        }
+    }
+
+    private var searchDebounceTask: Task<Void, Never>?
+
+    // MARK: - Filtering
+
+    @Published var activeTagFilter: String? = nil {
+        didSet {
+            guard activeTagFilter != oldValue else { return }
+            // Reset selection to the first item of the new tag filter
+            applyFilters(resetSelection: .defaultItem)
+        }
+    }
+
+    @Published var filteredItems: [ClipboardItem] = []
+
+    var filterState: FilterState {
+        FilterState(query: debouncedSearchText, tag: activeTagFilter)
+    }
+
+    // MARK: - Selection
+
+    @Published var selectedIndex = 0 {
+        didSet {
+            guard selectedIndex != oldValue else { return }
+            selectedID = filteredItems[safe: selectedIndex]?.id
+        }
+    }
+    /// Track selection by ID so it survives list insertions.
+    @Published var selectedID: UUID? {
+        didSet {
+            guard selectedID != oldValue else { return }
+            // Keep savedSelectedID in sync so the controller can restore it on next open
+            savedSelectedID = selectedID
+        }
+    }
+    @Published var selectedIDs: Set<UUID> = []
+    @Published var selectionAnchor: UUID?
+    /// Triggers scroll-to-selection in ClipboardListView on keyboard navigation.
+    @Published var scrollTrigger = false
+
+    // MARK: - Detail pane
+
+    @Published var previewImage: NSImage?
+    @Published var chunkedText = ChunkedTextState()
+    @Published var itemSize: Int?
+    @Published var isExtractingText = false
+    @Published var showDeleteConfirmation = false
+
+    // MARK: - Tag input
+
+    @Published var showTagAutocomplete: Bool = false
+    @Published var showTagInput: Bool = false
+    @Published var tagInputText: String = ""
+
+    // MARK: - Editing
+
+    @Published var isEditing = false
+    @Published var editText = ""
+    @Published var editingItemID: UUID?
+
+    // MARK: - Init
+
+    init(store: ClipboardStore) {
+        self.store = store
+    }
+
+    // MARK: - Derived values
+
+    var tagSuggestions: [String] {
+        let query = searchText.hasPrefix("#") ? String(searchText.dropFirst()).lowercased() : ""
+        if query.isEmpty { return store.allTags }
+        return store.allTags.filter { $0.hasPrefix(query) }
+    }
+
+    func tagInputSuggestions(excluding existing: [String]) -> [String] {
+        guard !tagInputText.isEmpty else { return [] }
+        return store.allTags.filter { $0.hasPrefix(tagInputText.lowercased()) && !existing.contains($0) }
+    }
+
+    /// Get the first unpinned item, or the first pinned item if no unpinned items exist
+    var defaultSelectedItem: ClipboardItem? {
+        return filteredItems.first(where: { !$0.isPinned }) ?? filteredItems.first
+    }
+
+    /// Get all selected items in filtered list order
+    var selectedItems: [ClipboardItem] {
+        filteredItems.filter { selectedIDs.contains($0.id) }
+    }
+
+    /// Get the primary selected item (for detail pane when multiple selected or single item)
+    /// Returns the first selected item in list order
+    var selectedItem: ClipboardItem? {
+        selectedItems.first
+    }
+
+    /// Selection status for UI display
+    var selectionCount: Int {
+        selectedIDs.count
+    }
+
+    /// Total size of all selected items
+    var selectedItemsTotalSize: Int {
+        selectedItems.reduce(0) { sum, item in
+            sum + (store.itemSize(for: item) ?? 0)
+        }
+    }
+
+    // MARK: - Filtering + selection reset
+
+    /// How `applyFilters` should re-point the selection after recomputing the list.
+    enum SelectionReset {
+        /// Leave the selection untouched (first render, and `#…` autocomplete typing).
+        case keep
+        /// Snap to the first unpinned item (or the first item if all are pinned).
+        case defaultItem
+        /// Keep the selected UUID if it survived; otherwise take the item now at the
+        /// same position, or the last one. Used when the store's items change.
+        case preserve
+        /// Restore the given UUID if it is still in the list, else `defaultItem`.
+        /// The caller passes the value captured *before* any other reset ran, which
+        /// is what the pre-split code observed (its `savedSelectedID` write was
+        /// deferred to the next SwiftUI update pass).
+        case restore(UUID?)
+    }
+
+    /// The single recompute-and-reselect path. Replaces the five copy-pasted
+    /// blocks that used to live in `HistoryContentView`'s onChange/onReceive
+    /// handlers.
+    func applyFilters(resetSelection: SelectionReset) {
+        let currentFiltered = FilterState.apply(store.items, filterState)
+        self.filteredItems = currentFiltered
+
+        switch resetSelection {
+        case .keep:
+            return
+
+        case .defaultItem:
+            // Find first unpinned item in filtered results
+            let defaultItem = currentFiltered.first(where: { !$0.isPinned }) ?? currentFiltered.first
+            point(at: defaultItem?.id, in: currentFiltered)
+
+        case .restore(let saved):
+            // • Within threshold + saved UUID still in filtered list → restore it
+            // • Otherwise → first unpinned item (or first if all pinned)
+            let targetID: UUID?
+            if let saved = saved, currentFiltered.contains(where: { $0.id == saved }) {
+                targetID = saved
+            } else {
+                targetID = (currentFiltered.first(where: { !$0.isPinned }) ?? currentFiltered.first)?.id
+            }
+            point(at: targetID, in: currentFiltered)
+
+        case .preserve:
+            // Remove deleted items from selection set
+            selectedIDs = selectedIDs.filter { id in
+                currentFiltered.contains { $0.id == id }
+            }
+
+            // Preserve selection by UUID lookup, adjust index if needed
+            guard let id = selectedID else { return }
+            if let newIndex = currentFiltered.firstIndex(where: { $0.id == id }) {
+                if selectedIndex != newIndex { selectedIndex = newIndex }
+            } else {
+                // Selected item was deleted — select the item now at the same position (or last)
+                let fallbackIndex = min(selectedIndex, currentFiltered.count - 1)
+                if let fallbackItem = currentFiltered[safe: fallbackIndex] {
+                    selectedID = fallbackItem.id
+                    selectedIDs = [fallbackItem.id]
+                    selectionAnchor = fallbackItem.id
+                    selectedIndex = fallbackIndex
+                } else {
+                    selectedID = nil
+                    selectedIDs = []
+                    selectionAnchor = nil
+                    selectedIndex = 0
+                }
+            }
+        }
+    }
+
+    /// Make `targetID` the one and only selection, syncing index and anchor.
+    private func point(at targetID: UUID?, in list: [ClipboardItem]) {
+        selectedID = targetID
+        if let id = targetID {
+            selectedIDs = [id]
+            selectionAnchor = id
+        } else {
+            selectedIDs = []
+            selectionAnchor = nil
+        }
+        // Calculate the correct index
+        if let index = list.firstIndex(where: { $0.id == targetID }) {
+            selectedIndex = index
+        } else {
+            selectedIndex = 0
+        }
+    }
+
+    // MARK: - Selection helpers
+
+    /// Select a single item (clears previous multi-selection)
+    func selectSingle(_ id: UUID) {
+        selectedIDs = [id]
+        selectionAnchor = id
+        selectedID = id  // Explicitly set selectedID
+        if let index = filteredItems.firstIndex(where: { $0.id == id }) {
+            selectedIndex = index
+        }
+    }
+
+    /// Toggle an item in multi-select (Cmd+click behavior)
+    func toggleSelection(_ id: UUID) {
+        if selectedIDs.contains(id) {
+            selectedIDs.remove(id)
+        } else {
+            selectedIDs.insert(id)
+        }
+        selectionAnchor = id
+        if let index = filteredItems.firstIndex(where: { $0.id == id }) {
+            selectedIndex = index
+            // selectedID is synced by selectedIndex's didSet
+        }
+    }
+
+    /// Extend selection from anchor to target item (Shift+click behavior)
+    func extendSelectionTo(_ targetID: UUID) {
+        guard let anchorID = selectionAnchor else {
+            selectSingle(targetID)
+            return
+        }
+
+        guard let anchorIndex = filteredItems.firstIndex(where: { $0.id == anchorID }),
+              let targetIndex = filteredItems.firstIndex(where: { $0.id == targetID }) else {
+            return
+        }
+
+        let range = min(anchorIndex, targetIndex)...max(anchorIndex, targetIndex)
+        selectedIDs = Set(filteredItems[range].map { $0.id })
+        selectedIndex = targetIndex
+    }
+
+    /// Extend selection upward (Shift+↑ behavior)
+    func extendSelectionUp() {
+        guard selectedIndex > 0 else { return }
+
+        let currentItem = filteredItems[selectedIndex]
+        let previousIndex = selectedIndex - 1
+        let previousItem = filteredItems[previousIndex]
+
+        if selectedIDs.isEmpty {
+            selectSingle(currentItem.id)
+            return
+        }
+
+        // If moving up, always include the new item
+        selectedIDs.insert(previousItem.id)
+        selectionAnchor = selectionAnchor ?? currentItem.id
+
+        selectedIndex = previousIndex
+    }
+
+    /// Extend selection downward (Shift+↓ behavior)
+    func extendSelectionDown() {
+        guard selectedIndex < filteredItems.count - 1 else { return }
+
+        let currentItem = filteredItems[selectedIndex]
+        let nextIndex = selectedIndex + 1
+        let nextItem = filteredItems[nextIndex]
+
+        if selectedIDs.isEmpty {
+            selectSingle(currentItem.id)
+            return
+        }
+
+        // If moving down, always include the new item
+        selectedIDs.insert(nextItem.id)
+        selectionAnchor = selectionAnchor ?? currentItem.id
+
+        selectedIndex = nextIndex
+    }
+
+    /// Clear all selections
+    func clearSelection() {
+        selectedIDs = []
+        selectionAnchor = nil
+        selectedID = nil
+    }
+
+    func navigateUp() {
+        if selectedIndex > 0 {
+            selectedIndex -= 1
+            // Clear multi-selection when navigating without Shift
+            if let item = filteredItems[safe: selectedIndex] {
+                selectedID = item.id
+                selectedIDs = [item.id]
+                selectionAnchor = item.id
+            }
+        }
+    }
+
+    func navigateDown() {
+        if selectedIndex < filteredItems.count - 1 {
+            selectedIndex += 1
+            // Clear multi-selection when navigating without Shift
+            if let item = filteredItems[safe: selectedIndex] {
+                selectedID = item.id
+                selectedIDs = [item.id]
+                selectionAnchor = item.id
+            }
+        }
+    }
+
+    // MARK: - Window lifecycle
+
+    /// Runs on `.bufferWindowDidOpen`. Returns nothing; the view still owns the
+    /// deferred search-field focus because focus cannot live in an ObservableObject.
+    func handleWindowDidOpen() {
+        // Captured before the resets below, because those can move the selection
+        // (and therefore savedSelectedID) as a side effect.
+        let restoreTarget = savedSelectedID
+
+        // Only reset persistent search state if the window was closed long enough ago
+        // (or this is the first open). shouldResetOnOpen is set by the controller in
+        // showWindow(_:) before the notification fires.
+        if shouldResetOnOpen {
+            searchText = ""
+            debouncedSearchText = ""
+            activeTagFilter = nil
+        } else {
+            debouncedSearchText = searchText
+        }
+
+        // Transient UI state always resets
+        showTagAutocomplete = false
+        showTagInput = false
+        tagInputText = ""
+        isEditing = false
+
+        // Recalculate cache immediately and point at the restored / default item
+        applyFilters(resetSelection: shouldResetOnOpen ? .defaultItem : .restore(restoreTarget))
+
+        // Trigger scroll so ClipboardListView brings the selected row into view
+        scrollTrigger = true
+    }
+
+    // MARK: - Editing
+
+    func enterEditMode() {
+        guard let item = selectedItem, item.isEditable else { return }
+        editingItemID = item.id
+        editText = item.textContent ?? ""
+        isEditing = true
+        showTagInput = false
+    }
+
+    func exitEditMode() {
+        // Commit edit to the original item (not selectedItem, which may have changed)
+        if let itemID = editingItemID,
+           let item = store.items.first(where: { $0.id == itemID }) {
+            store.updateText(editText, for: item)
+
+            NotificationCenter.default.post(name: .bufferIgnoreNextChange, object: nil)
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(editText, forType: .string)
+        }
+        editingItemID = nil
+        isEditing = false
+    }
+
+    func toggleEditMode() {
+        if isEditing {
+            exitEditMode()
+        } else {
+            enterEditMode()
+        }
+    }
+
+    // MARK: - Item actions
+
+    func copySelected() {
+        if let item = selectedItem { onCopyToClipboard(item) }
+    }
+
+    func copy(_ item: ClipboardItem) {
+        onCopyToClipboard(item)
+    }
+
+    func togglePinOnSelection() {
+        if let item = selectedItem { store.togglePin(for: item) }
+    }
+
+    func toggleBookmarkOnSelection() {
+        if let item = selectedItem { store.toggleBookmark(for: item) }
+    }
+
+    func deleteSelection() {
+        if let item = selectedItem { store.delete(item) }
+    }
+
+    func delete(_ item: ClipboardItem) {
+        store.delete(item)
+    }
+
+    func deleteSelectedItems() {
+        store.delete(selectedItems)
+    }
+
+    func saveSelectedImage() {
+        if selectedItem?.type == .image, let img = previewImage {
+            PasteController.saveImageToDisk(img)
+        }
+    }
+
+    func extractTextFromSelection() async {
+        guard let img = previewImage, let item = selectedItem else { return }
+        isExtractingText = true
+        let result = await OCRService.shared.recognizeText(from: img)
+        let text = result ?? "No text found in this image."
+        store.setOCRText(text, for: item)
+        isExtractingText = false
+    }
+
+    func copyOCRText(_ ocrText: String) {
+        NotificationCenter.default.post(name: .bufferIgnoreNextChange, object: nil)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(ocrText, forType: .string)
+    }
+
+    // MARK: - Tags
+
+    func addTag(_ tag: String, to item: ClipboardItem) {
+        store.addTag(tag, to: item)
+    }
+
+    func removeTag(_ tag: String, from item: ClipboardItem) {
+        store.removeTag(tag, from: item)
+    }
+
+    /// Commit the inline tag input's raw text to `item`.
+    func commitTagInput(for item: ClipboardItem?) {
+        if let item = item {
+            let normalized = TagChip.normalize(tagInputText)
+            if !normalized.isEmpty { store.addTag(normalized, to: item) }
+        }
+        tagInputText = ""
+        showTagInput = false
+    }
+
+    /// Pick a suggestion from the inline tag input's autocomplete row.
+    func applyTagSuggestion(_ suggestion: String, to item: ClipboardItem) {
+        store.addTag(suggestion, to: item)
+        tagInputText = ""
+        showTagInput = false
+    }
+
+    func cancelTagInput() {
+        tagInputText = ""
+        showTagInput = false
+    }
+
+    /// Apply a tag as the active list filter (chip tap / autocomplete bar tap).
+    func applyTagFilter(_ tag: String) {
+        activeTagFilter = tag
+        searchText = ""
+        showTagAutocomplete = false
+    }
+
+    // MARK: - Download all images
+
+    func downloadAllImages() {
+        let openPanel = NSOpenPanel()
+        openPanel.canChooseDirectories = true
+        openPanel.canChooseFiles = false
+        openPanel.canCreateDirectories = true
+        openPanel.title = "Select Folder to Save Images"
+        openPanel.prompt = "Select"
+
+        // Use the newer sheet modal approach
+        if let window = NSApplication.shared.windows.first {
+            openPanel.beginSheetModal(for: window) { response in
+                if response == .OK, let folderURL = openPanel.url {
+                    // Read main-actor state before hopping off the main thread.
+                    let imageItems = self.selectedItems.filter { $0.type == .image }
+                    let store = self.store
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        for (index, item) in imageItems.enumerated() {
+                            if let image = store.image(for: item) {
+                                let paddedNumber = String(format: "%04d", index + 1)
+                                let fileName = "image-\(paddedNumber).png"
+                                let fileURL = folderURL.appendingPathComponent(fileName)
+
+                                if let tiffData = image.tiffRepresentation,
+                                   let bitmapImage = NSBitmapImageRep(data: tiffData),
+                                   let pngData = bitmapImage.representation(using: .png, properties: [:]) {
+                                    do {
+                                        try pngData.write(to: fileURL)
+                                        print("✅ Saved image to \(fileURL.lastPathComponent)")
+                                    } catch {
+                                        print("❌ Error saving image to \(fileURL): \(error)")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Preview loading
+
+    /// Body of `HistoryContentView`'s `.task(id: selectedItem?.id)`.
+    func reloadPreview() async {
+        // Clear preview
+        previewImage = nil
+        chunkedText = ChunkedTextState()
+        isExtractingText = false
+        itemSize = nil
+        showTagInput = false
+        tagInputText = ""
+
+        // Load new preview async
+        if let item = selectedItem {
+            itemSize = store.itemSize(for: item)
+
+            if item.type == .image {
+                previewImage = await loadPreviewImage(for: item)
+            } else if item.type == .text {
+                if item.isFileBacked || (item.textContent?.count ?? 0) > 5000 {
+                    await loadInitialChunk(for: item)
+                } else {
+                    chunkedText.visibleText = item.textContent ?? ""
+                    chunkedText.reachedEOF = true
+                }
+            }
+        }
+    }
+
+    private func loadPreviewImage(for item: ClipboardItem) async -> NSImage? {
+        let store = self.store
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let img = store.image(for: item)
+                continuation.resume(returning: img)
+            }
+        }
+    }
+
+    private func loadInitialChunk(for item: ClipboardItem) async {
+        chunkedText.isLoadingMore = true // Initial load spinner
+
+        let chunkResult = await Task.detached(priority: .userInitiated) {
+            self.store.textChunk(for: item, charCount: ChunkedTextState.initialChars)
+        }.value
+
+        if let result = chunkResult {
+            chunkedText.visibleText = result.text
+            chunkedText.totalBytes = result.totalBytes
+            chunkedText.loadedCharCount = result.text.count
+            chunkedText.reachedEOF = result.reachedEOF
+        }
+        chunkedText.isLoadingMore = false
+    }
+
+    func loadNextChunk(for item: ClipboardItem) async {
+        guard !chunkedText.isLoadingMore && chunkedText.hasMore else { return }
+
+        chunkedText.isLoadingMore = true
+        let nextCharCount = chunkedText.loadedCharCount + ChunkedTextState.chunkSize
+
+        let chunkResult = await Task.detached(priority: .userInitiated) {
+            self.store.textChunk(for: item, charCount: nextCharCount)
+        }.value
+
+        if let result = chunkResult {
+            chunkedText.visibleText = result.text
+            chunkedText.totalBytes = result.totalBytes
+            chunkedText.loadedCharCount = result.text.count
+            chunkedText.reachedEOF = result.reachedEOF
+        }
+        chunkedText.isLoadingMore = false
+    }
+
+    // MARK: - Formatting
+
+    func formattedByteCount(_ bytes: Int) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useBytes, .useKB, .useMB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(bytes))
+    }
+
+    func formattedSize(bytes: Int) -> String {
+        return formattedByteCount(bytes)
+    }
+
+    // MARK: - Key handlers (called by GlobalKeyMonitor)
+
+    func keyUp() {
+        guard !isEditing else { return }
+        scrollTrigger = true
+        navigateUp()
+    }
+
+    func keyDown() {
+        guard !isEditing else { return }
+        scrollTrigger = true
+        navigateDown()
+    }
+
+    func keyExtendUp() {
+        guard !isEditing else { return }
+        scrollTrigger = true
+        extendSelectionUp()
+    }
+
+    func keyExtendDown() {
+        guard !isEditing else { return }
+        scrollTrigger = true
+        extendSelectionDown()
+    }
+
+    func keyEnter() {
+        if isEditing { return }
+        if showTagInput {
+            commitTagInput(for: selectedItem)
+        } else if searchText.hasPrefix("#") {
+            let tagQuery = String(searchText.dropFirst()).trimmingCharacters(in: .whitespaces)
+            if let match = store.allTags.first(where: { $0 == tagQuery }) ?? store.allTags.first(where: { $0.hasPrefix(tagQuery) }) {
+                applyTagFilter(match)
+            }
+        } else if !selectedItems.isEmpty {
+            onPasteMultiple(Array(selectedItems))
+        } else if let item = selectedItem {
+            onPaste(item)
+        }
+    }
+
+    func keyEscape() {
+        if isEditing {
+            exitEditMode()
+            return
+        }
+        if showTagInput {
+            showTagInput = false
+            tagInputText = ""
+        } else {
+            onDismiss()
+        }
+    }
+
+    func keyDelete() {
+        guard !isEditing else { return }
+        deleteSelection()
+    }
+
+    func keyCopy() {
+        guard !isEditing else { return }
+        copySelected()
+    }
+
+    func keyPin() {
+        guard !isEditing else { return }
+        togglePinOnSelection()
+    }
+
+    func keyBookmark() {
+        guard !isEditing else { return }
+        toggleBookmarkOnSelection()
+    }
+
+    func keySaveImage() {
+        guard !isEditing else { return }
+        saveSelectedImage()
+    }
+
+    func keyAddTag() {
+        guard !isEditing else { return }
+        guard selectedItem != nil else { return }
+        showTagInput = true
+    }
+
+    func keyEdit() {
+        toggleEditMode()
+    }
+
+    func keyTabComplete() {
+        guard !isEditing else { return }
+        if showTagInput {
+            guard !tagInputText.isEmpty, let item = selectedItem else { return }
+            let suggestions = store.allTags.filter {
+                $0.hasPrefix(tagInputText.lowercased()) && !item.tags.contains($0)
+            }
+            guard let first = suggestions.first else { return }
+            applyTagSuggestion(first, to: item)
+        } else if searchText.hasPrefix("#") {
+            let tagQuery = String(searchText.dropFirst()).lowercased()
+            let suggestions = store.allTags.filter { tagQuery.isEmpty || $0.hasPrefix(tagQuery) }
+            guard let first = suggestions.first else { return }
+            applyTagFilter(first)
+        }
+    }
+
+    /// ⌫ with an empty search field clears the active tag filter.
+    /// Returns true if the key was consumed. `searchFieldHasFocus` comes from the
+    /// view because focus state cannot live here.
+    func keyBackspace(searchFieldHasFocus: Bool) -> Bool {
+        guard !isEditing else { return false }
+        guard searchFieldHasFocus, searchText.isEmpty, activeTagFilter != nil else { return false }
+        activeTagFilter = nil
+        return true
+    }
+}
