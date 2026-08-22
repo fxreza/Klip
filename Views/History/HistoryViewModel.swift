@@ -18,9 +18,13 @@ final class HistoryViewModel: ObservableObject {
 
     // MARK: - Controller callbacks (wired by HistoryWindowController)
 
-    var onCopyToClipboard: (ClipboardItem) -> Void = { _ in }
-    var onPaste: (ClipboardItem) -> Void = { _ in }
-    var onPasteMultiple: ([ClipboardItem]) -> Void = { _ in }
+    // Phase 3D: every write-back takes an explicit `PasteMode` (rich/plain) —
+    // `HistoryWindowController` threads it straight through to
+    // `PasteController`. Call sites that don't care about the distinction
+    // (multi-select bulk actions, etc.) pass `defaultPasteMode`.
+    var onCopyToClipboard: (ClipboardItem, PasteMode) -> Void = { _, _ in }
+    var onPaste: (ClipboardItem, PasteMode) -> Void = { _, _ in }
+    var onPasteMultiple: ([ClipboardItem], PasteMode) -> Void = { _, _ in }
     var onDismiss: () -> Void = { }
 
     // MARK: - Controller-owned persistence of search/selection across opens
@@ -567,6 +571,13 @@ final class HistoryViewModel: ObservableObject {
            let item = store.items.first(where: { $0.id == itemID }) {
             store.updateText(editText, for: item)
 
+            // Phase 3D deliverable 3: editing a rich item keeps plain text
+            // only — its RTF/flavors backing is now stale (it describes text
+            // that no longer exists) and is dropped along with the files.
+            if item.rtfFilename != nil || item.flavorsFilename != nil {
+                store.clearRichFlavors(for: item)
+            }
+
             NotificationCenter.default.post(name: .bufferIgnoreNextChange, object: nil)
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
@@ -587,14 +598,14 @@ final class HistoryViewModel: ObservableObject {
     // MARK: - Item actions
 
     func copySelected() {
-        if let item = selectedItem { onCopyToClipboard(item) }
+        if let item = selectedItem { onCopyToClipboard(item, defaultPasteMode) }
     }
 
     func copy(_ item: ClipboardItem) {
         if store.fileIsMissing(item) {
             showToast("Some files are missing from disk")
         }
-        onCopyToClipboard(item)
+        onCopyToClipboard(item, defaultPasteMode)
     }
 
     func togglePinOnSelection() {
@@ -818,9 +829,9 @@ final class HistoryViewModel: ObservableObject {
                 applyTagFilter(match)
             }
         } else if !selectedItems.isEmpty {
-            onPasteMultiple(Array(selectedItems))
+            onPasteMultiple(Array(selectedItems), defaultPasteMode)
         } else if let item = selectedItem {
-            onPaste(item)
+            onPaste(item, defaultPasteMode)
         }
     }
 

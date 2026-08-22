@@ -4,16 +4,14 @@ import AppKit
 /// but that belong to other Phase 3 tasks' models (locking, folders) or that
 /// are genuinely new (quick paste, paste/copy-as-plain-text).
 ///
-/// Everything marked `// 3E-stub` is a placeholder so this worktree builds
-/// and its tests pass standalone; the owning task replaces it wholesale at
-/// merge time:
-///   - `keyLock()` → 3A (`Views/History/HistoryViewModel+Lock.swift`)
-///   - `keyNewFolder()`, `keyRenameFolder()`, `keyMoveToFolder()` → 3B
-///     (`Views/History/HistoryViewModel+Folders.swift`)
-///   - `keyPastePlain()`, `keyCopyPlain()` → 3D (real plain-text paste/copy)
+/// `keyLock()` lives in `Views/History/HistoryViewModel+Lock.swift` (3A);
+/// `keyNewFolder()`, `keyRenameFolder()`, `keyMoveToFolder()` live in
+/// `Views/History/HistoryViewModel+Folders.swift` (3B). `keyPastePlain()` and
+/// `keyCopyPlain()` below replace the 3E stubs with the real Phase 3D
+/// implementation.
 ///
-/// `quickPaste(index:)` is not a stub — selecting the Nth visible item and
-/// pasting it is this task's own feature (⌘1…⌘9).
+/// `quickPaste(index:)` is this task's own feature (⌘1…⌘9), unrelated to the
+/// stubs.
 extension HistoryViewModel {
     // MARK: - Quick paste (⌘1…⌘9)
 
@@ -24,21 +22,32 @@ extension HistoryViewModel {
         guard !isEditing else { return }
         guard let item = filteredItems[safe: index - 1] else { return }
         selectSingle(item.id)
-        onPaste(item)
+        onPaste(item, defaultPasteMode)
     }
 
-    // MARK: - Plain-text paste/copy (3E-stub: replaced at merge by 3D)
+    // MARK: - Explicit plain-text paste/copy (Phase 3D)
 
-    /// Until 3D lands real plain-text paste, ⌥↩ behaves like ↩.
+    /// ⌥↩ — pastes in `alternatePasteMode` (the opposite of whatever an
+    /// unmarked paste would do right now). Mirrors `keyEnter()`'s
+    /// single-vs-multi choice.
     func keyPastePlain() {
-        // 3E-stub: replaced at merge by 3D
-        keyEnter()
+        guard !isEditing else { return }
+        let mode = alternatePasteMode
+        if !selectedItems.isEmpty {
+            onPasteMultiple(Array(selectedItems), mode)
+        } else if let item = selectedItem {
+            onPaste(item, mode)
+        }
     }
 
-    /// Until 3D lands real plain-text copy, ⌥⌘C behaves like ⌘C.
+    /// ⌥⌘C — copies the selected item in `alternatePasteMode`.
     func keyCopyPlain() {
-        // 3E-stub: replaced at merge by 3D
-        keyCopy()
+        guard !isEditing else { return }
+        guard let item = selectedItem else { return }
+        if store.fileIsMissing(item) {
+            showToast("Some files are missing from disk")
+        }
+        onCopyToClipboard(item, alternatePasteMode)
     }
 
 }

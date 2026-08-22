@@ -70,6 +70,18 @@ private struct GeneralSettingsTab: View {
             Section("Menu Bar") {
                 Toggle("Hide Menu Bar Icon", isOn: $settings.hideStatusBar)
             }
+
+            Section("Paste") {
+                Toggle("Always Paste as Plain Text", isOn: $settings.alwaysPastePlain)
+                Text(settings.alwaysPastePlain
+                     ? "Copy and Paste strip formatting by default. Use Paste with Formatting (\(ShortcutManager.shared.displayString(for: .pastePlain))) or the row menu to get it back for one item."
+                     : "Copy and Paste keep formatting when it's available. Use Paste as Plain Text (\(ShortcutManager.shared.displayString(for: .pastePlain))) or the row menu to strip it for one item.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Pasting multiple selected items always joins them as plain text — rich text can't be combined across items.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
     }

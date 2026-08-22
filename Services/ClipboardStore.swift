@@ -590,6 +590,81 @@ class ClipboardStore: ObservableObject {
         }
     }
 
+    // MARK: - Rich text / flavors (Phase 3D) — begin
+    //
+    // File helpers only; the model fields (`rtfFilename`, `flavorsFilename`)
+    // and `deleteAssociatedFiles`'s cleanup of them predate this task. Kept in
+    // its own delimited region since `ClipboardStore.swift` is also touched by
+    // the concurrent iCloud-sync task (4A) elsewhere in the file.
+
+    /// Save an RTF flavor to `texts/<itemID>.rtf`. Returns the filename to
+    /// store on `ClipboardItem.rtfFilename`.
+    func saveRTF(_ data: Data, itemID: UUID) -> String? {
+        let filename = "\(itemID.uuidString).rtf"
+        let url = textsDirectory.appendingPathComponent(filename)
+        do {
+            try data.write(to: url, options: .atomic)
+            return filename
+        } catch {
+            print("[Buffer] Failed to save RTF: \(error)")
+            return nil
+        }
+    }
+
+    /// Save the archived raw pasteboard flavors bundle to
+    /// `flavors/<itemID>.plist`. Returns the filename to store on
+    /// `ClipboardItem.flavorsFilename`.
+    func saveFlavors(_ data: Data, itemID: UUID) -> String? {
+        let filename = "\(itemID.uuidString).plist"
+        let url = flavorsDirectory.appendingPathComponent(filename)
+        do {
+            try data.write(to: url, options: .atomic)
+            return filename
+        } catch {
+            print("[Buffer] Failed to save flavors: \(error)")
+            return nil
+        }
+    }
+
+    /// Load an item's RTF flavor as Data, if it has one.
+    func rtfData(for item: ClipboardItem) -> Data? {
+        guard let filename = item.rtfFilename else { return nil }
+        return try? Data(contentsOf: textsDirectory.appendingPathComponent(filename))
+    }
+
+    /// Load an item's archived raw pasteboard flavors bundle, if it has one.
+    func flavorsData(for item: ClipboardItem) -> Data? {
+        guard let filename = item.flavorsFilename else { return nil }
+        return try? Data(contentsOf: flavorsDirectory.appendingPathComponent(filename))
+    }
+
+    /// Drop an item's RTF/flavors backing, keeping only its plain text.
+    /// Editing a rich item (3D deliverable 3) commits plain text and calls
+    /// this so the stale rich files aren't left orphaned on disk, and the
+    /// item stops advertising formatting it no longer carries.
+    func clearRichFlavors(for item: ClipboardItem) {
+        runOnMain { [weak self] in
+            guard let self = self else { return }
+            guard let index = self.items.firstIndex(where: { $0.id == item.id }) else { return }
+            guard self.items[index].rtfFilename != nil || self.items[index].flavorsFilename != nil else { return }
+
+            if let filename = self.items[index].rtfFilename {
+                try? self.fileManager.removeItem(at: self.textsDirectory.appendingPathComponent(filename))
+            }
+            if let filename = self.items[index].flavorsFilename {
+                try? self.fileManager.removeItem(at: self.flavorsDirectory.appendingPathComponent(filename))
+            }
+            self.items[index].rtfFilename = nil
+            self.items[index].flavorsFilename = nil
+            if self.items[index].kind == .richText {
+                self.items[index].kind = .text
+            }
+            self.scheduleSave()
+        }
+    }
+
+    // MARK: - Rich text / flavors (Phase 3D) — end
+
     /// Load full text content from file (lazy loading for large text)
     func fullText(for item: ClipboardItem) -> String? {
         guard let filename = item.textFilename else { return item.textContent }

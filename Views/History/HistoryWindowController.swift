@@ -118,14 +118,14 @@ class HistoryWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func setupContent() {
-        viewModel.onCopyToClipboard = { [weak self] item in
-            self?.copyToClipboard(item)
+        viewModel.onCopyToClipboard = { [weak self] item, mode in
+            self?.copyToClipboard(item, mode: mode)
         }
-        viewModel.onPaste = { [weak self] item in
-            self?.pasteItem(item)
+        viewModel.onPaste = { [weak self] item, mode in
+            self?.pasteItem(item, mode: mode)
         }
-        viewModel.onPasteMultiple = { [weak self] items in
-            self?.pasteMultiple(items)
+        viewModel.onPasteMultiple = { [weak self] items, mode in
+            self?.pasteMultiple(items, mode: mode)
         }
         viewModel.onDismiss = { [weak self] in
             self?.close()
@@ -140,23 +140,23 @@ class HistoryWindowController: NSWindowController, NSWindowDelegate {
         window?.contentView = host
     }
 
-    private func copyToClipboard(_ item: ClipboardItem) {
+    private func copyToClipboard(_ item: ClipboardItem, mode: PasteMode) {
         NotificationCenter.default.post(name: .bufferIgnoreNextChange, object: nil)
-        PasteController.copyToClipboard(item, store: store)
+        PasteController.copyToClipboard(item, store: store, mode: mode)
     }
 
-    func pasteItem(_ item: ClipboardItem) {
+    func pasteItem(_ item: ClipboardItem, mode: PasteMode = .rich) {
         let appToRestore = previousApp
         close()
         NotificationCenter.default.post(name: .bufferIgnoreNextChange, object: nil)
-        PasteController.paste(item, store: store, previousApp: appToRestore)
+        PasteController.paste(item, store: store, previousApp: appToRestore, mode: mode)
     }
 
-    func pasteMultiple(_ items: [ClipboardItem]) {
+    func pasteMultiple(_ items: [ClipboardItem], mode: PasteMode = .rich) {
         let appToRestore = previousApp
         close()
         NotificationCenter.default.post(name: .bufferIgnoreNextChange, object: nil)
-        PasteController.pasteMultiple(items, store: store, previousApp: appToRestore)
+        PasteController.pasteMultiple(items, store: store, previousApp: appToRestore, mode: mode)
     }
 
     override func showWindow(_ sender: Any?) {
