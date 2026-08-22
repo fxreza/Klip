@@ -82,6 +82,10 @@ class StatusBarController {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        let permissionsItem = NSMenuItem(title: "Permissions...", action: #selector(showPermissions), keyEquivalent: "")
+        permissionsItem.target = self
+        menu.addItem(permissionsItem)
+
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
         menu.addItem(updateItem)
@@ -134,6 +138,10 @@ class StatusBarController {
         NSApp.activate(ignoringOtherApps: true)
     }
     
+    @objc private func showPermissions() {
+        PermissionsWindowController.shared.showWindow(nil)
+    }
+
     @objc private func togglePause() {
         if watcher.isPaused {
             watcher.resume()

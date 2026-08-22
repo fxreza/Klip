@@ -20,6 +20,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var historyWindowController: HistoryWindowController?
     private var hotkeyManager: HotkeyManager?
     private var debugNotifyTokens: [Int32] = []
+    private var onboardingWindowController: OnboardingWindowController?
+    private var lastAccessibilityToastAt: Date?
 
     let clipboardStore = ClipboardStore()
 
@@ -42,13 +44,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Request Accessibility permissions for global hotkeys.
-        // Skipped under KLIP_DEBUG so test instances never pop system dialogs.
+        // First-run onboarding replaces the old unconditional Accessibility
+        // prompt: if access isn't trusted yet and onboarding was never
+        // completed, show it (after a short delay so the rest of launch
+        // finishes first); otherwise never prompt automatically — the user
+        // reaches Permissions… from the status-bar menu.
+        // Skipped under KLIP_DEBUG so test instances never pop system dialogs
+        // or windows.
         if isDebug {
-            print("[AppDelegate] KLIP_DEBUG=1: skipping Accessibility prompt")
+            print("[AppDelegate] KLIP_DEBUG=1: skipping Accessibility prompt/onboarding")
         } else {
-            let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
-            AXIsProcessTrustedWithOptions(options)
+            if !AXIsProcessTrusted() && !SettingsManager.shared.hasCompletedOnboarding {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                    self?.showOnboarding()
+                }
+            }
+
+            NotificationCenter.default.addObserver(
+                forName: .klipPasteNeedsAccessibility,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.handlePasteNeedsAccessibility()
+            }
         }
 
         // Initialize clipboard watcher
@@ -110,6 +128,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showHistoryWindow() {
         historyWindowController?.showWindow(nil)
+    }
+
+    private func showOnboarding() {
+        guard onboardingWindowController == nil else { return }
+        let controller = OnboardingWindowController { [weak self] in
+            self?.onboardingWindowController = nil
+            self?.showHistoryWindow()
+        }
+        onboardingWindowController = controller
+        controller.showWindow(nil)
+    }
+
+    /// Rate-limited (once per 60 s) so repeated paste attempts without
+    /// Accessibility access don't stack HUDs on screen.
+    private func handlePasteNeedsAccessibility() {
+        if let last = lastAccessibilityToastAt, Date().timeIntervalSince(last) < 60 {
+            return
+        }
+        lastAccessibilityToastAt = Date()
+        AccessibilityToast.shared.show {
+            PermissionsWindowController.shared.showWindow(nil)
+        }
     }
 
     /// One-time migration of UserDefaults from the old "com.samirpatil.Buffer" bundle

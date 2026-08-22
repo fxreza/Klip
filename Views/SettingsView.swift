@@ -19,6 +19,8 @@ struct SettingsView: View {
                     .tabItem { Label("Appearance", systemImage: "paintbrush") }
                 ShortcutsTab()
                     .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+                PermissionsView()
+                    .tabItem { Label("Permissions", systemImage: "lock.shield") }
             }
 
             Divider()
