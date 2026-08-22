@@ -40,6 +40,8 @@ enum ContentDetector {
         switch item.type {
         case .image:
             return .image
+        case .file:
+            return .file
         case .text:
             let text = fullText ?? item.textContent ?? ""
             return detect(text: text)
