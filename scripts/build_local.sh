@@ -213,6 +213,15 @@ if [[ -d "Assets.xcassets" ]]; then
         --app-icon AppIcon \
         --output-partial-info-plist "${OUTPUT_DIR}/partial.plist" 2>/dev/null || true
 fi
+# iconutil fallback (no Xcode/actool on this Mac): build AppIcon.icns from the appiconset PNGs
+if [[ ! -f "${APP_DIR}/Contents/Resources/AppIcon.icns" ]] && [[ -d "Assets.xcassets/AppIcon.appiconset" ]]; then
+    ICONSET="${OUTPUT_DIR}/AppIcon.iconset"; rm -rf "$ICONSET"; mkdir -p "$ICONSET"
+    cp Assets.xcassets/AppIcon.appiconset/icon_*.png "$ICONSET"/
+    [[ -f "$ICONSET/icon_512x512.png" ]] || sips -z 512 512 Assets.xcassets/AppIcon.appiconset/icon_256x256@2x.png --out "$ICONSET/icon_512x512.png" >/dev/null
+    [[ -f "$ICONSET/icon_512x512@2x.png" ]] || sips -z 1024 1024 Assets.xcassets/AppIcon.appiconset/icon_256x256@2x.png --out "$ICONSET/icon_512x512@2x.png" >/dev/null
+    iconutil -c icns "$ICONSET" -o "${APP_DIR}/Contents/Resources/AppIcon.icns" && echo "🎨 AppIcon.icns built with iconutil"
+    rm -rf "$ICONSET"
+fi
 
 # Code sign
 echo ""

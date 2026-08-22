@@ -110,7 +110,16 @@ EOF
     --platform macosx \
     --minimum-deployment-target ${DEPLOY_TARGET} \
     --app-icon AppIcon \
-    --output-partial-info-plist ${BUILD_DIR}/partial_${SUFFIX}.plist 2>/dev/null
+    --output-partial-info-plist ${BUILD_DIR}/partial_${SUFFIX}.plist 2>/dev/null || true
+    # iconutil fallback (no Xcode/actool on this Mac): build AppIcon.icns from the appiconset PNGs
+    if [[ ! -f "${APP_DIR}/Contents/Resources/AppIcon.icns" ]] && [[ -d "Assets.xcassets/AppIcon.appiconset" ]]; then
+        ICONSET="${BUILD_DIR}/AppIcon.iconset"; rm -rf "$ICONSET"; mkdir -p "$ICONSET"
+        cp Assets.xcassets/AppIcon.appiconset/icon_*.png "$ICONSET"/
+        [[ -f "$ICONSET/icon_512x512.png" ]] || sips -z 512 512 Assets.xcassets/AppIcon.appiconset/icon_256x256@2x.png --out "$ICONSET/icon_512x512.png" >/dev/null
+        [[ -f "$ICONSET/icon_512x512@2x.png" ]] || sips -z 1024 1024 Assets.xcassets/AppIcon.appiconset/icon_256x256@2x.png --out "$ICONSET/icon_512x512@2x.png" >/dev/null
+        iconutil -c icns "$ICONSET" -o "${APP_DIR}/Contents/Resources/AppIcon.icns" && echo "🎨 AppIcon.icns built with iconutil"
+        rm -rf "$ICONSET"
+    fi
 
     echo "📦 Creating PkgInfo..."
     echo "APPL????" > ${APP_DIR}/Contents/PkgInfo
