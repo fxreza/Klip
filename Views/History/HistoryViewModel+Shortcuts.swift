@@ -2,29 +2,14 @@ import AppKit
 
 /// Handlers for the `ShortcutAction`s that `GlobalKeyMonitor` dispatches to
 /// but that belong to other Phase 3 tasks' models (locking, folders) or that
-/// are genuinely new (quick paste, paste/copy-as-plain-text).
+/// are genuinely new (paste/copy-as-plain-text).
 ///
 /// `keyLock()` lives in `Views/History/HistoryViewModel+Lock.swift` (3A);
 /// `keyNewFolder()`, `keyRenameFolder()`, `keyMoveToFolder()` live in
 /// `Views/History/HistoryViewModel+Folders.swift` (3B). `keyPastePlain()` and
 /// `keyCopyPlain()` below replace the 3E stubs with the real Phase 3D
 /// implementation.
-///
-/// `quickPaste(index:)` is this task's own feature (⌘1…⌘9), unrelated to the
-/// stubs.
 extension HistoryViewModel {
-    // MARK: - Quick paste (⌘1…⌘9)
-
-    /// Selects the `index`-th (1-based) visible item, if one exists, and
-    /// pastes it — mirrors `keyEnter()`'s single-item paste path so a
-    /// multi-selection is not disturbed by a stray ⌘-digit.
-    func quickPaste(index: Int) {
-        guard !isEditing else { return }
-        guard let item = filteredItems[safe: index - 1] else { return }
-        selectSingle(item.id)
-        onPaste(item, defaultPasteMode)
-    }
-
     // MARK: - Explicit plain-text paste/copy (Phase 3D)
 
     /// ⌥↩ — pastes in `alternatePasteMode` (the opposite of whatever an

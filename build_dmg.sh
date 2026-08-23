@@ -10,7 +10,12 @@ APP_NAME=${APP_NAME:-Klip}
 DEPLOY_TARGET=${DEPLOY_TARGET:-13.0}
 BUNDLE_ID=${BUNDLE_ID:-com.fxreza.klip}
 
-BUILD_DIR="build"
+# Ends in `.noindex` deliberately: macOS Spotlight never indexes a directory
+# with that suffix, so the Klip.app built here does not show up in Spotlight
+# and Raycast alongside the real /Applications/Klip.app. Same rule as
+# scripts/build_local.sh's output — see CLAUDE.md. Do not rename this back to
+# plain `build`.
+BUILD_DIR="build.noindex"
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist)
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" Info.plist)
@@ -127,6 +132,28 @@ EOF
         iconutil -c icns "$ICONSET" -o "${APP_DIR}/Contents/Resources/AppIcon.icns" && echo "🎨 AppIcon.icns built with iconutil"
         rm -rf "$ICONSET"
     fi
+
+    # Same bundled resources as scripts/build_local.sh — this script assembles
+    # its own bundle rather than calling that one, so the copies have to exist
+    # in both places or the notarized/DMG build would ship without them.
+    # CHANGELOG.md is read at runtime by the in-app "What's New" window; the
+    # license files carry the MIT notices that used to be in the Settings
+    # footer. Guarded, because reference/ is an optional local checkout.
+    for pair in \
+        "CHANGELOG.md:CHANGELOG.md" \
+        "LICENSE:LICENSE.txt" \
+        "ATTRIBUTION.md:ATTRIBUTION.md" \
+        "reference/clipfield/LICENSE:Licenses/Clipfield-LICENSE.txt" \
+        "reference/pesty/LICENSE:Licenses/Pesty-LICENSE.txt"
+    do
+        SRC="${pair%%:*}"
+        DEST="${APP_DIR}/Contents/Resources/${pair#*:}"
+        if [[ -f "$SRC" ]]; then
+            mkdir -p "$(dirname "$DEST")"
+            cp "$SRC" "$DEST"
+            echo "📄 Bundled ${SRC} → Contents/Resources/${pair#*:}"
+        fi
+    done
 
     echo "📦 Creating PkgInfo..."
     echo "APPL????" > ${APP_DIR}/Contents/PkgInfo

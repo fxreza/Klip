@@ -242,46 +242,6 @@ struct GlobalKeyMonitor: NSViewRepresentable {
         case .togglePreview:
             viewModel.togglePreviewPane()
             return nil
-
-        // MARK: New in 3E — quick paste (⌘1…⌘9). Mirrors paste's
-        // passthrough-while-editing behaviour so a stray ⌘-digit
-        // doesn't fight with typing in the edit field.
-        case .quickPaste1:
-            if isEditing { return event }
-            viewModel.quickPaste(index: 1)
-            return nil
-        case .quickPaste2:
-            if isEditing { return event }
-            viewModel.quickPaste(index: 2)
-            return nil
-        case .quickPaste3:
-            if isEditing { return event }
-            viewModel.quickPaste(index: 3)
-            return nil
-        case .quickPaste4:
-            if isEditing { return event }
-            viewModel.quickPaste(index: 4)
-            return nil
-        case .quickPaste5:
-            if isEditing { return event }
-            viewModel.quickPaste(index: 5)
-            return nil
-        case .quickPaste6:
-            if isEditing { return event }
-            viewModel.quickPaste(index: 6)
-            return nil
-        case .quickPaste7:
-            if isEditing { return event }
-            viewModel.quickPaste(index: 7)
-            return nil
-        case .quickPaste8:
-            if isEditing { return event }
-            viewModel.quickPaste(index: 8)
-            return nil
-        case .quickPaste9:
-            if isEditing { return event }
-            viewModel.quickPaste(index: 9)
-            return nil
         }
     }
 

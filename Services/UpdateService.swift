@@ -11,6 +11,15 @@ class UpdateService {
     private var progressWindow: NSWindow?
     private var toastWindow: NSWindow?
     private var pendingReleaseURL: URL?
+    /// The release notes GitHub returned for the version that just installed.
+    /// Only a fallback — the changelog window prefers the `CHANGELOG.md` copied
+    /// into the bundle, and reaches for this when the running version has no
+    /// section there.
+    private var pendingReleaseNotes: String?
+
+    /// Where the just-installed release's notes are parked across the restart,
+    /// beside the existing `bufferJustUpdated` / `bufferUpdateTag` pair.
+    private let updateNotesKey = "bufferUpdateNotes"
 
     func checkOnLaunchIfNeeded() {
         if let lastCheck = UserDefaults.standard.object(forKey: lastCheckKey) as? Date,
@@ -63,6 +72,10 @@ class UpdateService {
 
         var latestTag: String?
         var latestZipURL: String?
+        /// The release's Markdown notes. Carried through the install so the
+        /// relaunched app can show them if the bundled changelog has no section
+        /// for the new version.
+        var latestBody: String?
         for release in sorted {
             guard let tag = release["tag_name"] as? String,
                   let assets = release["assets"] as? [[String: Any]] else { continue }
@@ -75,6 +88,8 @@ class UpdateService {
                let url = zip["browser_download_url"] as? String {
                 latestTag = tag
                 latestZipURL = url
+                latestBody = (release["body"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                 print("[UpdateService] Selected asset: \(zip["name"] as? String ?? "?") (\(archKeyword) preferred)")
                 break
             }
@@ -92,7 +107,7 @@ class UpdateService {
         DispatchQueue.main.async {
             if self.versionIsNewer(latest, than: current) {
                 print("[UpdateService] Update available — showing alert")
-                self.showUpdateAlert(version: latest, tag: tag, downloadURL: zipURL)
+                self.showUpdateAlert(version: latest, tag: tag, downloadURL: zipURL, notes: latestBody)
             } else {
                 print("[UpdateService] Already up to date (silent: \(silent))")
                 if !silent { self.showUpToDateAlert() }
@@ -125,7 +140,7 @@ class UpdateService {
         return false
     }
 
-    private func showUpdateAlert(version: String, tag: String, downloadURL: String) {
+    private func showUpdateAlert(version: String, tag: String, downloadURL: String, notes: String?) {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.icon = NSApp.applicationIconImage
@@ -136,7 +151,7 @@ class UpdateService {
         let response = alert.runModal()
         print("[UpdateService] Update alert response: \(response == .alertFirstButtonReturn ? "Update Now" : "Later")")
         if response == .alertFirstButtonReturn {
-            downloadAndInstall(url: downloadURL, tag: tag)
+            downloadAndInstall(url: downloadURL, tag: tag, notes: notes)
         }
     }
 
@@ -155,14 +170,19 @@ class UpdateService {
         UserDefaults.standard.removeObject(forKey: "bufferJustUpdated")
         let tag = UserDefaults.standard.string(forKey: "bufferUpdateTag") ?? ""
         UserDefaults.standard.removeObject(forKey: "bufferUpdateTag")
+        // Read and clear in the same breath: these notes describe the update
+        // that just landed, so leaving them behind would attach them to some
+        // later version's toast.
+        let notes = UserDefaults.standard.string(forKey: updateNotesKey)
+        UserDefaults.standard.removeObject(forKey: updateNotesKey)
         let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? ""
-        print("[UpdateService] Detected post-update launch, version: \(version), tag: \(tag)")
+        print("[UpdateService] Detected post-update launch, version: \(version), tag: \(tag), notes: \(notes?.count ?? 0) chars")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            self.showSuccessToast(version: version, tag: tag)
+            self.showSuccessToast(version: version, tag: tag, notes: notes)
         }
     }
 
-    private func showSuccessToast(version: String, tag: String) {
+    private func showSuccessToast(version: String, tag: String, notes: String? = nil) {
         let w: CGFloat = 270
         let h: CGFloat = 190
 
@@ -220,6 +240,7 @@ class UpdateService {
             ? "\(repoBaseURL)/releases"
             : "\(repoBaseURL)/releases/tag/\(tag)"
         pendingReleaseURL = URL(string: releaseURLString)
+        pendingReleaseNotes = notes
 
         let btn = NSButton(title: "What's New →", target: self, action: #selector(whatsNewButtonTapped))
         btn.bezelStyle = .rounded
@@ -241,11 +262,28 @@ class UpdateService {
         }
     }
 
+    /// Opens the in-app changelog.
+    ///
+    /// This used to be `NSWorkspace.shared.open(pendingReleaseURL)`, which
+    /// bounced you into a browser to read three bullet points — and showed
+    /// nothing at all offline. The notes ship in the bundle now
+    /// (`Contents/Resources/CHANGELOG.md`), so they render in a window here.
+    /// `pendingReleaseURL` is still carried: it becomes the window's "View on
+    /// GitHub" footer link, and `pendingReleaseNotes` is the fallback body for
+    /// a version the bundled changelog does not cover.
     @objc private func whatsNewButtonTapped() {
-        if let url = pendingReleaseURL {
-            NSWorkspace.shared.open(url)
-        }
+        print("[UpdateService] What's New tapped — opening the changelog window")
+        showChangelogWindow()
         dismissToast()
+    }
+
+    /// Brings the What's New window up. Also called from Settings' footer link,
+    /// where there is no pending release and both arguments are nil.
+    func showChangelogWindow() {
+        ChangelogWindowController.shared.show(
+            releaseURL: pendingReleaseURL,
+            fallbackNotes: pendingReleaseNotes
+        )
     }
 
     private func dismissToast() {
@@ -259,7 +297,7 @@ class UpdateService {
         })
     }
 
-    private func downloadAndInstall(url: String, tag: String) {
+    private func downloadAndInstall(url: String, tag: String, notes: String? = nil) {
         guard let downloadURL = URL(string: url) else {
             print("[UpdateService] Invalid download URL: \(url)")
             return
@@ -408,6 +446,14 @@ class UpdateService {
             // Pass info to the new app so it can show the success toast
             UserDefaults.standard.set(true, forKey: "bufferJustUpdated")
             UserDefaults.standard.set(tag, forKey: "bufferUpdateTag")
+            // Release notes are a fallback source for the What's New window;
+            // the bundled CHANGELOG.md is preferred, but a build whose version
+            // is missing from it would otherwise have nothing to show.
+            if let notes, !notes.isEmpty {
+                UserDefaults.standard.set(notes, forKey: self.updateNotesKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: self.updateNotesKey)
+            }
             UserDefaults.standard.set(Date(), forKey: self.lastCheckKey) // suppress launch check in new app
             UserDefaults.standard.synchronize() // flush to disk before process exits
 

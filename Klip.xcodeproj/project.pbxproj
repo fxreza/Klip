@@ -83,6 +83,11 @@
 		32429272B49AE643B8075190 /* SyncTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5D76B3E376400DA5A05EEF /* SyncTab.swift */; };
 		B69CCF063F3674C8B4DE27BF /* ImageThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A650DD6CCD4B07CE3621FA4 /* ImageThumbnailCache.swift */; };
 		B4806C5E5988F2CABF1F2481 /* KlipDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = B32C9AD64843714FA64A6749 /* KlipDefaults.swift */; };
+		0A0512620012ADBF3AEAF4B4 /* ChangelogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F6EC2A46F5C7C2793CDD3A1 /* ChangelogService.swift */; };
+		00439ADA99A885EA499E083E /* ChangelogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4E5FA1B807CBAFB1BA2591F /* ChangelogView.swift */; };
+		5C61E4CB9BE137EDF54F0669 /* ChangelogWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD506423082883A727EF9FD4 /* ChangelogWindowController.swift */; };
+		5726344E3C04C552DC3281AE /* ImageDimensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C03AB9ED32E7451E2DFCFA58 /* ImageDimensions.swift */; };
+		5F6BD78DAA4A544EB118921E /* KlipTooltip.swift in Sources */ = {isa = PBXBuildFile; fileRef = E34F85551DF2F26813A273E7 /* KlipTooltip.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -176,6 +181,11 @@
 		6D5D76B3E376400DA5A05EEF /* SyncTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncTab.swift; sourceTree = "<group>"; };
 		4A650DD6CCD4B07CE3621FA4 /* ImageThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageThumbnailCache.swift; sourceTree = "<group>"; };
 		B32C9AD64843714FA64A6749 /* KlipDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KlipDefaults.swift; sourceTree = "<group>"; };
+		1F6EC2A46F5C7C2793CDD3A1 /* ChangelogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangelogService.swift; sourceTree = "<group>"; };
+		C4E5FA1B807CBAFB1BA2591F /* ChangelogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangelogView.swift; sourceTree = "<group>"; };
+		DD506423082883A727EF9FD4 /* ChangelogWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangelogWindowController.swift; sourceTree = "<group>"; };
+		C03AB9ED32E7451E2DFCFA58 /* ImageDimensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageDimensions.swift; sourceTree = "<group>"; };
+		E34F85551DF2F26813A273E7 /* KlipTooltip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KlipTooltip.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -286,6 +296,7 @@
 				B71BAB98875A972B309F3867 /* CloudDriveSync.swift */,
 				F6DE8D7057DF5453F95F8D41 /* SyncMerge.swift */,
 				B32C9AD64843714FA64A6749 /* KlipDefaults.swift */,
+				1F6EC2A46F5C7C2793CDD3A1 /* ChangelogService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -301,6 +312,7 @@
 				EC16B1E7E46539DF3A1F49B5 /* Permissions */,
 				6C8494E1F86493C81A7D4CDD /* Settings */,
 				07AB1749BCA1B0C04DE95865 /* Theme */,
+				8DDAC626EB243F933C7DB6FB /* Changelog */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -352,6 +364,7 @@
 				06B8D3DFF6742AF6DD334273 /* HistoryViewModel+Shortcuts.swift */,
 				EC3A99ECEC67DA2B442C6562 /* HistoryViewModel+Paste.swift */,
 				4A650DD6CCD4B07CE3621FA4 /* ImageThumbnailCache.swift */,
+				C03AB9ED32E7451E2DFCFA58 /* ImageDimensions.swift */,
 			);
 			path = History;
 			sourceTree = "<group>";
@@ -382,8 +395,18 @@
 				11B3A05BF54CE9488FB6C6BD /* Appearance.swift */,
 				016E8671183BC7BA521CEE7D /* FontScale.swift */,
 				A5E51D3EFCFC3E830351CF97 /* Theme.swift */,
+				E34F85551DF2F26813A273E7 /* KlipTooltip.swift */,
 			);
 			path = Theme;
+			sourceTree = "<group>";
+		};
+		8DDAC626EB243F933C7DB6FB /* Changelog */ = {
+			isa = PBXGroup;
+			children = (
+				C4E5FA1B807CBAFB1BA2591F /* ChangelogView.swift */,
+				DD506423082883A727EF9FD4 /* ChangelogWindowController.swift */,
+			);
+			path = Changelog;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -557,6 +580,11 @@
 				32429272B49AE643B8075190 /* SyncTab.swift in Sources */,
 				B69CCF063F3674C8B4DE27BF /* ImageThumbnailCache.swift in Sources */,
 				B4806C5E5988F2CABF1F2481 /* KlipDefaults.swift in Sources */,
+				0A0512620012ADBF3AEAF4B4 /* ChangelogService.swift in Sources */,
+				00439ADA99A885EA499E083E /* ChangelogView.swift in Sources */,
+				5C61E4CB9BE137EDF54F0669 /* ChangelogWindowController.swift in Sources */,
+				5726344E3C04C552DC3281AE /* ImageDimensions.swift in Sources */,
+				5F6BD78DAA4A544EB118921E /* KlipTooltip.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -83,7 +83,7 @@ struct Sidebar: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 18)
             .padding(.bottom, 12)
-            .help("Create a folder (\(ShortcutManager.shared.displayString(for: .newFolder)))")
+            .klipHelp("Create a folder (\(ShortcutManager.shared.displayString(for: .newFolder)))")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }

@@ -207,20 +207,20 @@ struct ClipRow: View {
                 Image(systemName: "lock.fill")
                     .font(.klip(.badge))
                     .foregroundStyle(isHighlighted ? Color.white.opacity(0.95) : Theme.lockTint)
-                    .help("Locked — cannot be deleted")
+                    .klipHelp("Locked — cannot be deleted")
             }
             if item.isPinned {
                 Image(systemName: "pin.fill")
                     .font(.klip(.badge))
                     .rotationEffect(.degrees(40))
                     .foregroundStyle(isHighlighted ? Color.white.opacity(0.95) : Theme.pinTint)
-                    .help("Pinned")
+                    .klipHelp("Pinned")
             }
             if item.isBookmarked {
                 Image(systemName: "star.fill")
                     .font(.klip(.badge))
                     .foregroundStyle(isHighlighted ? Color.white.opacity(0.95) : Theme.bookmarkTint)
-                    .help("Favorite")
+                    .klipHelp("Favorite")
             }
         }
     }

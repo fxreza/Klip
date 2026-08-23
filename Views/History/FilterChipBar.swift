@@ -75,6 +75,6 @@ struct FilterChipBar: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help("Show \(filter.label.lowercased()) items")
+        .klipHelp("Show \(filter.label.lowercased()) items")
     }
 }

@@ -53,6 +53,8 @@ History and settings are migrated automatically from Buffer on first launch; Buf
 | `⇧⌘V` | Toggle clipboard history |
 | `↑` / `↓` | Navigate items |
 | `⇧↑` / `⇧↓` | Extend selection (multi-select) |
+| `⌘`-click | Toggle a row in the selection |
+| `⇧`-click | Extend the selection to the clicked row |
 | `↵` Enter | Paste selected item(s) |
 | `⌘C` | Copy selected item text |
 | `⌘P` | Pin / unpin (float to top) |

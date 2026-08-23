@@ -172,6 +172,35 @@ rm -rf "${APP_DIR}"
 mkdir -p "${APP_DIR}/Contents/MacOS"
 mkdir -p "${APP_DIR}/Contents/Resources"
 
+# Ship the changelog and the license notices inside the bundle.
+#
+# CHANGELOG.md is a runtime resource: Services/ChangelogService.swift reads it
+# out of Contents/Resources to render the in-app "What's New" window, so an
+# app built without it degrades to the GitHub release notes.
+#
+# The license files are there because 3.1.0 removed "based on Buffer by
+# @samirpatil2000" from the Settings footer. MIT requires the copyright notice
+# and permission text to travel with every copy of the software, and until now
+# Contents/Resources held nothing but AppIcon.icns — so nothing shipped. The
+# attribution now rides in the bundle instead of the UI.
+#
+# Every copy is guarded: reference/ is a convenience checkout of the upstream
+# projects and is not always present, and a missing file must not fail a build.
+copy_resource() {
+    local src="$1" dest="$2"
+    if [[ -f "$src" ]]; then
+        mkdir -p "$(dirname "$dest")"
+        cp "$src" "$dest"
+        echo "📄 Bundled ${src} → Contents/Resources/${dest#"${APP_DIR}/Contents/Resources/"}"
+    fi
+}
+
+copy_resource "CHANGELOG.md" "${APP_DIR}/Contents/Resources/CHANGELOG.md"
+copy_resource "LICENSE" "${APP_DIR}/Contents/Resources/LICENSE.txt"
+copy_resource "ATTRIBUTION.md" "${APP_DIR}/Contents/Resources/ATTRIBUTION.md"
+copy_resource "reference/clipfield/LICENSE" "${APP_DIR}/Contents/Resources/Licenses/Clipfield-LICENSE.txt"
+copy_resource "reference/pesty/LICENSE" "${APP_DIR}/Contents/Resources/Licenses/Pesty-LICENSE.txt"
+
 # Copy binary
 cp "${FINAL_BIN}" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 

@@ -41,7 +41,7 @@ struct SearchBar: View {
                     }
                     .buttonStyle(.plain)
                     .transition(.scale.combined(with: .opacity))
-                    .help("Clear search")
+                    .klipHelp("Clear search")
                 }
             }
             .padding(.horizontal, 11)
@@ -81,7 +81,7 @@ struct SearchBar: View {
                     .foregroundStyle(TagChip.color(for: tag).opacity(0.6))
             }
             .buttonStyle(.plain)
-            .help("Clear tag filter (\(ShortcutManager.shared.displayString(for: .clearFilter)))")
+            .klipHelp("Clear tag filter (\(ShortcutManager.shared.displayString(for: .clearFilter)))")
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 3)

@@ -208,7 +208,7 @@ struct PreviewPane: View {
                 .foregroundStyle(tint)
         }
         .buttonStyle(.plain)
-        .help(help)
+        .klipHelp(help)
     }
 
     // MARK: - Body
@@ -318,7 +318,7 @@ struct PreviewPane: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .help("Copy extracted text")
+                        .klipHelp("Copy extracted text")
                     }
                     .padding(.top, 12)
                 }
@@ -489,6 +489,15 @@ struct PreviewPane: View {
                 metaRow("Copied", value: item.timestamp.formatted(date: .abbreviated, time: .shortened))
                 metaRow("From", value: item.sourceApp ?? "—")
                 metaRow("Size", value: viewModel.itemSize.map { viewModel.formattedByteCount($0) } ?? "—")
+                // Sits under Size because the two answer the same question
+                // ("how big is this?") from different angles. Unlike the rows
+                // around it there is no "—" fallback: most clips are text and
+                // have no dimensions, so a permanent em dash would be noise,
+                // and for images the value arrives a moment after selection —
+                // a row that appears reads better than one that changes.
+                if let dimensions = viewModel.previewDimensions {
+                    metaRow("Dimensions", value: dimensions.displayString)
+                }
                 metaRow("Folder", value: folderName(for: item))
             }
             .padding(.horizontal, 16)

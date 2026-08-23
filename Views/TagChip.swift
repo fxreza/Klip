@@ -33,7 +33,7 @@ struct TagChip: View {
             if let onTap = onTap {
                 Button(action: onTap) { chipLabel }
                     .buttonStyle(.plain)
-                    .help("Filter by #\(label)")
+                    .klipHelp("Filter by #\(label)")
             } else {
                 chipLabel
             }
@@ -45,7 +45,7 @@ struct TagChip: View {
                         .foregroundStyle(chipColor.opacity(0.7))
                 }
                 .buttonStyle(.plain)
-                .help("Remove tag")
+                .klipHelp("Remove tag")
             }
         }
         .padding(.horizontal, 6)

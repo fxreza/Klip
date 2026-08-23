@@ -95,6 +95,18 @@ struct HistoryContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.regularMaterial)
+        // The single window-level layer that draws every `.klipHelp` tooltip.
+        // AppKit's own tooltips never fire in this borderless non-activating
+        // panel — the full explanation is at the top of
+        // `Views/Theme/KlipTooltip.swift`.
+        //
+        // Placed *before* `.clipShape` on purpose, so tooltips are clipped to
+        // the rounded window and can never spill onto the desktop. It has to
+        // live out here rather than on the individual buttons: the sidebar and
+        // the 200-440pt preview pane are `HStack` siblings, so a per-call-site
+        // overlay would be painted under the neighbouring column (and, inside
+        // `ClipList`'s ScrollView, clipped outright).
+        .klipTooltipHost()
         .clipShape(RoundedRectangle(cornerRadius: Theme.panelCornerRadius))
         .overlay(
             RoundedRectangle(cornerRadius: Theme.panelCornerRadius)

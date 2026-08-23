@@ -11,7 +11,6 @@ import AppKit
 enum ShortcutTests {
     static let tests: [(String, () throws -> Void)] = [
         ("defaults_reproduceTodaysHardcodedKeys", testDefaultsMatchGlobalKeyMonitor),
-        ("defaults_quickPasteUsesNumberRowKeycodes", testQuickPasteKeycodes),
         ("isRebindable_falseOnlyForNavigationPrimitives", testIsRebindableFlags),
         ("display_ordersGlyphsControlOptionShiftCommand", testDisplayGlyphOrder),
         ("display_namesSpecialKeysByGlyphOrWord", testDisplaySpecialKeys),
@@ -92,17 +91,6 @@ enum ShortcutTests {
 
         // Every action has a default, and defaultBinding is deterministic.
         try expectEqual(ShortcutAction.allCases.count, ShortcutAction.allCases.map(\.rawValue).count)
-    }
-
-    static func testQuickPasteKeycodes() throws {
-        let expectedKeyCodes: [(ShortcutAction, UInt16)] = [
-            (.quickPaste1, 18), (.quickPaste2, 19), (.quickPaste3, 20),
-            (.quickPaste4, 21), (.quickPaste5, 23), (.quickPaste6, 22),
-            (.quickPaste7, 26), (.quickPaste8, 28), (.quickPaste9, 25),
-        ]
-        for (action, keyCode) in expectedKeyCodes {
-            try expectEqual(action.defaultBinding, KeyBinding(keyCode: keyCode, modifiers: [.command]), "\(action) keycode")
-        }
     }
 
     static func testIsRebindableFlags() throws {

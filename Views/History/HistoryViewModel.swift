@@ -209,6 +209,13 @@ final class HistoryViewModel: ObservableObject {
     // MARK: - Detail pane
 
     @Published var previewImage: NSImage?
+    /// Pixel dimensions of the selected clip, when it has any — an image clip
+    /// or a `.file` clip whose first file is an image. `nil` for everything
+    /// else *and* for the brief window before the async load finishes, which
+    /// is why `PreviewPane` omits the whole row rather than showing a "—":
+    /// a placeholder that appears and then turns into a number reads as a
+    /// glitch, while a row that simply arrives reads as loading.
+    @Published var previewDimensions: PixelDimensions?
     @Published var chunkedText = ChunkedTextState()
     @Published var itemSize: Int?
     @Published var isExtractingText = false
@@ -814,6 +821,12 @@ final class HistoryViewModel: ObservableObject {
     func reloadPreview() async {
         // Clear preview
         previewImage = nil
+        // Must be cleared here, with the rest: the dimensions land a beat
+        // after selection (the image load is async), so if the previous clip's
+        // value survived this block it would sit in the footer describing the
+        // newly selected clip until the new load returned — or forever, for a
+        // clip that has no dimensions at all.
+        previewDimensions = nil
         chunkedText = ChunkedTextState()
         isExtractingText = false
         itemSize = nil
@@ -825,7 +838,23 @@ final class HistoryViewModel: ObservableObject {
             itemSize = store.itemSize(for: item)
 
             if item.type == .image {
-                previewImage = await loadPreviewImage(for: item)
+                let loaded = await loadPreviewImage(for: item)
+                // `.task(id:)` cancels this task when the selection moves on,
+                // but the continuation below is not cancellation-aware: it
+                // still resumes, and without this check a slow load could
+                // write itself over the *next* clip's freshly cleared state.
+                // Image and dimensions are assigned together so the footer can
+                // never describe an image other than the one on screen.
+                guard selectedItem?.id == item.id else { return }
+                previewImage = loaded.image
+                previewDimensions = loaded.dimensions
+            } else if item.type == .file {
+                // Image files (a Finder copy of a .png/.heic/...) render as a
+                // QuickLook thumbnail and never produce a `previewImage`, so
+                // their dimensions come straight off the file header instead.
+                let dimensions = await loadFileDimensions(for: item)
+                guard selectedItem?.id == item.id else { return }
+                previewDimensions = dimensions
             } else if item.type == .text {
                 if item.isFileBacked || (item.textContent?.count ?? 0) > 5000 {
                     await loadInitialChunk(for: item)
@@ -837,14 +866,41 @@ final class HistoryViewModel: ObservableObject {
         }
     }
 
-    private func loadPreviewImage(for item: ClipboardItem) async -> NSImage? {
+    /// Full-resolution image for the preview pane, plus its pixel dimensions.
+    ///
+    /// The dimensions are measured here, on the same background hop that
+    /// decoded the image, rather than from `previewImage` afterwards: reading
+    /// `NSBitmapImageRep.pixelsWide` can force AppKit to realise a lazy
+    /// representation, and that is not work the main thread should be doing
+    /// for a 40 MP screenshot.
+    private func loadPreviewImage(
+        for item: ClipboardItem
+    ) async -> (image: NSImage?, dimensions: PixelDimensions?) {
         let store = self.store
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let img = store.image(for: item)
-                continuation.resume(returning: img)
+                let dimensions = img.flatMap { PixelDimensions(image: $0) }
+                continuation.resume(returning: (img, dimensions))
             }
         }
+    }
+
+    /// Pixel dimensions of a `.file` clip's first file, or `nil` when it isn't
+    /// an image (or is gone from disk — a missing file has no dimensions to
+    /// report, and `fileURLs(for:)` would hand back nothing anyway).
+    ///
+    /// Off the main thread like every other bit of preview I/O: the read is
+    /// header-only, but it is still a disk touch and the file may live on a
+    /// slow volume or a network share.
+    private func loadFileDimensions(for item: ClipboardItem) async -> PixelDimensions? {
+        guard !store.fileIsMissing(item), let url = store.fileURLs(for: item).first else {
+            return nil
+        }
+
+        return await Task.detached(priority: .userInitiated) {
+            PixelDimensions.read(contentsOf: url)
+        }.value
     }
 
     private func loadInitialChunk(for item: ClipboardItem) async {

@@ -85,6 +85,8 @@ let allSuites: [(String, [(String, () throws -> Void)])] = [
     ("StoreHardeningTests", StoreHardeningTests.tests),
     ("SyncLockTests", SyncLockTests.tests),
     ("UpdateServiceTests", UpdateServiceTests.tests),
+    ("ChangelogServiceTests", ChangelogServiceTests.tests),
+    ("ImageDimensionsTests", ImageDimensionsTests.tests),
     ("ViewRegressionTests", ViewRegressionTests.tests),
 ]
 

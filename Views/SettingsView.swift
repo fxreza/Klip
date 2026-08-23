@@ -351,10 +351,23 @@ private struct AboutFooter: View {
     var body: some View {
         // 3.0.2: dropped the tagline and the Star on GitHub / Report an
         // Issue links per request; only the version line remains.
-        Text("Klip \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") · based on Buffer by @samirpatil2000")
-            .font(.caption2)
-            .foregroundColor(.secondary.opacity(0.4))
-            .frame(maxWidth: .infinity)
-            .multilineTextAlignment(.center)
+        //
+        // 3.1.0: the "based on Buffer by @samirpatil2000" credit is gone from
+        // here too. MIT still requires the notice to travel with the binary, so
+        // it does — `scripts/build_local.sh` copies LICENSE, ATTRIBUTION.md and
+        // the upstream Clipfield/Pesty licenses into Contents/Resources/. It
+        // just no longer has to sit in the UI. The Changelog link replaces it.
+        HStack(spacing: 4) {
+            Text("Klip \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")")
+            Text("·")
+            Button("Changelog") {
+                UpdateService.shared.showChangelogWindow()
+            }
+            .buttonStyle(.link)
+        }
+        .font(.caption2)
+        .foregroundColor(.secondary.opacity(0.4))
+        .frame(maxWidth: .infinity)
+        .multilineTextAlignment(.center)
     }
 }

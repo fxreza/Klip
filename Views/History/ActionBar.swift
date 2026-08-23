@@ -13,6 +13,15 @@ import SwiftUI
 /// rebinding a key in Settings > Shortcuts updates it immediately — the
 /// `@ObservedObject var shortcuts` subscription below is what makes that
 /// live rather than a one-time read.
+///
+/// There used to be three tiers (full / reduced / minimal) picked with
+/// `ViewThatFits`, and the moment the full tier needed more than two rows the
+/// legend cut straight to a two-entry minimal tier — nearly every shortcut
+/// vanishing at once, leaving a wide empty gap. That cliff is gone: there is
+/// now a single priority-ordered entry list that `LegendRowPacking` packs
+/// into at most two rows and *truncates* rather than tier-collapses, so a
+/// narrower window drops one entry at a time from the low-priority end
+/// instead of jumping to almost nothing. See the comment above `legend`.
 struct ActionBar: View {
     @ObservedObject var viewModel: HistoryViewModel
     @ObservedObject var settings: SettingsManager
@@ -20,13 +29,12 @@ struct ActionBar: View {
 
     /// Width available to `legend` — the HStack's leftover space after the
     /// toggles and divider — measured by the `GeometryReader` in
-    /// `.background` below. Read by `legend` to decide the full tier's
-    /// row-wrap (task 6B follow-up).
+    /// `.background` below. Read by `legend` to decide how many entries fit
+    /// in the up-to-two-row wrap (task 6B follow-up).
     ///
     /// Starts at 0 so the very first layout pass, before a real measurement
-    /// lands, conservatively falls back to the reduced/minimal
-    /// `ViewThatFits` rather than risking an overflowing full-tier row for
-    /// one frame.
+    /// lands, conservatively truncates down to nothing rather than risking
+    /// an overflowing row for one frame.
     @State private var legendAvailableWidth: CGFloat = 0
 
     var body: some View {
@@ -69,7 +77,7 @@ struct ActionBar: View {
                     .foregroundStyle(settings.sidebarCollapsed ? Color.secondary : Theme.accent)
             }
             .buttonStyle(.plain)
-            .help(settings.sidebarCollapsed ? "Show sidebar" : "Hide sidebar")
+            .klipHelp(settings.sidebarCollapsed ? "Show sidebar" : "Hide sidebar")
 
             Button {
                 withAnimation(Theme.selectionSpring) { viewModel.togglePreviewPane() }
@@ -79,21 +87,33 @@ struct ActionBar: View {
                     .foregroundStyle(settings.showPreviewPane ? Theme.accent : Color.secondary)
             }
             .buttonStyle(.plain)
-            .help(settings.showPreviewPane ? "Hide preview" : "Show preview")
+            .klipHelp(settings.showPreviewPane ? "Hide preview" : "Show preview")
         }
     }
 
     // MARK: - Middle: shortcut legend
     //
-    // The full tier (every shortcut) now wraps onto up to two compact rows
-    // instead of dropping straight to the reduced tier the moment it no
-    // longer fits on one line (task 6B follow-up: "⌥↩ paste plain" and
-    // "# tags" were disappearing at the true default window width, sidebar +
-    // preview both docked, ~380pt left for the legend). `LegendRowPacking`
-    // measures each entry's real rendered width (same font, same padding as
-    // `legendItem`) and greedily wraps the full tier at `legendAvailableWidth`
-    // — only when that still needs more than two rows does the legend fall
-    // back to the reduced/minimal `ViewThatFits`, same as before.
+    // One priority-ordered entry list (`legendItems`), wrapped onto up to two
+    // compact rows at `legendAvailableWidth` (task 6B follow-up: "⌥↩ paste
+    // plain" and "# tags" were disappearing at the true default window
+    // width, sidebar + preview both docked, ~380pt left for the legend).
+    //
+    // This used to fall back to a wholly different "reduced/minimal" entry
+    // list — picked via `ViewThatFits` — the moment the full list needed more
+    // than two rows. That was a cliff: `ViewThatFits` measures a candidate's
+    // *ideal* unconstrained width, so the moment the reduced list (8-10
+    // entries) couldn't fit on one line, `ViewThatFits` skipped straight to
+    // the two-entry minimal list — nearly every shortcut disappearing at
+    // once, leaving a big empty gap where `.frame(maxWidth: .infinity)` pads
+    // out the row.
+    //
+    // `LegendRowPacking.packRows` now truncates instead of tier-collapsing:
+    // it measures each entry's real rendered width (same font, same padding
+    // as `legendItem`), greedily packs `legendItems` into at most two rows,
+    // and silently drops whatever doesn't fit off the end. Because
+    // `legendItems` is ordered most-important-first, a narrower window loses
+    // one low-priority entry at a time instead of jumping to almost nothing,
+    // and the legend always fills whatever space it actually has.
 
     @ViewBuilder
     private var legend: some View {
@@ -101,20 +121,13 @@ struct ActionBar: View {
             editingLegend
         } else {
             let rows = LegendRowPacking.packRows(
-                fullLegendItems,
+                legendItems,
                 fontSize: legendFontSize,
                 maxWidth: legendAvailableWidth
             )
-            if rows.count <= LegendRowPacking.maxRows {
-                VStack(alignment: .leading, spacing: LegendRowPacking.rowSpacing) {
-                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                        legendRow(row)
-                    }
-                }
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    legendRow(reducedLegendItems)
-                    legendRow(minimalLegendItems)
+            VStack(alignment: .leading, spacing: LegendRowPacking.rowSpacing) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    legendRow(row)
                 }
             }
         }
@@ -138,45 +151,33 @@ struct ActionBar: View {
         }
     }
 
-    /// Everything: navigation, paste, every item action and both window
-    /// toggles.
-    private var fullLegendItems: [LegendEntry] {
-        var items = baseLegendItems
-        items.append(LegendEntry(key: shortcuts.displayString(for: .addTag), label: "tag"))
-        items.append(LegendEntry(key: shortcuts.displayString(for: .copy), label: "copy"))
-        items.append(LegendEntry(key: shortcuts.displayString(for: .toggleSidebar), label: "sidebar"))
-        items.append(LegendEntry(key: shortcuts.displayString(for: .togglePreview), label: "preview"))
-        return items
-    }
-
-    /// Drops the window toggles and the less-used copy/tag shortcuts, keeps
-    /// paste and the item actions. Used only when the full tier doesn't fit
-    /// even wrapped onto two rows.
-    private var reducedLegendItems: [LegendEntry] {
-        baseLegendItems
-    }
-
-    /// Guaranteed to fit almost anywhere: navigate + paste only.
-    private var minimalLegendItems: [LegendEntry] {
-        [
-            LegendEntry(key: "↑↓", label: "navigate"),
-            LegendEntry(key: shortcuts.displayString(for: .paste), label: "paste"),
-        ]
-    }
-
-    /// Shared by the full and reduced tiers: navigate, multi-select, paste,
-    /// paste plain, `#tag` search, pin, favorite, lock, and the two
-    /// contextual item actions (edit / save image).
+    /// Every legend entry, most important first. `packRows` packs these in
+    /// order and drops whatever doesn't fit off the *end*, so this ordering
+    /// is the whole truncation policy — whatever is listed last is the first
+    /// thing to disappear in a narrow window.
     ///
-    /// `paste plain` (⌥↩) sits right next to `paste` (↩) — with the Paste
-    /// button and its split menu gone, the legend is the only place the
-    /// plain-text alternate is discoverable outside the row context menu.
-    /// `# tags` (task 6B) sits right after it: neither the `#tag` search
-    /// syntax nor the Tags chip is otherwise hinted anywhere in the window.
-    private var baseLegendItems: [LegendEntry] {
+    /// `navigate` (↑↓) and `multi-select` (⇧↑↓) are gone: navigation is
+    /// self-evident, and multi-select is a power-user gesture that doesn't
+    /// need a permanent legend slot. `sidebar` (⌥⌘S) and `preview` (⌥⌘P) are
+    /// also gone: both toggles already have visible buttons at the
+    /// bottom-left of this same bar, so the legend entries were a redundant
+    /// second affordance for something already on screen.
+    ///
+    /// What's left, in priority order:
+    /// - `paste` / `paste plain` — with the Paste button and its split menu
+    ///   gone, the legend is the only place the plain-text alternate is
+    ///   discoverable outside the row context menu, so both come first.
+    /// - `# tags` (task 6B) — neither the `#tag` search syntax nor the Tags
+    ///   chip is otherwise hinted anywhere in the window.
+    /// - `pin` / `favorite` / `lock` — the three persistent per-item states,
+    ///   in the order their buttons appear elsewhere in the UI.
+    /// - `edit` / `save to disk` — contextual (editable text / image items
+    ///   only), so they only ever cost space when they're actually relevant.
+    /// - `tag` / `copy` — both have visible buttons elsewhere (the Tags chip,
+    ///   the row's own copy affordance), so they're the least essential
+    ///   legend entries and the first to go when space runs out.
+    private var legendItems: [LegendEntry] {
         var items: [LegendEntry] = [
-            LegendEntry(key: "↑↓", label: "navigate"),
-            LegendEntry(key: "⇧↑↓", label: "multi-select"),
             LegendEntry(key: shortcuts.displayString(for: .paste), label: "paste"),
             LegendEntry(key: shortcuts.displayString(for: .pastePlain), label: "paste plain"),
             LegendEntry(key: "#", label: "tags", help: "Type #tag in search or use the Tags chip"),
@@ -190,6 +191,8 @@ struct ActionBar: View {
         if viewModel.selectedItem?.type == .image {
             items.append(LegendEntry(key: shortcuts.displayString(for: .saveToDisk), label: "save to disk"))
         }
+        items.append(LegendEntry(key: shortcuts.displayString(for: .addTag), label: "tag"))
+        items.append(LegendEntry(key: shortcuts.displayString(for: .copy), label: "copy"))
         return items
     }
 
@@ -224,7 +227,7 @@ struct ActionBar: View {
         .fixedSize()
 
         if let help {
-            row.help(help)
+            row.klipHelp(help)
         } else {
             row
         }
@@ -245,13 +248,13 @@ struct LegendEntry: Equatable {
 
 /// Pure width-measurement + row-packing for the legend's up-to-two-row wrap
 /// (task 6B follow-up). Deliberately free of `View`/`Layout` so the packing
-/// decision — "does the full tier fit in two rows at this width, or should
-/// `ActionBar` fall back to the reduced tier" — is a plain function `Tests/`
-/// can call directly, instead of depending on `ViewThatFits`'s internal
-/// fit-detection (which measures a candidate's *ideal*, unconstrained size,
-/// not "wrapped to fit width W" — no combination of `ViewThatFits` and a
-/// custom wrapping `Layout` can express "wrap within the available width,
-/// but only if that takes two rows or fewer").
+/// decision — "how many of these entries fit in two rows at this width, and
+/// which ones get dropped" — is a plain function `Tests/` can call directly,
+/// instead of depending on `ViewThatFits`'s internal fit-detection (which
+/// measures a candidate's *ideal*, unconstrained size, not "wrapped to fit
+/// width W" — no combination of `ViewThatFits` and a custom wrapping
+/// `Layout` can express "wrap within the available width, and once you run
+/// out of rows just drop whatever's left").
 enum LegendRowPacking {
     static let itemSpacing: CGFloat = 10
     static let rowSpacing: CGFloat = 4
@@ -260,8 +263,8 @@ enum LegendRowPacking {
     /// Conservative per-item safety margin over the raw text measurement,
     /// covering rounding/kerning differences between `NSAttributedString`
     /// sizing (used here, so this stays a plain function) and SwiftUI's own
-    /// `Text` layout — better to wrap, or fall back to the reduced tier, a
-    /// little early than to clip a row.
+    /// `Text` layout — better to wrap, or truncate, an entry a little early
+    /// than to clip a row.
     private static let perItemSafetyMargin: CGFloat = 4
 
     /// `entry`'s rendered width: its key badge (text + 4pt padding each
@@ -276,18 +279,38 @@ enum LegendRowPacking {
         return keyWidth + 8 + 4 + labelWidth + perItemSafetyMargin
     }
 
-    /// Greedily wraps `entries` into rows no wider than `maxWidth`, in order,
-    /// never splitting a single entry across rows — one wider than
-    /// `maxWidth` on its own still gets a row to itself rather than being
-    /// dropped or clipped mid-entry.
-    static func packRows(_ entries: [LegendEntry], fontSize: CGFloat, maxWidth: CGFloat) -> [[LegendEntry]] {
-        guard !entries.isEmpty else { return [] }
+    /// Greedily wraps `entries` into at most `maxRows` rows no wider than
+    /// `maxWidth`, in order, never splitting a single entry across rows — one
+    /// wider than `maxWidth` on its own still gets a row to itself rather
+    /// than being dropped or clipped mid-entry.
+    ///
+    /// This is graceful truncation, not tier-collapse: once `maxRows` rows
+    /// are full and the next entry doesn't fit on the last one, packing
+    /// simply stops — that entry and everything after it in `entries` (the
+    /// lowest-priority tail, by convention of the caller's ordering) is
+    /// dropped, rather than the caller falling back to some wholly different,
+    /// much-shorter entry list. The legend degrades one entry at a time and
+    /// always fills the space it has, instead of jumping from "almost
+    /// everything" to "almost nothing" the moment it doesn't fit.
+    static func packRows(
+        _ entries: [LegendEntry],
+        fontSize: CGFloat,
+        maxWidth: CGFloat,
+        maxRows: Int = Self.maxRows
+    ) -> [[LegendEntry]] {
+        guard !entries.isEmpty, maxRows > 0 else { return [] }
         var rows: [[LegendEntry]] = [[]]
         var rowWidth: CGFloat = 0
         for entry in entries {
             let width = itemWidth(entry, fontSize: fontSize)
             let needed = rowWidth == 0 ? width : rowWidth + itemSpacing + width
             if needed > maxWidth, !rows[rows.count - 1].isEmpty {
+                // The current row is full and this entry doesn't fit on it.
+                // If we've already used every row we're allowed, there's
+                // nowhere left to put it — stop packing and drop this entry
+                // and the rest of the tail, rather than starting a row
+                // `ActionBar` would never render.
+                guard rows.count < maxRows else { break }
                 rows.append([entry])
                 rowWidth = width
             } else {

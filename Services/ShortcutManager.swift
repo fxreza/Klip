@@ -10,8 +10,6 @@ enum ShortcutAction: String, CaseIterable, Codable {
     // Clipboard
     case paste, pastePlain, copy, copyPlain, delete, pin, star, lock, edit, addTag, saveToDisk
     case clearFilter
-    case quickPaste1, quickPaste2, quickPaste3, quickPaste4, quickPaste5
-    case quickPaste6, quickPaste7, quickPaste8, quickPaste9
 
     // Organize
     case newFolder, renameFolder, moveToFolder
@@ -36,9 +34,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
     var group: Group {
         switch self {
         case .paste, .pastePlain, .copy, .copyPlain, .delete, .pin, .star, .lock, .edit,
-             .addTag, .saveToDisk, .clearFilter,
-             .quickPaste1, .quickPaste2, .quickPaste3, .quickPaste4, .quickPaste5,
-             .quickPaste6, .quickPaste7, .quickPaste8, .quickPaste9:
+             .addTag, .saveToDisk, .clearFilter:
             return .clipboard
         case .newFolder, .renameFolder, .moveToFolder:
             return .organize
@@ -63,15 +59,6 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .addTag: return "Add Tag"
         case .saveToDisk: return "Save to Disk"
         case .clearFilter: return "Clear Tag Filter"
-        case .quickPaste1: return "Quick Paste 1"
-        case .quickPaste2: return "Quick Paste 2"
-        case .quickPaste3: return "Quick Paste 3"
-        case .quickPaste4: return "Quick Paste 4"
-        case .quickPaste5: return "Quick Paste 5"
-        case .quickPaste6: return "Quick Paste 6"
-        case .quickPaste7: return "Quick Paste 7"
-        case .quickPaste8: return "Quick Paste 8"
-        case .quickPaste9: return "Quick Paste 9"
         case .newFolder: return "New Folder"
         case .renameFolder: return "Rename Folder"
         case .moveToFolder: return "Move to Folder"
@@ -114,15 +101,6 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .addTag:         return KeyBinding(keyCode: 17, modifiers: [.command])    // ⌘T
         case .saveToDisk:     return KeyBinding(keyCode: 1,  modifiers: [.command])    // ⌘S
         case .clearFilter:    return KeyBinding(keyCode: 51, modifiers: [])            // ⌫ (only when search is empty)
-        case .quickPaste1:    return KeyBinding(keyCode: 18, modifiers: [.command])    // ⌘1
-        case .quickPaste2:    return KeyBinding(keyCode: 19, modifiers: [.command])    // ⌘2
-        case .quickPaste3:    return KeyBinding(keyCode: 20, modifiers: [.command])    // ⌘3
-        case .quickPaste4:    return KeyBinding(keyCode: 21, modifiers: [.command])    // ⌘4
-        case .quickPaste5:    return KeyBinding(keyCode: 23, modifiers: [.command])    // ⌘5
-        case .quickPaste6:    return KeyBinding(keyCode: 22, modifiers: [.command])    // ⌘6
-        case .quickPaste7:    return KeyBinding(keyCode: 26, modifiers: [.command])    // ⌘7
-        case .quickPaste8:    return KeyBinding(keyCode: 28, modifiers: [.command])    // ⌘8
-        case .quickPaste9:    return KeyBinding(keyCode: 25, modifiers: [.command])    // ⌘9
         case .newFolder:      return KeyBinding(keyCode: 45, modifiers: [.command])    // ⌘N
         case .renameFolder:   return KeyBinding(keyCode: 15, modifiers: [.command])    // ⌘R
         case .moveToFolder:   return KeyBinding(keyCode: 46, modifiers: [.command])    // ⌘M
