@@ -260,12 +260,6 @@ enum LegendRowPacking {
     static let rowSpacing: CGFloat = 4
     static let maxRows = 2
 
-    /// Conservative per-item safety margin over the raw text measurement,
-    /// covering rounding/kerning differences between `NSAttributedString`
-    /// sizing (used here, so this stays a plain function) and SwiftUI's own
-    /// `Text` layout — better to wrap, or truncate, an entry a little early
-    /// than to clip a row.
-    private static let perItemSafetyMargin: CGFloat = 4
 
     /// `entry`'s rendered width: its key badge (text + 4pt padding each
     /// side) plus the 4pt gap to the label plus the label — mirrors
@@ -276,7 +270,22 @@ enum LegendRowPacking {
         let attrs: [NSAttributedString.Key: Any] = [.font: font]
         let keyWidth = (entry.key as NSString).size(withAttributes: attrs).width
         let labelWidth = (entry.label as NSString).size(withAttributes: attrs).width
-        return keyWidth + 8 + 4 + labelWidth + perItemSafetyMargin
+        // Rounded up, with no extra padding on top.
+        //
+        // There used to be a flat 4pt "safety margin" added to every item, to
+        // absorb rounding differences between `NSAttributedString` sizing
+        // (used here, so this stays a plain testable function) and SwiftUI's
+        // `Text` layout. It scaled the waste with the number of shortcuts on
+        // screen: at nine visible entries it left 36pt — about six characters
+        // — of dead space at the right-hand end, while shrinking the window by
+        // a single pixel still bumped the last entry onto the next row.
+        //
+        // The difference it guarded against is sub-pixel. SwiftUI lays `Text`
+        // out on whole points, so rounding up models that exactly and is
+        // already conservative by up to a point per item; `itemSpacing` is
+        // exact. Nothing further is needed, and anything further is visible as
+        // a gap.
+        return (keyWidth + 8 + 4 + labelWidth).rounded(.up)
     }
 
     /// Greedily wraps `entries` into at most `maxRows` rows no wider than
