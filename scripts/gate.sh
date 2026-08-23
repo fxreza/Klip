@@ -11,8 +11,17 @@ grep -E "Compiler warnings|Authority" build-gate.log || true
 # `NSViewRepresentable.updateNSView` runs — that was the 3.0.0 file-preview
 # crash. Thumbnails come from QLThumbnailGenerator (QuickLookThumbnailing)
 # instead; nothing in the app may reference a QuickLook UI class.
-QL_BIN="build/Klip.app/Contents/MacOS/Klip"
-QL_HITS=$(nm -u "$QL_BIN" 2>/dev/null | grep -c "QLPreviewView" || true); QL_HITS=${QL_HITS:-0}
+QL_BIN="build.noindex/Klip.app/Contents/MacOS/Klip"
+# The path above said `build/` until 3.1.0, which stopped existing when the
+# output directory gained its `.noindex` suffix (see CLAUDE.md). `nm` failed,
+# the grep counted nothing, and this check passed without ever reading the
+# binary — a dead gate guarding against the 3.0.0 file-preview crash. Missing
+# binary is now a hard failure so it cannot silently pass again.
+if [[ ! -f "$QL_BIN" ]]; then
+    echo "QUICKLOOK UI SYMBOL CHECK FAILED: no binary at ${QL_BIN}"
+    exit 1
+fi
+QL_HITS=$(nm -u "$QL_BIN" | grep -c "QLPreviewView" || true); QL_HITS=${QL_HITS:-0}
 if [[ "$QL_HITS" -ne 0 ]]; then
     nm -u "$QL_BIN" | grep "QLPreviewView"
     echo "QUICKLOOK UI SYMBOL CHECK FAILED: QLPreviewView is linked into the binary"
