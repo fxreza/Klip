@@ -223,14 +223,19 @@ class UpdateService {
         let titleString = version.isEmpty ? "Klip" : "Klip \(version)"
         let title = NSTextField(labelWithString: titleString)
         title.font = .boldSystemFont(ofSize: 13)
-        title.textColor = .white
+        // Semantic, not `.white`. `.hudWindow` is only a *dark* HUD when the
+        // effective appearance is dark — in Light Mode it renders light grey
+        // and hardcoded white text was invisible on it (user report, 3.1.0).
+        // `.labelColor` / `.secondaryLabelColor` resolve against whatever
+        // appearance the material actually lands in, so both stay legible.
+        title.textColor = .labelColor
         title.alignment = .center
         title.frame = NSRect(x: 0, y: 98, width: w, height: 20)
         blur.addSubview(title)
 
         let subtitle = NSTextField(labelWithString: "The best Klip yet.")
         subtitle.font = .systemFont(ofSize: 11)
-        subtitle.textColor = NSColor.white.withAlphaComponent(0.55)
+        subtitle.textColor = .secondaryLabelColor
         subtitle.alignment = .center
         subtitle.frame = NSRect(x: 0, y: 78, width: w, height: 16)
         blur.addSubview(subtitle)
@@ -661,7 +666,7 @@ class UpdateService {
             // Title
             let title = NSTextField(labelWithString: "Updating Klip...")
             title.font = .boldSystemFont(ofSize: 13)
-            title.textColor = .white
+            title.textColor = .labelColor
             title.alignment = .center
             title.frame = NSRect(x: 0, y: 72, width: w, height: 20)
             blur.addSubview(title)
@@ -669,7 +674,7 @@ class UpdateService {
             // Subtitle
             let subtitle = NSTextField(labelWithString: "Downloading, please wait...")
             subtitle.font = .systemFont(ofSize: 11)
-            subtitle.textColor = NSColor.white.withAlphaComponent(0.55)
+            subtitle.textColor = .secondaryLabelColor
             subtitle.alignment = .center
             subtitle.frame = NSRect(x: 0, y: 52, width: w, height: 16)
             blur.addSubview(subtitle)
