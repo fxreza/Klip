@@ -62,6 +62,35 @@ struct SyncTab: View {
                 }
             }
 
+            Section("What to Sync") {
+                ForEach(SyncKindFilter.selectable, id: \.self) { kind in
+                    Toggle(isOn: kindBinding(kind)) {
+                        Label(kind.label, systemImage: kind.systemImage)
+                    }
+                    .disabled(!sync.isAvailable)
+                }
+
+                HStack {
+                    Button("Select All") { settings.syncedKinds = SyncKindFilter.all }
+                        .disabled(!sync.isAvailable || settings.syncedKinds.count == SyncKindFilter.selectable.count)
+                    Button("Select None") { settings.syncedKinds = [] }
+                        .disabled(!sync.isAvailable || settings.syncedKinds.isEmpty)
+                    Spacer()
+                }
+                .buttonStyle(.bordered)
+
+                if settings.syncedKinds.isEmpty {
+                    Text("Nothing is checked, so nothing will sync.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                Text("Only the kinds you check leave this Mac, and only those are taken from your other Macs. Unchecking a kind never deletes anything: clips already on this Mac stay, and copies already on your other Macs stay there too.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section("This Mac") {
                 TextField("Device name", text: $settings.syncDeviceName)
                 Text("Shown in the sync status on your other Macs.")
@@ -132,6 +161,21 @@ struct SyncTab: View {
             lastPull: sync.lastPull,
             devices: sync.otherDevices.map { $0.name },
             now: now
+        )
+    }
+
+    // MARK: - What to sync
+
+    /// One checkbox. Rich text has no box of its own: it reads as text in the
+    /// history, so `SyncKindFilter` files it under Text.
+    private func kindBinding(_ kind: ContentKind) -> Binding<Bool> {
+        Binding(
+            get: { settings.syncedKinds.contains(kind) },
+            set: { isOn in
+                var kinds = settings.syncedKinds
+                if isOn { kinds.insert(kind) } else { kinds.remove(kind) }
+                settings.syncedKinds = kinds
+            }
         )
     }
 

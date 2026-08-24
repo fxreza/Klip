@@ -2,8 +2,8 @@ import SwiftUI
 import AppKit
 
 /// Root of the history window: sidebar | (search / chips / list + preview /
-/// action bar), on a `.regularMaterial` card with an 18pt radius and a hairline
-/// border — Clipfield's shell.
+/// action bar), on an opaque `windowBackgroundColor` card with an 18pt radius
+/// and a hairline border — Clipfield's shell.
 ///
 /// All state lives in `HistoryViewModel` (owned by `HistoryWindowController`)
 /// except the `@FocusState` flags, which SwiftUI only supports inside a `View`.
@@ -94,7 +94,10 @@ struct HistoryContentView: View {
             FolderPromptLayer(viewModel: viewModel)  // 3B: rename / delete / move
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial)
+        // Opaque on purpose: `.regularMaterial` let the desktop through, and
+        // over a dark wallpaper the text was barely readable. See
+        // `Theme.panelBackground` for the light/dark values.
+        .background(Theme.panelBackground)
         // The single window-level layer that draws every `.klipHelp` tooltip.
         // AppKit's own tooltips never fire in this borderless non-activating
         // panel — the full explanation is at the top of

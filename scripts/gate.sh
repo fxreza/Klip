@@ -13,7 +13,7 @@ grep -E "Compiler warnings|Authority" build-gate.log || true
 # instead; nothing in the app may reference a QuickLook UI class.
 QL_BIN="build.noindex/Klip.app/Contents/MacOS/Klip"
 # The path above said `build/` until 3.1.0, which stopped existing when the
-# output directory gained its `.noindex` suffix (see CLAUDE.md). `nm` failed,
+# output directory gained its `.noindex` suffix (see AGENTS.md). `nm` failed,
 # the grep counted nothing, and this check passed without ever reading the
 # binary — a dead gate guarding against the 3.0.0 file-preview crash. Missing
 # binary is now a hard failure so it cannot silently pass again.

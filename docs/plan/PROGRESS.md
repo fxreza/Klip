@@ -40,7 +40,7 @@ Read this first if you are resuming as the manager. Plan: `PLAN.md`. Briefs: `br
 
 ## 3.0.1 (2026-08-22, after the user's first live test)
 - Fixed: `QLPreviewView` abort when a file clip was selected / window opened with one selected (3 crash reports) - previews are QuickLook thumbnails now, gate refuses the symbol; ⌘F = favorite; "star" -> "favorite" wording; scope cycling removed; Paste button removed; legend shows ↩ paste / ⌥↩ paste plain; preview pane full height; scroll-to-selection reliable; no blink on key navigation; OCR copy button works with a toast. 275 tests.
-- Installed over 3.0.0; release https://github.com/fxreza/Klip/releases/tag/klip-v3.0.1. Build/dist dirs use `.noindex` (Spotlight duplicates), see CLAUDE.md.
+- Installed over 3.0.0; release https://github.com/fxreza/Klip/releases/tag/klip-v3.0.1. Build/dist dirs use `.noindex` (Spotlight duplicates), see AGENTS.md.
 - Open question from the user: BTT ⌘E - Klip only registers ⇧⌘V globally; in-window keys are panel-scoped.
 
 ## 3.0.2 (2026-08-22)

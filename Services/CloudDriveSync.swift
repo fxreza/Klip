@@ -78,6 +78,13 @@ final class CloudDriveSync: ObservableObject {
         return mb <= 0 ? nil : Int64(mb) * 1024 * 1024
     }
 
+    /// The content kinds allowed through sync (Settings > Sync). Applied on
+    /// push and on pull, so a kind switched off neither leaves this Mac nor
+    /// arrives from another one.
+    private var syncedKinds: Set<ContentKind> {
+        SettingsManager.shared.syncedKinds
+    }
+
     // MARK: - Locations
 
     /// The iCloud Drive container (or, under `KLIP_CLOUD_ROOT`, a stand-in).
@@ -496,15 +503,21 @@ final class CloudDriveSync: ObservableObject {
             return (prunedItems, prunedFolders)
         }
 
+        // Kinds the user switched off never leave this Mac: not their
+        // metadata and not their bytes. They stay in the local history, and
+        // their absence here is not a delete: the merge is a union over
+        // explicit tombstones, so another Mac keeps its own copy.
+        let syncable = SyncKindFilter.filter(snapshot.items, enabled: syncedKinds)
+
         // Assets first: an item must never be visible on another Mac before the
         // bytes it points at are there.
-        let skipped = pushAssets(for: snapshot.items, deadline: deadline)
+        let skipped = pushAssets(for: syncable, deadline: deadline)
         if !skipped.isEmpty {
             let ids = skipped
             onMain { store.markSyncSkippedLarge(ids: ids) }
         }
 
-        var items = snapshot.items
+        var items = syncable
         if !skipped.isEmpty {
             for index in items.indices where skipped.contains(items[index].id) {
                 items[index].fileAttachment?.syncSkippedLarge = true
@@ -668,6 +681,7 @@ final class CloudDriveSync: ObservableObject {
         ) else { return [] }
 
         var snapshots: [SyncDeviceSnapshot] = []
+        let kinds = syncedKinds
         for dir in dirs.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: dir.path, isDirectory: &isDirectory), isDirectory.boolValue else { continue }
@@ -687,7 +701,7 @@ final class CloudDriveSync: ObservableObject {
                 deviceID: id,
                 deviceName: history?.device.name ?? id,
                 lastPush: history?.device.lastPush ?? .distantPast,
-                items: history?.items ?? [],
+                items: SyncKindFilter.filter(history?.items ?? [], enabled: kinds),
                 folders: folders?.folders ?? [],
                 deleted: tombs?.deleted ?? [],
                 deletedFolders: tombs?.deletedFolders ?? []

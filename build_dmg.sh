@@ -13,7 +13,7 @@ BUNDLE_ID=${BUNDLE_ID:-com.fxreza.klip}
 # Ends in `.noindex` deliberately: macOS Spotlight never indexes a directory
 # with that suffix, so the Klip.app built here does not show up in Spotlight
 # and Raycast alongside the real /Applications/Klip.app. Same rule as
-# scripts/build_local.sh's output — see CLAUDE.md. Do not rename this back to
+# scripts/build_local.sh's output — see AGENTS.md. Do not rename this back to
 # plain `build`.
 BUILD_DIR="build.noindex"
 

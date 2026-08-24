@@ -250,6 +250,16 @@ final class SettingsManager: ObservableObject {
         }
     }
 
+    /// Which content kinds sync. Everything by default; a kind switched off
+    /// is neither uploaded from this Mac nor taken from another one.
+    @Published var syncedKinds: Set<ContentKind> = SyncKindFilter.all {
+        didSet {
+            guard isLoaded, syncedKinds != oldValue else { return }
+            defaults.set(syncedKinds.map { $0.rawValue }.sorted(), forKey: "sync.kinds")
+            NotificationCenter.default.post(name: .klipSyncSettingsChanged, object: nil)
+        }
+    }
+
     /// Name shown for this Mac in the other devices' sync status line.
     @Published var syncDeviceName: String = SettingsManager.defaultDeviceName {
         didSet {
@@ -358,6 +368,11 @@ final class SettingsManager: ObservableObject {
         }
         if let name = defaults.string(forKey: "sync.deviceName"), !name.isEmpty {
             self.syncDeviceName = name
+        }
+        // Absent key = every kind syncs, so an update from a build without
+        // this setting keeps syncing exactly what it synced before.
+        if let raw = defaults.array(forKey: "sync.kinds") as? [String] {
+            self.syncedKinds = Set(raw.compactMap { ContentKind(rawValue: $0) })
         }
         // --- end Phase 4A ---
 

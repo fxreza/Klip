@@ -109,17 +109,23 @@ struct ClipList: View {
     ///
     /// A row that is already on screen is only nudged (`anchor: nil` scrolls
     /// the minimum distance, and does nothing at all when the row is fully
-    /// visible) so this never fights the user's own scrolling. A row that is
-    /// off screen — a jump from a click, a filter change, or holding an arrow
-    /// key — is centred instead, which is the only case where a large scroll
-    /// is what the user asked for.
+    /// visible) so this never fights the user's own scrolling.
+    ///
+    /// An arrow-key step (`isStepMove`) also uses the minimum distance even
+    /// though the new row is by definition off screen: stepping down past the
+    /// last visible row should reveal exactly that one row, not centre it and
+    /// scroll half a window. Centring is left for the jumps that really are
+    /// jumps — a click on an off-screen row, a filter or scope change, a
+    /// reopen — where a large scroll is what the user asked for.
     private func reveal(_ id: UUID?, with proxy: ScrollViewProxy) {
         guard let id else { return }
-        let anchor: UnitPoint? = visibleIDs.contains(id) ? nil : .center
+        let minimal = viewModel.isStepMove || visibleIDs.contains(id)
+        let anchor: UnitPoint? = minimal ? nil : .center
         let animation: Animation? = viewModel.animateSelection ? Theme.selectionSpring : nil
 
         withAnimation(animation) { proxy.scrollTo(id, anchor: anchor) }
         DispatchQueue.main.async {
+            defer { viewModel.isStepMove = false }
             guard viewModel.selectedID == id else { return }
             withAnimation(animation) { proxy.scrollTo(id, anchor: anchor) }
         }

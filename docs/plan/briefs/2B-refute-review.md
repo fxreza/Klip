@@ -2,7 +2,7 @@
 
 WORKTREE: (set at launch, after Phase 3 merged). Do NOT edit any source file. You may build, run harnesses in the scratchpad, and write ONE report file: `docs/plan/review-2B.md`.
 
-Read first: `docs/plan/PLAN.md` §7 (the 12-item preservation checklist) and §6, `docs/plan/PROGRESS.md`, `docs/analysis/buffer.md` §3 (feature inventory with the original behaviors), then the code under `Views/History/**`, `Services/PasteController.swift`, `Services/ClipboardWatcher.swift`, `Services/ClipboardStore.swift`. The 2A harnesses in `/private/tmp/claude-501/-Users-sam-Claude-Code-clipboard-manager/3854505a-128a-45e2-b039-51ef49965b3a/scratchpad/harness/` (`RenderHarness.swift`, `render.sh`, `BehaviorHarness.swift`, `behavior.sh`) are yours to reuse/extend.
+Read first: `docs/plan/PLAN.md` §7 (the 12-item preservation checklist) and §6, `docs/plan/PROGRESS.md`, `docs/analysis/buffer.md` §3 (feature inventory with the original behaviors), then the code under `Views/History/**`, `Services/PasteController.swift`, `Services/ClipboardWatcher.swift`, `Services/ClipboardStore.swift`. The 2A harnesses in `<scratch>/harness/` (`RenderHarness.swift`, `render.sh`, `BehaviorHarness.swift`, `behavior.sh`) are yours to reuse/extend.
 
 ## Stance
 You are trying to PROVE that an existing Buffer behavior was lost or changed. Default to "REGRESSED" unless you can point at the code path that preserves it. For each checklist item and each feature in `docs/analysis/buffer.md` §3, write: VERIFIED (how: harness test / code trace) | REGRESSED (scenario) | CHANGED-BY-DESIGN (cite the PLAN decision) | UNVERIFIABLE (why - e.g. needs a real mouse/screen).

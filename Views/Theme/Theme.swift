@@ -1,6 +1,7 @@
 // Adapted from Clipfield (MIT, Copyright 2026 Alex Jolley)
 
 import SwiftUI
+import AppKit
 
 /// Shared visual constants and helpers for a cohesive look across Klip.
 /// Mirrors Clipfield's `UI/Theme.swift` design system so Klip's row/panel/
@@ -27,6 +28,18 @@ enum Theme {
     static let selectionSpring = Animation.spring(response: 0.28, dampingFraction: 0.82)
     /// Spring used to present/toggle inline prompts (editor, fill, new-folder, etc.).
     static let promptSpring = Animation.spring(response: 0.3, dampingFraction: 0.8)
+
+    /// Opaque backing for the history panel.
+    ///
+    /// The panel used to be `.regularMaterial`, which let a dark desktop show
+    /// through and made the text hard to read. Light mode uses #F5F5F5 rather
+    /// than the system `windowBackgroundColor`, which read too bright; dark
+    /// mode keeps the system colour, so the panel matches the Settings window.
+    static let panelBackground = Color(nsColor: NSColor(name: "KlipPanelBackground") { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? .windowBackgroundColor
+            : NSColor(srgbRed: 245 / 255, green: 245 / 255, blue: 245 / 255, alpha: 1)
+    })
 
     /// 1pt hairline stroke for material panels.
     static let hairline = Color.white.opacity(0.12)

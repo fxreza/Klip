@@ -81,6 +81,7 @@ let allSuites: [(String, [(String, () throws -> Void)])] = [
     ("FileClipTests", FileClipTests.tests),
     ("RichCaptureTests", RichCaptureTests.tests),
     ("SyncMergeTests", SyncMergeTests.tests),
+    ("SyncKindFilterTests", SyncKindFilterTests.tests),
     ("CloudDriveSyncTests", CloudDriveSyncTests.tests),
     ("StoreHardeningTests", StoreHardeningTests.tests),
     ("SyncLockTests", SyncLockTests.tests),

@@ -1,6 +1,6 @@
 # Task 1A - Split `Views/HistoryWindow.swift` (Opus 5)
 
-WORKTREE: (set at launch). Use absolute paths under it. Do NOT commit. Do NOT touch the main checkout at /Users/sam/Claude/Code/clipboard-manager.
+WORKTREE: (set at launch). Use absolute paths under it. Do NOT commit. Do NOT touch the main checkout.
 
 Read first: `docs/analysis/buffer.md` (all), then `Views/HistoryWindow.swift` fully (1,914 lines), `Views/ClipboardListView.swift`, `Views/ClipboardItemRow.swift`, `Views/ClickDetector.swift`, `Views/PasteButton.swift`, `AppDelegate.swift`, `Views/StatusBarController.swift` (callers of the window controller).
 

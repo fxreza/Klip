@@ -6,14 +6,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ID="$1"; MSG="$2"; REMOVE=1; [[ "${3:-}" == "--no-remove" ]] && REMOVE=0
-WT="/private/tmp/claude-501/-Users-sam-Claude-Code-clipboard-manager/3854505a-128a-45e2-b039-51ef49965b3a/scratchpad/wt/$ID"
+# Worktree root: override with KLIP_WORKTREE_ROOT; defaults to a temp dir.
+WT="${KLIP_WORKTREE_ROOT:-${TMPDIR:-/tmp}/klip-worktrees}/$ID"
 [[ -d "$WT" ]] || { echo "no worktree $WT"; exit 2; }
 
 git -C "$WT" add -A
 if ! git -C "$WT" diff --cached --quiet; then
-  git -C "$WT" commit -q -m "$MSG
-
-Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
+  git -C "$WT" commit -q -m "$MSG"
 fi
 if ! git merge --no-ff "task/$ID" -m "merge task/$ID: ${MSG%%$'\n'*}" >/tmp/merge.out 2>&1; then
   grep -i conflict /tmp/merge.out || cat /tmp/merge.out

@@ -16,7 +16,7 @@ Concurrency rules: other agents edit `HistoryViewModel.swift` concurrently. Put 
 7. Tests `Tests/FolderUXTests.swift`: view-model rename/delete (all branches incl. the typed confirm gate), move selection, `validateScope` after delete, new-folder selects the scope; drag payload encode/decode helper. Register in `TestRunner.swift` (suite list only).
 
 ## Verify
-`scripts/gate.sh` green. Offscreen renders (screen locked): rename prompt, delete prompt (both branches), move-to-folder prompt, a drop-highlighted sidebar row - reuse `/private/tmp/claude-501/-Users-sam-Claude-Code-clipboard-manager/3854505a-128a-45e2-b039-51ef49965b3a/scratchpad/harness/` (RenderHarness.swift + render.sh from 2A; adapt paths). Run the test instance to confirm launch/show/hide still work. Remove `build/`.
+`scripts/gate.sh` green. Offscreen renders (screen locked): rename prompt, delete prompt (both branches), move-to-folder prompt, a drop-highlighted sidebar row - reuse `<scratch>/harness/` (RenderHarness.swift + render.sh from 2A; adapt paths). Run the test instance to confirm launch/show/hide still work. Remove `build/`.
 
 Owns: `Views/History/Sidebar.swift`, `Views/History/FolderPrompts.swift`, `Views/History/HistoryViewModel.swift` (3B state block only), `Views/History/HistoryViewModel+Folders.swift`, `Views/History/ClipList.swift` (drag hookup), `Views/History/ClipRow.swift` (drag image helper only), `Views/ClickDetector.swift`, `Views/History/DragDrop.swift` (new), `Services/ClipboardStore.swift` (folder functions only, if a gap is found), `Tests/FolderUXTests.swift`, `Tests/TestRunner.swift` (suite list).
 Return: summary, API names for 3D/3E, test output, render descriptions, what could not be verified (real mouse drags), `git status --short`.

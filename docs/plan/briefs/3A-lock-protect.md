@@ -15,7 +15,7 @@ Concurrency rules: three other agents edit `HistoryViewModel.swift` at the same 
 6. Eviction is already lock-safe (store). Add tests `Tests/LockTests.swift`: view-model `performDelete` with a mixed selection keeps locked ids selected and sets the toast text; `toggleLockSelection` semantics; store `clear` keeps locked. Register in `TestRunner.swift` (suite list only).
 
 ## Verify
-`scripts/gate.sh` green. Offscreen render (screen is locked) of the preview pane with a locked item selected and of the toast - a harness like the one in `/private/tmp/claude-501/-Users-sam-Claude-Code-clipboard-manager/3854505a-128a-45e2-b039-51ef49965b3a/scratchpad/harness/` (RenderHarness.swift + render.sh, from task 2A - reuse it, adapt paths to your worktree). Remove `build/`.
+`scripts/gate.sh` green. Offscreen render (screen is locked) of the preview pane with a locked item selected and of the toast - a harness like the one in `<scratch>/harness/` (RenderHarness.swift + render.sh, from task 2A - reuse it, adapt paths to your worktree). Remove `build/`.
 
 Owns: `Views/History/HistoryViewModel.swift` (3A state block only), `Views/History/HistoryViewModel+Lock.swift`, `Views/History/Toast.swift`, `Views/History/HistoryContentView.swift` (one overlay line), `Views/History/PreviewPane.swift` (action cluster + locked help), `Views/History/MultiSelectionSummary.swift`, `Views/StatusBarController.swift` (clear alert), `Views/SettingsView.swift` (History tab text), `Tests/LockTests.swift`, `Tests/TestRunner.swift` (suite list).
 Return: summary, API names, test output, render descriptions, `git status --short`.

@@ -198,6 +198,18 @@ final class HistoryViewModel: ObservableObject {
     /// Triggers scroll-to-selection in `ClipList` on keyboard navigation / scope changes.
     @Published var scrollTrigger = false
 
+    /// Set by the arrow-key handlers: this selection change is a *one-row*
+    /// step, so `ClipList.reveal` scrolls the minimum distance to bring the
+    /// new row into view instead of centring it.
+    ///
+    /// Without it, stepping past the last visible row scrolled half a window
+    /// (the row is off screen, and `reveal`'s off-screen branch centres), so
+    /// arrowing down the list lurched instead of moving one row at a time.
+    /// Not `@Published`: it only ever qualifies the scroll that the
+    /// `selectedID` / `scrollTrigger` change already drives, and publishing it
+    /// would cost an extra body pass per keypress. `reveal` clears it.
+    var isStepMove = false
+
     /// Whether the *next* selection change should animate (user item 4).
     ///
     /// Mouse clicks keep the spring; key-driven moves turn it off, because
@@ -957,6 +969,7 @@ final class HistoryViewModel: ObservableObject {
         guard !isEditing else { return }
         animateSelection = false
         scrollTrigger = true
+        isStepMove = true
         navigateUp()
     }
 
@@ -964,6 +977,7 @@ final class HistoryViewModel: ObservableObject {
         guard !isEditing else { return }
         animateSelection = false
         scrollTrigger = true
+        isStepMove = true
         navigateDown()
     }
 
@@ -971,6 +985,7 @@ final class HistoryViewModel: ObservableObject {
         guard !isEditing else { return }
         animateSelection = false
         scrollTrigger = true
+        isStepMove = true
         extendSelectionUp()
     }
 
@@ -978,6 +993,7 @@ final class HistoryViewModel: ObservableObject {
         guard !isEditing else { return }
         animateSelection = false
         scrollTrigger = true
+        isStepMove = true
         extendSelectionDown()
     }
 

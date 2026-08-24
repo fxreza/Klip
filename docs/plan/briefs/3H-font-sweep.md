@@ -13,7 +13,7 @@ Read first: `Views/Theme/FontScale.swift` (`KlipFontRole`, `Font.klip(_:)`, `CGF
 ## Deliverables
 - Zero `.font(.system(size:` / `NSFont.systemFont(ofSize:` left in the files above (report the before/after counts).
 - `scripts/gate.sh` green, warning count unchanged.
-- Offscreen render of the Settings window (any tab) and the Permissions view before/after using the harness in `/private/tmp/claude-501/-Users-sam-Claude-Code-clipboard-manager/3854505a-128a-45e2-b039-51ef49965b3a/scratchpad/harness/` (adapt its paths; if adapting is not straightforward, skip and say so - the change is mechanical).
+- Offscreen render of the Settings window (any tab) and the Permissions view before/after using the harness in `<scratch>/harness/` (adapt its paths; if adapting is not straightforward, skip and say so - the change is mechanical).
 
 Owns: `Views/SettingsView.swift`, `Views/Settings/**`, `Views/Permissions/**`, `Views/StatusBarController.swift`, `Views/TagChip.swift`, `Views/PasteButton.swift`.
 Return: before/after counts per file, gate output, `git status --short`.

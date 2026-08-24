@@ -14,7 +14,7 @@ Concurrency: other agents add methods to `HistoryViewModel` in their own files (
 5. Tests `Tests/KeyMonitorTests.swift`: a synthetic `NSEvent` for each default binding resolves to the right action; a rebinding (⌘P -> ⌘⇧P) changes resolution; modifier exactness; register in `TestRunner.swift` (suite list only). Extend the 2A behavior harness idea if useful (not required).
 
 ## Verify
-`scripts/gate.sh` green. Offscreen render of the ActionBar legend before and after rebinding one key (harness in `/private/tmp/claude-501/-Users-sam-Claude-Code-clipboard-manager/3854505a-128a-45e2-b039-51ef49965b3a/scratchpad/harness/`). Remove `build/`.
+`scripts/gate.sh` green. Offscreen render of the ActionBar legend before and after rebinding one key (harness in `<scratch>/harness/`). Remove `build/`.
 
 Owns: `Views/History/GlobalKeyMonitor.swift`, `Views/History/ActionBar.swift`, `Views/History/HistoryViewModel.swift` (3E state block), `Views/History/HistoryViewModel+Shortcuts.swift`, `.help` literals in `PreviewPane.swift`/`SearchBar.swift`/`Sidebar.swift`, `Views/StatusBarController.swift` (shortcut label line), `Views/Settings/ShortcutsTab.swift`, `Tests/KeyMonitorTests.swift`, `Tests/TestRunner.swift` (suite list).
 Return: summary, the dispatch table, test output, render description, `git status --short`.
