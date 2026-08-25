@@ -6,9 +6,9 @@ This guide outlines the release process for Klip. A release creates tagged build
 
 ## Prerequisites
 
-- Working directory is clean (`git status`)
 - You are on the `main` branch
-- (Optional) `.env` file with Apple notarization credentials for signed/notarized builds; without it, builds are ad-hoc signed locally
+- The version bump (`Info.plist`) and the `CHANGELOG.md` section are **already committed** - `scripts/release.sh` refuses to run while any tracked file is modified. Untracked files are fine, so the release notes below can be written first and swept into the release commit.
+- (Optional) `.env` file with Apple notarization credentials for signed/notarized builds; without it, builds are signed with the local "QTranslate Dev" identity
 
 ---
 
@@ -17,9 +17,17 @@ This guide outlines the release process for Klip. A release creates tagged build
 Create release notes at `releases/v<VERSION>/release_notes.md`:
 
 ```bash
-mkdir -p releases/v3.0.0
-# Edit releases/v3.0.0/release_notes.md with user-facing summary
+mkdir -p releases/v3.3.0
+# Edit releases/v3.3.0/release_notes.md with user-facing summary
 ```
+
+Copy the previous release's file for the shape: the changelog's `### Added` /
+`### Changed` / `### Fixed` sections for this version, then the `### Installing`
+paragraph about right-click > Open (unnotarized builds trip Gatekeeper on first
+launch).
+
+`scripts/release.sh` writes a one-line stub if this file is missing, so a
+release published without Step 1 has empty notes.
 
 ---
 
@@ -32,49 +40,63 @@ sh scripts/release.sh
 ```
 
 This script:
-- Builds arm64 and x86_64 binaries
-- Signs with the local "QTranslate Dev" identity (ad-hoc if no .env)
-- Notarizes (if .env present with Apple credentials; otherwise ad-hoc)
-- Creates `.dmg` and `.zip` archives
+- Refuses to run with a dirty tracked working tree
+- Runs `scripts/gate.sh` (build + QuickLook UI symbol check + full test suite) and stops on any failure
+- Builds a universal (arm64 + x86_64) `Klip.app` signed with the local "QTranslate Dev" identity
+- Packages `Klip_Universal.zip` into `releases/v<VERSION>/`, and unpacks the app to `dist/app.noindex/Klip.app`
 - Generates `checksums.txt`
-- Copies artifacts to `releases/v<VERSION>/` and `dist/`
+- Commits `releases/v<VERSION>/` and `dist/` as `release: v<VERSION> artifacts in …`
+- Tags `klip-v<VERSION>` (with `-f`), then prints the push command - it does **not** push
 
-Verify output files in `releases/v3.0.0/`:
-- `Klip_Silicon.dmg` & `Klip_Silicon.zip`
-- `Klip_Intel.dmg` & `Klip_Intel.zip`
+Flags: `--notarize` builds through `build_dmg.sh` instead (needs `.env`, and
+produces the four `Klip_Silicon`/`Klip_Intel` `.dmg` + `.zip` artifacts rather
+than `Klip_Universal.zip`); `--no-tag` skips the tag.
+
+Verify output files in `releases/v3.3.0/`:
+- `Klip_Universal.zip` (or the four `Klip_Silicon`/`Klip_Intel` files with `--notarize`)
 - `checksums.txt`
 - `release_notes.md`
 
 ---
 
-## Step 3: Commit and Tag
+## Step 3: Push
+
+`scripts/release.sh` has already committed and tagged. Push both:
 
 ```bash
-git add releases/v3.0.0/ dist/ CHANGELOG.md
-git commit -m "release: v3.0.0"
-
-# Tag (format: klip-vX.Y.Z)
-git tag klip-v3.0.0
-git push origin main klip-v3.0.0
+git push origin refs/heads/main:refs/heads/main refs/tags/klip-v3.3.0
 ```
+
+The explicit refspecs matter: this repo has a branch **and** a tag called
+`main`, so a bare `git push origin main` is ambiguous.
 
 ---
 
-## Step 4: Publish to GitHub (Optional)
+## Step 4: Publish to GitHub
 
 Create a GitHub release with the built artifacts:
 
 ```bash
-gh release create klip-v3.0.0 \
-  releases/v3.0.0/Klip_Silicon.dmg \
-  releases/v3.0.0/Klip_Silicon.zip \
-  releases/v3.0.0/Klip_Intel.dmg \
-  releases/v3.0.0/Klip_Intel.zip \
-  --title "Klip v3.0.0" \
-  --notes-file releases/v3.0.0/release_notes.md
+gh release create klip-v3.3.0 \
+  releases/v3.3.0/Klip_Universal.zip \
+  releases/v3.3.0/checksums.txt \
+  --repo fxreza/Klip \
+  --title "Klip v3.3.0" \
+  --notes-file releases/v3.3.0/release_notes.md
 ```
 
-The auto-updater will detect this release and offer it to users.
+**`--repo fxreza/Klip` is required.** This checkout has an `upstream` remote
+pointing at `samirpatil2000/Buffer`, and `gh` resolves that as the default
+repo - without the flag the release is aimed at upstream, not at this fork.
+Check with `gh repo view --json nameWithOwner`.
+
+The auto-updater reads
+`https://api.github.com/repos/fxreza/Klip/releases/latest`, so confirm the new
+release is the latest and is neither a draft nor a pre-release:
+
+```bash
+gh release view klip-v3.3.0 --repo fxreza/Klip --json tagName,isDraft,isPrerelease,assets
+```
 
 ---
 
@@ -83,13 +105,14 @@ The auto-updater will detect this release and offer it to users.
 Before building, version numbers must match in three places:
 
 1. **Info.plist**:
-   - `CFBundleShortVersionString` = `3.0.0`
-   - `CFBundleVersion` = `8` (incremented per build/rebuild)
+   - `CFBundleShortVersionString` = `3.3.0`
+   - `CFBundleVersion` = `15` (incremented per build/rebuild)
 
 2. **CHANGELOG.md**:
-   - Add new section `## 3.0.0 (2026-08-22)`
+   - Add new section `## 3.3.0 (2026-08-25)`
+   - `Tests/ChangelogServiceTests.swift` fails the gate if the shipping version has no section, because the in-app What's New window would open empty
 
-3. **releases/v3.0.0/release_notes.md**:
+3. **releases/v3.3.0/release_notes.md**:
    - User-facing summary
 
 ---
@@ -122,15 +145,16 @@ Releases are organized by version:
 releases/
   v2.5.0-upstream/       <- baseline (unmodified upstream)
   v3.0.0/                <- first release of this fork
-    Klip_Silicon.dmg
-    Klip_Silicon.zip
-    Klip_Intel.dmg
-    Klip_Intel.zip
-    release_notes.md
+    Klip_Universal.zip
     checksums.txt
+    release_notes.md
   v3.1.0/
     ...
 ```
+
+Every release so far is the universal-zip shape above. A `--notarize` build
+would put `Klip_Silicon.dmg` / `.zip` and `Klip_Intel.dmg` / `.zip` there
+instead.
 
 Each folder is permanent - never overwrite a published release.
 
@@ -143,7 +167,7 @@ it out of the Spotlight index so it does not show up as a duplicate of
 
 ## Tag Format
 
-Klip uses the tag format `klip-vX.Y.Z` (e.g., `klip-v3.0.0`). This matches the GitHub release URL and the auto-updater expectations.
+Klip uses the tag format `klip-vX.Y.Z` (e.g., `klip-v3.3.0`). This matches the GitHub release URL and the auto-updater expectations.
 
 The upstream Buffer used `buffer-vX.Y.Z`; Klip's tags are distinct to avoid conflicts.
 
