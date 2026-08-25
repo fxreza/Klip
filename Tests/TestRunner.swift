@@ -65,6 +65,9 @@ func withTempDir<R>(_ body: (URL) throws -> R) rethrows -> R {
 let allSuites: [(String, [(String, () throws -> Void)])] = [
     ("ClipboardItemTests", ClipboardItemTests.tests),
     ("ClipboardStoreTests", ClipboardStoreTests.tests),
+    ("DedupeTests", DedupeTests.tests),
+    ("FolderOrderTests", FolderOrderTests.tests),
+    ("TrashTests", TrashTests.tests),
     ("FolderTests", FolderTests.tests),
     ("FolderUXTests", FolderUXTests.tests),
     ("FilterStateTests", FilterStateTests.tests),
@@ -72,6 +75,7 @@ let allSuites: [(String, [(String, () throws -> Void)])] = [
     ("ActionBarLegendTests", ActionBarLegendTests.tests),
     ("SettingsManagerTests", SettingsManagerTests.tests),
     ("ShortcutTests", ShortcutTests.tests),
+    ("SystemHotkeysTests", SystemHotkeysTests.tests),
     ("KeyMonitorTests", KeyMonitorTests.tests),
     ("PermissionsTests", PermissionsTests.tests),
     ("ContentDetectorTests", ContentDetectorTests.tests),

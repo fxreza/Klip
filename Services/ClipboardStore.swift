@@ -11,6 +11,22 @@ class ClipboardStore: ObservableObject {
     /// Folders, always sorted by `sortIndex`.
     @Published private(set) var folders: [Folder] = []
 
+    /// Deleted clips awaiting purge, newest deletion first (5D).
+    ///
+    /// A separate array, and a separate `trash.json`, rather than a flag on
+    /// the items in `items`: every existing query — search, folder counts,
+    /// eviction, the sync snapshot — reads `items`, and a tombstoned record
+    /// living there would have to be excluded correctly by every one of them,
+    /// forever. Keeping the trash out of that array makes "deleted clips are
+    /// invisible everywhere" structural instead of a rule to remember.
+    ///
+    /// Deliberately **not** synced: `CloudDriveSync` snapshots `items`, so a
+    /// delete still propagates to the other Macs as a tombstone (they remove
+    /// their copy), while the recoverable copy stays on the Mac it was deleted
+    /// on. A clipboard's trash is the last place passwords and screenshots
+    /// should linger in iCloud for another month.
+    @Published private(set) var trashedItems: [ClipboardItem] = []
+
     private func runOnMain(_ action: @escaping () -> Void) {
         if Thread.isMainThread {
             action()
@@ -43,6 +59,7 @@ class ClipboardStore: ObservableObject {
 
     private static let historySchemaVersion = 2
     private static let foldersSchemaVersion = 1
+    private static let trashSchemaVersion = 1
 
     private struct HistoryFile: Codable {
         var version: Int
@@ -52,6 +69,11 @@ class ClipboardStore: ObservableObject {
     private struct FoldersFile: Codable {
         var version: Int
         var folders: [Folder]
+    }
+
+    private struct TrashFile: Codable {
+        var version: Int
+        var items: [ClipboardItem]
     }
 
     // MARK: - Locations
@@ -78,6 +100,10 @@ class ClipboardStore: ObservableObject {
         storageDirectory.appendingPathComponent("folders.json")
     }
 
+    private var trashFileURL: URL {
+        storageDirectory.appendingPathComponent("trash.json")
+    }
+
     private var imagesDirectory: URL {
         storageDirectory.appendingPathComponent("images", isDirectory: true)
     }
@@ -101,7 +127,10 @@ class ClipboardStore: ObservableObject {
         ensureDirectoriesExist()
         loadHistory()
         backfillKindsIfNeeded()
+        backfillContentKeysIfNeeded()   // 5B
         loadFolders()
+        loadTrash()   // 5D
+        purgeExpiredTrash()   // 5D
         loadSyncIgnore()   // Phase 4A
         trimToLimitAtLaunch()   // 5A-02
         sweepOrphanedAssets()   // 5A-08
@@ -112,6 +141,16 @@ class ClipboardStore: ObservableObject {
             name: .bufferHistoryLimitChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTrashRetentionChanged),
+            name: .bufferTrashRetentionChanged,
+            object: nil
+        )
+    }
+
+    @objc private func handleTrashRetentionChanged() {
+        runOnMain { [weak self] in self?.purgeExpiredTrash() }
     }
 
     /// One-time, copy-only migration of history from the old "Buffer" app's data
@@ -192,6 +231,18 @@ class ClipboardStore: ObservableObject {
     private func performAdd(_ item: ClipboardItem) {
         print("[Buffer] Store: Adding item, current count: \(items.count)")
 
+        // 5B: copying something that is already in the history brings the
+        // existing clip back to the top instead of adding a second identical
+        // row — no matter how long ago it was captured or which app it came
+        // from. A linear scan is enough: `add` runs once per copy, and a
+        // string compare over the history costs orders of magnitude less than
+        // the disk work the capture just did.
+        if let key = item.contentKey,
+           let existing = items.firstIndex(where: { $0.contentKey == key }) {
+            resurface(at: existing, capturedAt: item.timestamp, discarding: item)
+            return
+        }
+
         // Insert at beginning (newest first)
         items.insert(item, at: 0)
 
@@ -223,6 +274,92 @@ class ClipboardStore: ObservableObject {
         scheduleSave()
     }
 
+    /// Brings the clip at `index` back to the top of the history because its
+    /// exact content was just copied again, and throws away the redundant
+    /// payload the capture had already written to disk.
+    ///
+    /// Everything the user put on the clip survives: pin, bookmark, lock,
+    /// tags, folder membership and — importantly — its manual position inside
+    /// that folder, which is ordered by `folderSortIndex` and is not touched
+    /// here. Only the date moves.
+    private func resurface(at index: Int, capturedAt: Date, discarding incoming: ClipboardItem) {
+        guard items.indices.contains(index) else { return }
+        var existing = items.remove(at: index)
+        existing.timestamp = capturedAt
+        existing.updatedAt = Date()
+        items.insert(existing, at: 0)
+
+        // The bytes the capture just wrote are a duplicate of what the
+        // surviving clip already points at. `referencedAssetNames` is passed
+        // so a shared name (possible for a re-added item that reuses an id)
+        // can never delete the survivor's payload out from under it.
+        deleteAssociatedFiles(for: incoming, keeping: referencedAssetNames(in: items + trashedItems))
+
+        print("[Buffer] Store: Duplicate content, resurfaced existing item")
+        scheduleSave()
+    }
+
+    /// Fills in `contentKey` for every item captured before that field
+    /// existed, so an old clip can still be recognised when its content is
+    /// copied again. Text and file keys are pure field arithmetic; an image
+    /// key needs its bytes back off disk, which is why the whole pass runs on
+    /// a utility queue like `backfillKindsIfNeeded`.
+    ///
+    /// Deliberately does **not** call `touchItem`: a content key is derived
+    /// data every device can compute for itself, and bumping `updatedAt` here
+    /// would push the entire history through iCloud sync on first launch
+    /// after updating.
+    func backfillContentKeysIfNeeded() {
+        let candidates = items.filter { $0.contentKey == nil }
+        guard !candidates.isEmpty else { return }
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            var computed: [UUID: String] = [:]
+            computed.reserveCapacity(candidates.count)
+            for item in candidates {
+                if let key = self.computedContentKey(for: item) { computed[item.id] = key }
+            }
+            guard !computed.isEmpty else { return }
+
+            self.runOnMain {
+                var changed = false
+                for index in self.items.indices {
+                    guard self.items[index].contentKey == nil,
+                          let key = computed[self.items[index].id] else { continue }
+                    self.items[index].contentKey = key
+                    changed = true
+                }
+                if changed { self.scheduleSave() }
+            }
+        }
+    }
+
+    /// The content key an item *should* carry, recomputed from what is on
+    /// disk. Called off the main thread — `fullText(for:)` and the image read
+    /// are plain file reads against immutable directory URLs and touch no
+    /// store state.
+    private func computedContentKey(for item: ClipboardItem) -> String? {
+        if let attachment = item.fileAttachment {
+            return ClipboardItem.contentKey(
+                forFileNames: [attachment.originalName] + attachment.additionalNames,
+                byteSize: attachment.byteSize
+            )
+        }
+        switch item.type {
+        case .text:
+            guard let text = fullText(for: item) else { return nil }
+            return ClipboardItem.contentKey(forText: text)
+        case .image:
+            guard let filename = item.imageFilename,
+                  let data = try? Data(contentsOf: imagesDirectory.appendingPathComponent(filename)) else { return nil }
+            return ClipboardItem.contentKey(forImageData: data)
+        case .file:
+            // A `.file` item always carries an attachment and is keyed above.
+            return nil
+        }
+    }
+
     /// Delete a single item. Returns `false` (and changes nothing) when the
     /// item is locked.
     @discardableResult
@@ -233,7 +370,7 @@ class ClipboardStore: ObservableObject {
             guard let index = self.items.firstIndex(where: { $0.id == item.id }) else { return }
             guard !self.items[index].isLocked else { return }
             let removed = self.items.remove(at: index)
-            self.deleteAssociatedFiles(for: removed)
+            self.moveToTrash([removed])   // 5D: assets stay until the purge
             self.noteDeleted([removed.id])   // Phase 4A
             didDelete = true
             self.scheduleSave()
@@ -259,9 +396,7 @@ class ClipboardStore: ObservableObject {
 
             let removableIDs = Set(removable.map { $0.id })
             self.items.removeAll { removableIDs.contains($0.id) }
-            for item in removable {
-                self.deleteAssociatedFiles(for: item)
-            }
+            self.moveToTrash(removable)   // 5D
             self.noteDeleted(Array(removableIDs))   // Phase 4A
 
             result = DeleteResult(deleted: removable.count, skippedLocked: skipped)
@@ -387,16 +522,181 @@ class ClipboardStore: ObservableObject {
 
             let doomed = self.items.filter(shouldDelete)
             let skipped = self.items.filter { $0.isLocked }.count
-            for item in doomed {
-                self.deleteAssociatedFiles(for: item)
-            }
             self.items.removeAll(where: shouldDelete)
+            self.moveToTrash(doomed)   // 5D
             self.noteDeleted(doomed.map { $0.id })   // Phase 4A
 
             result = DeleteResult(deleted: doomed.count, skippedLocked: skipped)
             self.scheduleSave()
         }
         return result
+    }
+
+    // ==========================================================================
+    // MARK: - Trash (5D)
+    //
+    // Explicit deletes — a row, a multi-selection, Clear History, a folder
+    // deleted with its clips — move here instead of vanishing. Cap eviction
+    // does **not**: it is automatic housekeeping, and routing it through the
+    // trash would grow an unbounded second history behind the user's back and
+    // defeat the history limit they chose.
+    //
+    // A trashed clip keeps its on-disk assets so a restore is complete; they
+    // are removed only when the record is purged for good.
+    // ==========================================================================
+
+    /// Clips whose retention window has expired, given `now`. Pure, so the
+    /// window arithmetic is testable without waiting a month.
+    static func expiredTrash(
+        _ trashed: [ClipboardItem],
+        retention: TrashRetention,
+        now: Date = Date()
+    ) -> [ClipboardItem] {
+        guard let days = retention.days else { return [] }
+        let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
+        // A record with no deletion date cannot be aged; keep it rather than
+        // purging something we cannot reason about.
+        return trashed.filter { deleted in
+            guard let at = deleted.deletedAt else { return false }
+            return at <= cutoff
+        }
+    }
+
+    /// Moves already-removed items into the trash, newest deletion first.
+    /// Called by the delete paths **after** they have taken the items out of
+    /// `items`; it never touches `items` itself.
+    private func moveToTrash(_ removed: [ClipboardItem]) {
+        guard !removed.isEmpty else { return }
+        let now = Date()
+        let stamped = removed.map { item -> ClipboardItem in
+            var copy = item
+            copy.deletedAt = now
+            // A locked clip can't reach here (every delete path refuses one),
+            // but a locked record inside the trash would be unpurgeable, so
+            // the flag is dropped on the way in as a belt-and-braces measure.
+            copy.isLocked = false
+            return copy
+        }
+        trashedItems.insert(contentsOf: stamped, at: 0)
+        saveTrash()
+    }
+
+    /// Puts trashed clips back into the history. Ids that are not in the trash
+    /// are ignored. Restored clips land in their chronological place, and keep
+    /// their folder only if that folder still exists.
+    @discardableResult
+    func restoreFromTrash(ids: Set<UUID>) -> Int {
+        var restored = 0
+        performOnMainSync { [weak self] in
+            guard let self = self, !ids.isEmpty else { return }
+            let coming = self.trashedItems.filter { ids.contains($0.id) }
+            guard !coming.isEmpty else { return }
+            self.trashedItems.removeAll { ids.contains($0.id) }
+
+            for var item in coming {
+                item.deletedAt = nil
+                if let folderID = item.folderID, !self.folders.contains(where: { $0.id == folderID }) {
+                    // The folder was deleted while the clip sat in the trash.
+                    item.folderID = nil
+                    item.folderSortIndex = nil
+                }
+                item.updatedAt = Date()
+                let insertAt = self.items.firstIndex { $0.timestamp <= item.timestamp } ?? self.items.count
+                self.items.insert(item, at: insertAt)
+                restored += 1
+            }
+
+            self.noteRestored(coming.map { $0.id })   // Phase 4A / 5D
+            self.saveTrash()
+            self.scheduleSave()
+        }
+        return restored
+    }
+
+    /// Permanently removes trashed records and their on-disk assets. This is
+    /// the only path in the trash that destroys anything.
+    @discardableResult
+    func purgeFromTrash(ids: Set<UUID>) -> Int {
+        var purged = 0
+        performOnMainSync { [weak self] in
+            guard let self = self, !ids.isEmpty else { return }
+            let doomed = self.trashedItems.filter { ids.contains($0.id) }
+            guard !doomed.isEmpty else { return }
+            self.trashedItems.removeAll { ids.contains($0.id) }
+
+            // A restored-then-recopied clip can share an asset name with a
+            // live item; `keeping` makes sure a purge never deletes bytes
+            // something still on screen points at.
+            let keep = self.referencedAssetNames(in: self.items + self.trashedItems)
+            for item in doomed {
+                self.deleteAssociatedFiles(for: item, keeping: keep)
+            }
+            purged = doomed.count
+            self.saveTrash()
+        }
+        return purged
+    }
+
+    /// Empties the trash completely.
+    @discardableResult
+    func emptyTrash() -> Int {
+        purgeFromTrash(ids: Set(trashedItems.map { $0.id }))
+    }
+
+    /// Drops everything past the configured retention window. Runs at launch
+    /// and whenever the setting changes; a "Forever" window purges nothing.
+    @discardableResult
+    func purgeExpiredTrash(now: Date = Date()) -> Int {
+        let expired = Self.expiredTrash(
+            trashedItems,
+            retention: SettingsManager.shared.trashRetention,
+            now: now
+        )
+        guard !expired.isEmpty else { return 0 }
+        let count = purgeFromTrash(ids: Set(expired.map { $0.id }))
+        if count > 0 { print("[Buffer] Trash: purged \(count) expired clip(s)") }
+        return count
+    }
+
+    // MARK: Trash persistence
+
+    private func loadTrash() {
+        guard fileManager.fileExists(atPath: trashFileURL.path) else { return }
+        guard let data = try? Data(contentsOf: trashFileURL) else {
+            print("[Buffer] Failed to read trash.json")
+            trashLoadWasClean = false
+            return
+        }
+        guard let file = try? JSONDecoder().decode(TrashFile.self, from: data) else {
+            // Same rule as the history: an unreadable trash file is left alone
+            // and its assets are protected from the orphan sweep, rather than
+            // being silently overwritten with an empty one.
+            print("[Buffer] trash.json could not be decoded, leaving it untouched")
+            trashLoadWasClean = false
+            return
+        }
+        trashedItems = file.items
+        print("[Buffer] Loaded \(file.items.count) trashed items")
+    }
+
+    /// Written straight through rather than debounced like the history: the
+    /// trash changes only on an explicit delete, restore or purge, never in a
+    /// burst.
+    private func saveTrash() {
+        let snapshot = trashedItems
+        saveQueue.async { [weak self] in
+            self?.saveTrashToDisk(snapshot)
+        }
+    }
+
+    private func saveTrashToDisk(_ trashToSave: [ClipboardItem]) {
+        do {
+            let file = TrashFile(version: Self.trashSchemaVersion, items: trashToSave)
+            let data = try JSONEncoder().encode(file)
+            try data.write(to: trashFileURL, options: .atomic)
+        } catch {
+            print("[Buffer] Failed to save trash: \(error)")
+        }
     }
 
     // MARK: - Content kind backfill
@@ -495,6 +795,7 @@ class ClipboardStore: ObservableObject {
                 var movedOut = 0
                 for index in self.items.indices where self.items[index].folderID == id {
                     self.items[index].folderID = nil
+                    self.items[index].folderSortIndex = nil   // 5C: no folder, no manual position
                     self.touchItem(at: index)   // Phase 4A
                     movedOut += 1
                 }
@@ -506,11 +807,9 @@ class ClipboardStore: ObservableObject {
                 let lockedCount = inFolder.filter { $0.isLocked }.count
                 let doomed = includeLocked ? inFolder : inFolder.filter { !$0.isLocked }
 
-                for item in doomed {
-                    self.deleteAssociatedFiles(for: item)
-                }
                 let doomedIDs = Set(doomed.map { $0.id })
                 self.items.removeAll { doomedIDs.contains($0.id) }
+                self.moveToTrash(doomed)   // 5D
                 self.noteDeleted(Array(doomedIDs))   // Phase 4A
 
                 // Locked items left behind keep the folder alive; the UI asks
@@ -545,10 +844,19 @@ class ClipboardStore: ObservableObject {
             guard let self = self else { return }
             if let folderID = folderID, !self.folders.contains(where: { $0.id == folderID }) { return }
             var changed = false
+            // 5C: a clip arriving in a folder is placed at the top of that
+            // folder's manual order, which is where a freshly filed clip is
+            // expected to show up. Leaving it `nil` would instead drop it
+            // below every hand-sorted row.
+            let arrivalIndex = folderID.map { self.lowestFolderSortIndex(in: $0) - 1 }
             for index in self.items.indices where ids.contains(self.items[index].id) {
                 self.items[index].folderID = folderID
                 if folderID != nil {
                     self.items[index].isLocked = true
+                    self.items[index].folderSortIndex = arrivalIndex
+                } else {
+                    // Out of the folder, the manual position means nothing.
+                    self.items[index].folderSortIndex = nil
                 }
                 self.touchItem(at: index)   // Phase 4A
                 changed = true
@@ -560,6 +868,73 @@ class ClipboardStore: ObservableObject {
 
     func items(inFolder id: UUID) -> [ClipboardItem] {
         items.filter { $0.folderID == id }
+    }
+
+    /// Rewrites the manual order of `folderID`'s clips to match `orderedIDs`
+    /// (5C). Members missing from `orderedIDs` keep their relative order at
+    /// the end; ids belonging to another folder are ignored.
+    ///
+    /// The whole folder is renumbered `0, 1, 2, …` on every drop rather than
+    /// squeezing a fractional index between two neighbours: folders are small,
+    /// hand-curated sets, and dense integers keep the on-disk numbers readable
+    /// and immune to the precision drift a long chain of midpoint inserts
+    /// eventually hits.
+    func setFolderOrder(_ orderedIDs: [UUID], in folderID: UUID) {
+        runOnMain { [weak self] in
+            guard let self = self else { return }
+            var rank: [UUID: Int] = [:]
+            for (offset, id) in orderedIDs.enumerated() { rank[id] = offset }
+
+            // Members the caller did not mention keep their current relative
+            // order, appended after everything it did.
+            var tail = rank.count
+            let unranked = self.items.enumerated()
+                .filter { $0.element.folderID == folderID && rank[$0.element.id] == nil }
+            for entry in Self.folderOrder(unranked.map { $0.element }) {
+                rank[entry.id] = tail
+                tail += 1
+            }
+
+            var changed = false
+            for index in self.items.indices {
+                guard self.items[index].folderID == folderID,
+                      let position = rank[self.items[index].id] else { continue }
+                let value = Double(position)
+                guard self.items[index].folderSortIndex != value else { continue }
+                self.items[index].folderSortIndex = value
+                self.touchItem(at: index)   // Phase 4A
+                changed = true
+            }
+            guard changed else { return }
+            self.scheduleSave()
+        }
+    }
+
+    /// The display order of a folder's clips: manual index first, then
+    /// anything never hand-placed, newest first. Shared with
+    /// `FilterState.apply` so the list and the store never disagree about
+    /// what "the folder's order" is.
+    static func folderOrder(_ items: [ClipboardItem]) -> [ClipboardItem] {
+        items.sorted { a, b in
+            switch (a.folderSortIndex, b.folderSortIndex) {
+            case let (x?, y?):
+                if x != y { return x < y }
+            case (nil, _?):
+                return false
+            case (_?, nil):
+                return true
+            case (nil, nil):
+                break
+            }
+            if a.timestamp != b.timestamp { return a.timestamp > b.timestamp }
+            return a.id.uuidString < b.id.uuidString
+        }
+    }
+
+    /// Smallest manual index currently used in `folderID`, or `0` for a
+    /// folder with no hand-placed clips.
+    private func lowestFolderSortIndex(in folderID: UUID) -> Double {
+        items.compactMap { $0.folderID == folderID ? $0.folderSortIndex : nil }.min() ?? 0
     }
 
     func folderCounts() -> [UUID: Int] {
@@ -951,7 +1326,17 @@ class ClipboardStore: ObservableObject {
         let itemID = UUID()
 
         if withinCap, let attachment = copyIntoStorage(id: itemID, entries: entries, uti: uti, totalSize: totalSize) {
-            return ClipboardItem(id: itemID, type: .file, sourceApp: sourceApp, kind: .file, fileAttachment: attachment)
+            return ClipboardItem(
+                id: itemID,
+                type: .file,
+                sourceApp: sourceApp,
+                kind: .file,
+                fileAttachment: attachment,
+                // 5B: keyed on the ORIGINAL names, not the uniquified stored
+                // ones, so the same selection copied twice matches even when
+                // `copyIntoStorage` had to rename a collision the second time.
+                contentKey: ClipboardItem.contentKey(forFileNames: names, byteSize: totalSize)
+            )
         }
 
         // Above the cap, or the copy failed: keep only a reference to the
@@ -967,7 +1352,14 @@ class ClipboardStore: ObservableObject {
             uti: uti,
             byteSize: totalSize
         )
-        return ClipboardItem(id: itemID, type: .file, sourceApp: sourceApp, kind: .file, fileAttachment: attachment)
+        return ClipboardItem(
+            id: itemID,
+            type: .file,
+            sourceApp: sourceApp,
+            kind: .file,
+            fileAttachment: attachment,
+            contentKey: ClipboardItem.contentKey(forFileNames: names, byteSize: totalSize)
+        )
     }
 
     /// Copies every entry into a fresh `files/<id>/` directory (named after
@@ -1242,6 +1634,10 @@ class ClipboardStore: ObservableObject {
     /// a partial or failed load the store does not know about every asset it
     /// owns, and deleting the "unreferenced" ones would destroy real data.
     private var historyLoadWasClean = true
+    /// Same guard as `historyLoadWasClean`, for `trash.json` (5D): an
+    /// unreadable trash file must not let the orphan sweep delete the assets
+    /// of clips that are still recoverable.
+    private var trashLoadWasClean = true
 
     private func loadHistory() {
         guard fileManager.fileExists(atPath: historyFileURL.path) else {
@@ -1461,6 +1857,11 @@ class ClipboardStore: ObservableObject {
     /// propagates. Evictions never come through here.
     var onItemsDeleted: (([UUID]) -> Void)?
 
+    /// Ids put back from the trash (5D). The sync service retracts its own
+    /// tombstone for them, so restoring a clip on this Mac does not have the
+    /// next merge delete it all over again.
+    var onItemsRestored: (([UUID]) -> Void)?
+
     /// A folder the user deleted, for `deletedFolders` tombstones.
     var onFolderDeleted: ((UUID) -> Void)?
 
@@ -1528,6 +1929,11 @@ class ClipboardStore: ObservableObject {
     private func noteDeleted(_ ids: [UUID]) {
         guard !ids.isEmpty, !isApplyingRemoteMerge else { return }
         onItemsDeleted?(ids)
+    }
+
+    private func noteRestored(_ ids: [UUID]) {
+        guard !ids.isEmpty, !isApplyingRemoteMerge else { return }
+        onItemsRestored?(ids)
     }
 
     private func noteFolderDeleted(_ id: UUID) {
@@ -1641,12 +2047,14 @@ class ClipboardStore: ObservableObject {
     /// assets), and it skips anything modified in the last minute so a capture
     /// in flight can never be swept out from under itself.
     private func sweepOrphanedAssets() {
-        guard historyLoadWasClean else {
-            print("[Buffer] Orphan sweep skipped: the history did not load cleanly")
+        guard historyLoadWasClean, trashLoadWasClean else {
+            print("[Buffer] Orphan sweep skipped: the history or trash did not load cleanly")
             return
         }
         var referenced = Set<String>()
-        for item in items {
+        // 5D: trashed clips still own their assets — they are only removed
+        // when the record is purged — so they count as referenced here.
+        for item in items + trashedItems {
             if let name = item.imageFilename { referenced.insert("images/\(name)") }
             if let name = item.textFilename { referenced.insert("texts/\(name)") }
             if let name = item.rtfFilename { referenced.insert("texts/\(name)") }
@@ -1789,7 +2197,8 @@ class ClipboardStore: ObservableObject {
             // (the dedupe path) keep the loser's payload too — the bytes are
             // still the item's, just under the winner's id.
             let keptIDs = Set(merged.map { $0.id })
-            let referenced = self.referencedAssetNames(in: merged)
+            // 5D: a locally trashed clip still owns its bytes.
+            let referenced = self.referencedAssetNames(in: merged + self.trashedItems)
             let survivingContentKeys = Set(merged.compactMap { SyncMerge.dedupeKey($0) })
             for removed in result.removedItems where !keptIDs.contains(removed.id) {
                 if let key = SyncMerge.dedupeKey(removed), survivingContentKeys.contains(key) { continue }

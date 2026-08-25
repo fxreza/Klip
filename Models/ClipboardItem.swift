@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CryptoKit
 import UniformTypeIdentifiers
 
 /// Represents a single item in the clipboard history
@@ -11,7 +12,10 @@ import UniformTypeIdentifiers
 struct ClipboardItem: Identifiable, Codable, Equatable {
     let id: UUID
     let type: ClipboardItemType
-    let timestamp: Date
+    /// When this clip was last copied. `var`, not `let`: re-copying content
+    /// that is already in the history refreshes the existing clip's date
+    /// instead of adding a second row (see `ClipboardStore.resurface`).
+    var timestamp: Date
     let sourceApp: String?
 
     // For text items — inline content (nil for file-backed large text)
@@ -70,6 +74,34 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     var updatedAt: Date
     // --- end Phase 4A ---
 
+    /// When this clip was moved to the trash. Only ever set on records inside
+    /// `ClipboardStore.trashedItems` — an item in the history proper always
+    /// has `nil` here — and it is what the retention purge measures against.
+    var deletedAt: Date? = nil
+
+    /// Manual position inside `folderID`, lower first. `nil` for a clip that
+    /// has never been dragged into place — those sort below the ordered ones,
+    /// newest first, so a folder that was never hand-sorted looks exactly as
+    /// it always did.
+    ///
+    /// Only ever consulted in folder scope: All and Favorites stay
+    /// chronological (pinned first). Inside a folder the manual order wins
+    /// outright — a pinned clip does **not** float to the top there, because
+    /// the whole point of hand-sorting is that the row stays where it was put.
+    var folderSortIndex: Double? = nil
+
+    /// Content identity, used to fold a re-copy of something already in the
+    /// history into the clip that is already there instead of appending a
+    /// second row.
+    ///
+    /// Derived from the payload alone: the capture date, the source app and
+    /// the item's own id are deliberately **not** part of it, so the same
+    /// text copied from Chrome two days ago and from a text editor today
+    /// produces the same key. `nil` for an item captured before this field
+    /// existed (`ClipboardStore.backfillContentKeysIfNeeded` fills those in
+    /// at launch) or for one with no usable payload.
+    var contentKey: String? = nil
+
     init(
         id: UUID = UUID(),
         type: ClipboardItemType,
@@ -89,7 +121,10 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         fileAttachment: FileAttachment? = nil,
         rtfFilename: String? = nil,
         flavorsFilename: String? = nil,
-        updatedAt: Date? = nil
+        updatedAt: Date? = nil,
+        contentKey: String? = nil,
+        folderSortIndex: Double? = nil,
+        deletedAt: Date? = nil
     ) {
         self.id = id
         self.type = type
@@ -110,6 +145,9 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.rtfFilename = rtfFilename
         self.flavorsFilename = flavorsFilename
         self.updatedAt = updatedAt ?? timestamp
+        self.contentKey = contentKey
+        self.folderSortIndex = folderSortIndex
+        self.deletedAt = deletedAt
     }
 
     enum CodingKeys: String, CodingKey {
@@ -118,6 +156,9 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         case isPinned, isBookmarked, tags, ocrText
         case isLocked, folderID, kind, fileAttachment, rtfFilename, flavorsFilename
         case updatedAt
+        case contentKey
+        case folderSortIndex
+        case deletedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -143,6 +184,9 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         // Pre-sync files have no `updatedAt`; the capture time is the best
         // available approximation and keeps merges deterministic.
         self.updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? self.timestamp
+        self.contentKey = try container.decodeIfPresent(String.self, forKey: .contentKey)
+        self.folderSortIndex = try container.decodeIfPresent(Double.self, forKey: .folderSortIndex)
+        self.deletedAt = try container.decodeIfPresent(Date.self, forKey: .deletedAt)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -166,6 +210,41 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(rtfFilename, forKey: .rtfFilename)
         try container.encodeIfPresent(flavorsFilename, forKey: .flavorsFilename)
         try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(contentKey, forKey: .contentKey)
+        try container.encodeIfPresent(folderSortIndex, forKey: .folderSortIndex)
+        try container.encodeIfPresent(deletedAt, forKey: .deletedAt)
+    }
+
+    // MARK: - Content identity
+
+    /// Key for a text clip: the SHA-256 of the **full** text. Hashed rather
+    /// than stored raw so a multi-megabyte clip does not carry a second copy
+    /// of itself in `history.json`, and full rather than prefixed so two long
+    /// documents sharing an opening paragraph never fold into one.
+    static func contentKey(forText text: String) -> String? {
+        guard !text.isEmpty else { return nil }
+        return "txt:" + sha256Hex(Data(text.utf8))
+    }
+
+    /// Key for an image clip: the SHA-256 of the exact bytes stored on disk.
+    /// Keyed on bytes, not on `imageFilename`, because every capture writes a
+    /// freshly named file — the filename is unique by construction and would
+    /// never match anything.
+    static func contentKey(forImageData data: Data) -> String {
+        "img:" + sha256Hex(data)
+    }
+
+    /// Key for a file clip: the original name(s) plus the total byte size,
+    /// the same identity the iCloud merge already folds on
+    /// (`SyncMerge.dedupeKey`). Deliberately excludes the source path, so the
+    /// same file copied from Finder and from a Desktop alias is one clip.
+    static func contentKey(forFileNames names: [String], byteSize: Int64) -> String? {
+        guard let first = names.first, !first.isEmpty else { return nil }
+        return "file:\(names.joined(separator: "\u{1}")):\(byteSize)"
+    }
+
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Create a text clipboard item
@@ -173,7 +252,8 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         ClipboardItem(
             type: .text,
             sourceApp: sourceApp,
-            textContent: content
+            textContent: content,
+            contentKey: contentKey(forText: content)
         )
     }
 
@@ -225,7 +305,11 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
             type: .file,
             sourceApp: sourceApp,
             kind: .file,
-            fileAttachment: attachment
+            fileAttachment: attachment,
+            contentKey: contentKey(
+                forFileNames: [attachment.originalName] + attachment.additionalNames,
+                byteSize: attachment.byteSize
+            )
         )
     }
 

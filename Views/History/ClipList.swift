@@ -36,7 +36,12 @@ struct ClipList: View {
                     // things the index was used for (the "is this the first
                     // unpinned row" separator, and the click handlers' index)
                     // are derived from that instead.
-                    let pinnedCount = items.prefix(while: { $0.isPinned }).count
+                    // 5C: in folder scope the list is in the user's own drag
+                    // order, so there is no pinned run at the top to head or
+                    // separate — a pinned clip sits wherever it was dropped.
+                    let pinnedCount = viewModel.isFolderScope
+                        ? 0
+                        : items.prefix(while: { $0.isPinned }).count
                     let separatorID: UUID? = (pinnedCount > 0 && pinnedCount < items.count)
                         ? items[pinnedCount].id
                         : nil
@@ -215,7 +220,16 @@ struct ClipList: View {
                 onDragBegan: { ids in viewModel.restoreSelection(ids) },
                 // 5A-19: the right-click selection happens here, on the
                 // mouse-down, not inside the `.contextMenu` ViewBuilder.
-                onRightMouseDown: { viewModel.selectForContextMenu(item.id) }
+                onRightMouseDown: { viewModel.selectForContextMenu(item.id) },
+                // 5C: rows only accept a reorder drop inside a folder. In All
+                // and Favorites the handler is nil, the view unregisters its
+                // dragged types, and a clip drag behaves exactly as before —
+                // only the sidebar takes it.
+                onReorderDrop: viewModel.isFolderScope
+                    ? { ids, edge in
+                        viewModel.reorderInFolder(ids, relativeTo: item.id, insertAbove: edge == .above)
+                    }
+                    : nil
             ),
             alignment: .center
         )

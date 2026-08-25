@@ -9,11 +9,21 @@ import AppKit
 struct ShortcutsTab: View {
     @ObservedObject private var settings = SettingsManager.shared
     @ObservedObject private var shortcuts = ShortcutManager.shared
+    @ObservedObject private var hotkeyRegistration = HotkeyRegistration.shared
 
     var body: some View {
         Form {
             Section("Global") {
                 globalHotkeyRow
+                // macOS refused the registration outright, so the recorded
+                // combination does nothing at all. Different condition from
+                // the in-window note below, which is only an overlap while
+                // Klip is frontmost — this one means the hotkey is dead.
+                if let failure = hotkeyRegistration.failureMessage {
+                    Text(failure)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
                 if let conflict = globalHotkeyConflict {
                     Text("Also bound in-window to \(conflict.label) — while Klip is the frontmost app, whichever handler runs first wins.")
                         .font(.caption)

@@ -212,6 +212,7 @@ final class CloudDriveSync: ObservableObject {
     private func wireStoreHooks() {
         store?.onLocalMutation = { [weak self] in self?.schedulePush() }
         store?.onItemsDeleted = { [weak self] ids in self?.recordDeletedItems(ids) }
+        store?.onItemsRestored = { [weak self] ids in self?.retractDeletedItems(ids) }
         store?.onFolderDeleted = { [weak self] id in self?.recordDeletedFolder(id) }
     }
 
@@ -431,6 +432,16 @@ final class CloudDriveSync: ObservableObject {
         let now = Date()
         withTombstones { items, _ in
             for id in ids { items[id] = SyncTombstone(id: id, deletedAt: now) }
+        }
+    }
+
+    /// Undoes `recordDeletedItems` for clips the user put back from the trash
+    /// (5D). Only this device's own tombstones are retracted — another Mac's
+    /// tombstone for the same id still stands, because that delete really did
+    /// happen there.
+    private func retractDeletedItems(_ ids: [UUID]) {
+        withTombstones { items, _ in
+            for id in ids { items.removeValue(forKey: id) }
         }
     }
 

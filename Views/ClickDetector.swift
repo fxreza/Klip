@@ -9,8 +9,20 @@ import AppKit
 /// `dragThreshold` points with the button held; anything short of that is a
 /// plain click and behaves exactly as it did before (select / ⌘ / ⇧, with the
 /// double-click recogniser still living in `ClipList`).
+///
+/// 5C makes it the row's **drop target** too, for reordering clips inside a
+/// folder. The target has to live here rather than in a background view like
+/// `SidebarDropTarget`: this overlay is the topmost view over the row, so it
+/// is what AppKit hit-tests during a drag, and a sibling in the background
+/// would never be found.
 struct ClickModifierDetector: NSViewRepresentable {
     let onClickWithModifiers: (NSEvent.ModifierFlags) -> Void
+
+    /// Where a reorder drop would insert the dragged clips relative to this row.
+    enum InsertionEdge {
+        case above
+        case below
+    }
 
     /// Asked **once per mouse-down, before `onClickWithModifiers` runs**, so the
     /// payload reflects the selection as it was when the press started. Return
@@ -29,6 +41,10 @@ struct ClickModifierDetector: NSViewRepresentable {
     /// (review 5A-19) while preserving the ordering the menu depends on.
     var onRightMouseDown: (() -> Void)? = nil
 
+    /// Non-nil only in folder scope: accepts dragged clip ids and inserts them
+    /// above or below this row. Return `true` if the drop was consumed.
+    var onReorderDrop: (([UUID], InsertionEdge) -> Bool)? = nil
+
     /// Pointer travel, in points, that separates a click from a drag.
     static let dragThreshold: CGFloat = 4
 
@@ -37,10 +53,100 @@ struct ClickModifierDetector: NSViewRepresentable {
         var dragPayload: (() -> ClipDragRequest?)?
         var onDragBegan: (([UUID]) -> Void)?
         var onRightMouseDown: (() -> Void)?
+        var onReorderDrop: (([UUID], InsertionEdge) -> Bool)?
 
         private var mouseDownPoint: CGPoint?
         private var pendingDrag: ClipDragRequest?
         private var isDragging = false
+
+        // MARK: Reorder drop target (5C)
+
+        /// The insertion line, drawn by the overlay itself rather than handed
+        /// back to SwiftUI: a `@State` round-trip per `draggingUpdated` would
+        /// re-run the row's body on every mouse move across it.
+        private let insertionLayer = CALayer()
+        private var registeredForClips = false
+        private var insertionEdge: InsertionEdge? {
+            didSet {
+                guard insertionEdge != oldValue else { return }
+                insertionLayer.isHidden = insertionEdge == nil
+                needsLayout = true
+            }
+        }
+
+        override func layout() {
+            super.layout()
+            guard let edge = insertionEdge else { return }
+            let height: CGFloat = 2
+            let atTop = (edge == .above) != isFlipped
+            insertionLayer.frame = CGRect(
+                x: 0,
+                y: atTop ? bounds.maxY - height : 0,
+                width: bounds.width,
+                height: height
+            )
+        }
+
+        /// Registers (or unregisters) for dragged clip ids to match whether a
+        /// reorder handler is currently installed. Idempotent.
+        func refreshDropRegistration() {
+            let wanted = onReorderDrop != nil
+            guard wanted != registeredForClips else { return }
+            registeredForClips = wanted
+            if wanted {
+                registerForDraggedTypes([ClipDragPayload.clipsType])
+                if insertionLayer.superlayer == nil {
+                    insertionLayer.backgroundColor = NSColor.controlAccentColor.cgColor
+                    insertionLayer.cornerRadius = 1
+                    insertionLayer.isHidden = true
+                    layer?.addSublayer(insertionLayer)
+                }
+            } else {
+                unregisterDraggedTypes()
+                insertionEdge = nil
+            }
+        }
+
+        /// Which half of the row the pointer is in. Reads `isFlipped` instead
+        /// of assuming it: this view never sets it, but it is hosted inside
+        /// SwiftUI and the answer must not depend on that.
+        private func edge(for info: NSDraggingInfo) -> InsertionEdge? {
+            guard onReorderDrop != nil,
+                  !ClipDragPayload.ids(from: info.draggingPasteboard).isEmpty else { return nil }
+            let point = convert(info.draggingLocation, from: nil)
+            let inTopHalf = isFlipped ? (point.y < bounds.midY) : (point.y > bounds.midY)
+            return inTopHalf ? .above : .below
+        }
+
+        override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+            insertionEdge = edge(for: sender)
+            return insertionEdge == nil ? [] : .move
+        }
+
+        override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+            insertionEdge = edge(for: sender)
+            return insertionEdge == nil ? [] : .move
+        }
+
+        override func draggingExited(_ sender: NSDraggingInfo?) {
+            insertionEdge = nil
+        }
+
+        override func draggingEnded(_ sender: NSDraggingInfo) {
+            insertionEdge = nil
+        }
+
+        override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+            edge(for: sender) != nil
+        }
+
+        override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+            defer { insertionEdge = nil }
+            guard let edge = edge(for: sender), let handler = onReorderDrop else { return false }
+            let ids = ClipDragPayload.ids(from: sender.draggingPasteboard)
+            guard !ids.isEmpty else { return false }
+            return handler(ids, edge)
+        }
 
         override func mouseDown(with event: NSEvent) {
             mouseDownPoint = convert(event.locationInWindow, from: nil)
@@ -133,6 +239,8 @@ struct ClickModifierDetector: NSViewRepresentable {
         view.dragPayload = dragPayload
         view.onDragBegan = onDragBegan
         view.onRightMouseDown = onRightMouseDown
+        view.onReorderDrop = onReorderDrop
+        view.refreshDropRegistration()
         return view
     }
 
@@ -142,6 +250,8 @@ struct ClickModifierDetector: NSViewRepresentable {
             clickView.dragPayload = dragPayload
             clickView.onDragBegan = onDragBegan
             clickView.onRightMouseDown = onRightMouseDown
+            clickView.onReorderDrop = onReorderDrop
+            clickView.refreshDropRegistration()
         }
     }
 }

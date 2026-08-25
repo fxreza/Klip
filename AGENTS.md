@@ -29,3 +29,31 @@ only at a volume root, not in a subdirectory.
 If you change an output path, keep the `.noindex` suffix and update the scripts
 above, `.gitignore`, and `scripts/sync_xcodeproj.py`'s `EXCLUDED_DIR_NAMES`
 together.
+
+## Never run two live copies of `com.fxreza.klip`
+
+`scripts/run_app.sh` refuses to launch `build.noindex/Klip.app` when it carries
+the same bundle identifier as `/Applications/Klip.app`. Keep that guard, and
+build test copies with their own identifier:
+
+```bash
+BUNDLE_ID=com.fxreza.klip.dev scripts/build_local.sh
+```
+
+Launch a dev build with `open <path>.app` on a properly registered bundle, not
+by executing the binary directly.
+
+**Why.** macOS 26's ControlCenter attributes a status item to the app that was
+*responsible* for launching it. A Klip build launched from Claude Code or
+Terminal got `com.fxreza.klip` recorded inside those apps' entries in the
+per-user "Allow in the Menu Bar" store; because Claude Desktop's own menu bar
+icon was hidden there, every status item with that identifier stopped being
+laid out - registered, clickable through accessibility, but invisible on every
+screen. Klip's own toggle showed ON the whole time, and it took a full
+investigation to find. Full record, including how to detect and undo it:
+`docs/analysis/menubar-status-item-not-laid-out.md`.
+
+The `com.fxreza.klip.app` identifier was the workaround while the cause was
+unknown. It is reverted as of 3.3.0 - do not reintroduce it; the updater's
+`UpdateService.expectedBundleIdentifier` is `com.fxreza.klip` and rejects a
+build that says anything else.

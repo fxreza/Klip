@@ -9,6 +9,9 @@ A lightweight, beautiful clipboard manager for macOS with organized history, ric
 ## Features
 
 - **Organized History** - Folder-based organization with drag-and-drop; All/Favorites/Folders sidebar
+- **No Duplicates** - Re-copying something already in the history brings that clip back to the top instead of adding another row; pins, tags, locks and folder stay with it
+- **Manual Folder Order** - Drag clips into any order inside a folder; the order is saved and outranks pins there
+- **Recently Deleted** - Deleted clips move to a local trash you restore from in the menu bar; kept 7/30/90 days or forever, never synced to iCloud
 - **Lock & Protect** - Lock individual clips to prevent accidental deletion; folder clips locked by default
 - **Clipfield-style UI** - Material panel with sidebar, filter chips, thumbnail badges, metadata footer
 - **Rich-text Support** - Capture and paste with formatting (RTF/HTML); explicit "Paste as Plain Text" option
@@ -61,7 +64,7 @@ History and settings are migrated automatically from Buffer on first launch; Buf
 | `⌘B` | Star / unstar |
 | `⌘T` | Add tag (or `#tag` in search) |
 | `⌘S` | Save image to disk |
-| `⌘⌫` | Delete selected item(s) |
+| `⌘⌫` | Delete selected item(s) - recoverable from Recently Deleted |
 | `⎋` Esc | Close history window |
 
 All shortcuts are rebindable in Settings > Shortcuts.
@@ -71,10 +74,12 @@ All shortcuts are rebindable in Settings > Shortcuts.
 ## Data
 
 - **Location**: `~/Library/Application Support/Klip`
-- **Format**: JSON-based (history.json, folders.json) + image/text/file/flavor storage
+- **Format**: JSON-based (history.json, folders.json, trash.json) + image/text/file/flavor storage
 - **Local-only by default** - no network access unless iCloud Drive sync is enabled
+- **Deleted clips**: kept in `trash.json` with their assets until the retention window (Settings > History > Trash) expires or you empty the trash; local to this Mac either way
 - **Sync**: Optional iCloud Drive sync (disabled by default); enable in Settings > Sync
   - Synced data: history, folders, locks, tags, images/text/files
+  - Not synced: the trash - a delete propagates as a tombstone, the recoverable copy stays on the Mac it was deleted on
   - Per-device snapshots prevent conflicts; delete operations sync via tombstones
   - Large files (default >50 MB) stay local-only with a reference
 
@@ -86,7 +91,7 @@ When enabled, clipboard history syncs across your Macs via iCloud Drive.
 
 - **Enable**: Settings > Sync (requires iCloud Drive in `~/Library/Mobile Documents`)
 - **How it works**: Per-device snapshot files + content-hash deduplication + tombstones for deletes
-- **Limitations**: Requires network for sync; changes may take up to 30 seconds to appear on other devices
+- **Limitations**: Requires network for sync; changes may take up to 30 seconds to appear on other devices; the trash is never synced
 - **Disabling**: Turn off in Settings; data stays local-only (no back-sync from remote)
 
 ---

@@ -279,6 +279,42 @@ extension HistoryViewModel {
         applyFilters(resetSelection: .preserve)
     }
 
+    /// True while the list is showing a single folder — the only scope where
+    /// clips can be hand-sorted.
+    var isFolderScope: Bool {
+        if case .folder = scope { return true }
+        return false
+    }
+
+    /// Drag-reorder inside a folder (5C): moves `ids` above or below
+    /// `targetID` and persists the folder's new manual order. Returns `false`
+    /// (changing nothing) outside folder scope, or when the drag is the target
+    /// row itself.
+    ///
+    /// The new order is computed from `filteredItems`, which is already in the
+    /// folder's display order, so what the user sees is exactly what gets
+    /// written — including when a search or chip filter is narrowing the list,
+    /// where the hidden members keep their relative places via
+    /// `ClipboardStore.setFolderOrder`'s untouched-members rule.
+    @discardableResult
+    func reorderInFolder(_ ids: [UUID], relativeTo targetID: UUID, insertAbove: Bool) -> Bool {
+        guard case .folder(let folderID) = scope else { return false }
+        let current = filteredItems.map { $0.id }
+        let dragged = Set(ids)
+        // Preserve the dragged rows' own relative order, whatever order the
+        // drag payload happened to list them in.
+        let moving = current.filter { dragged.contains($0) }
+        guard !moving.isEmpty, !dragged.contains(targetID) else { return false }
+
+        var reordered = current.filter { !dragged.contains($0) }
+        guard let anchor = reordered.firstIndex(of: targetID) else { return false }
+        reordered.insert(contentsOf: moving, at: insertAbove ? anchor : anchor + 1)
+
+        store.setFolderOrder(reordered, in: folderID)
+        applyFilters(resetSelection: .preserve)
+        return true
+    }
+
     /// ⌘M (wired by 3E) — opens the folder picker for the current selection.
     func keyMoveToFolder() {
         guard !isEditing else { return }

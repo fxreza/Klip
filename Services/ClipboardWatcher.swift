@@ -272,6 +272,7 @@ class ClipboardWatcher: ObservableObject {
         guard let filename = store.saveImage(data, fileExtension: fileExtension) else { return }
         var item = ClipboardItem.image(filename: filename, uti: uti, sourceApp: sourceApp)
         item.kind = .image
+        item.contentKey = ClipboardItem.contentKey(forImageData: data)   // 5B
         let captured = item
         DispatchQueue.main.async { [weak self] in
             self?.lastContentHash = hash
@@ -293,6 +294,7 @@ class ClipboardWatcher: ObservableObject {
         guard let filename = store.saveImage(imageData, fileExtension: "png") else { return }
         var item = ClipboardItem.image(filename: filename, uti: "public.png", sourceApp: sourceApp)
         item.kind = .image
+        item.contentKey = ClipboardItem.contentKey(forImageData: imageData)   // 5B
         let captured = item
         DispatchQueue.main.async { [weak self] in
             self?.lastContentHash = hash
@@ -327,6 +329,10 @@ class ClipboardWatcher: ObservableObject {
             item = ClipboardItem.largeText(preview: preview, filename: filename, sourceApp: sourceApp)
             print("[Buffer] Large text (\(textSize / 1024) KB) saved to file: \(filename)")
         }
+
+        // 5B: keyed on the full text, computed here because the large-text
+        // branch above keeps only a preview on the item itself.
+        item.contentKey = ClipboardItem.contentKey(forText: text)
 
         // Detect against the full captured text (not just an inline
         // preview) — we already have it in memory here. 3C's detector
@@ -430,6 +436,7 @@ class ClipboardWatcher: ObservableObject {
             if let filename = store.saveImage(fileData, fileExtension: ext) {
                 var item = ClipboardItem.image(filename: filename, uti: uti, sourceApp: sourceApp)
                 item.kind = .image
+                item.contentKey = ClipboardItem.contentKey(forImageData: fileData)   // 5B
                 DispatchQueue.main.async { [weak self] in
                     self?.lastContentHash = hash
                     self?.store.add(item)

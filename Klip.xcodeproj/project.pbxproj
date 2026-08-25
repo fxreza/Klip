@@ -89,6 +89,7 @@
 		5726344E3C04C552DC3281AE /* ImageDimensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C03AB9ED32E7451E2DFCFA58 /* ImageDimensions.swift */; };
 		5F6BD78DAA4A544EB118921E /* KlipTooltip.swift in Sources */ = {isa = PBXBuildFile; fileRef = E34F85551DF2F26813A273E7 /* KlipTooltip.swift */; };
 		F345F9ACE7D05242E26F4FE9 /* SyncKindFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0459A54EF1E9DB13767A07 /* SyncKindFilter.swift */; };
+		68CAE23C7B4A22C74216E625 /* SystemHotkeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13E33614B9F97DB6787A850E /* SystemHotkeys.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -188,6 +189,7 @@
 		C03AB9ED32E7451E2DFCFA58 /* ImageDimensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageDimensions.swift; sourceTree = "<group>"; };
 		E34F85551DF2F26813A273E7 /* KlipTooltip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KlipTooltip.swift; sourceTree = "<group>"; };
 		0A0459A54EF1E9DB13767A07 /* SyncKindFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncKindFilter.swift; sourceTree = "<group>"; };
+		13E33614B9F97DB6787A850E /* SystemHotkeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemHotkeys.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -300,6 +302,7 @@
 				B32C9AD64843714FA64A6749 /* KlipDefaults.swift */,
 				1F6EC2A46F5C7C2793CDD3A1 /* ChangelogService.swift */,
 				0A0459A54EF1E9DB13767A07 /* SyncKindFilter.swift */,
+				13E33614B9F97DB6787A850E /* SystemHotkeys.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -589,6 +592,7 @@
 				5726344E3C04C552DC3281AE /* ImageDimensions.swift in Sources */,
 				5F6BD78DAA4A544EB118921E /* KlipTooltip.swift in Sources */,
 				F345F9ACE7D05242E26F4FE9 /* SyncKindFilter.swift in Sources */,
+				68CAE23C7B4A22C74216E625 /* SystemHotkeys.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

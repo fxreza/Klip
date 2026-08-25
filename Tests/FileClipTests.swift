@@ -17,7 +17,7 @@ enum FileClipTests {
         ("fileURLs_skipsMissingNames", testFileURLsSkipsMissing),
         ("fileIsMissing_trueWhenNothingResolves", testFileIsMissing),
         ("fileIsMissing_falseForFoundFile", testFileIsMissingFalseWhenPresent),
-        ("deleteAssociatedFiles_removesCopiedFilesDirectory", testDeleteRemovesCopiedFiles),
+        ("purgeFromTrash_removesCopiedFilesDirectory", testDeleteRemovesCopiedFiles),
         ("uniqueURL_noCollision_returnsSameName", testUniqueURLNoCollision),
         ("uniqueURL_collision_appendsCounter", testUniqueURLCollision),
         ("uniqueURL_collision_noExtension", testUniqueURLCollisionNoExtension),
@@ -220,7 +220,11 @@ enum FileClipTests {
 
             store.add(item)
             try expect(store.delete(item), "deleting an unlocked file item should succeed")
-            try expect(!FileManager.default.fileExists(atPath: copiedDir.path), "files/<uuid>/ should be removed on delete")
+            // 5D: the delete moves the clip to the trash, which keeps its
+            // payload so a restore is complete; the purge is what removes it.
+            try expect(FileManager.default.fileExists(atPath: copiedDir.path), "files/<uuid>/ survives in the trash")
+            try expectEqual(store.purgeFromTrash(ids: [item.id]), 1)
+            try expect(!FileManager.default.fileExists(atPath: copiedDir.path), "files/<uuid>/ should be removed on purge")
         }
     }
 

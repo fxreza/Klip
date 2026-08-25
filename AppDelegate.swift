@@ -192,6 +192,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         defaults.set(true, forKey: "klip.migratedDefaults")
+
+        migrateUserDefaultsFromWorkaroundIdentifierIfNeeded()
+    }
+
+    /// Copy-only migration from `com.fxreza.klip.app`, the identifier a
+    /// handful of local builds carried between 3.2.0 and 3.3.0.
+    ///
+    /// That identifier was a workaround: macOS refused to lay out the status
+    /// item for `com.fxreza.klip`, and rebuilding under any other identifier
+    /// placed the icon immediately. The cause turned out to be ControlCenter's
+    /// per-app "Allow in the Menu Bar" store, not the identifier itself (see
+    /// `docs/analysis/menubar-status-item-not-laid-out.md`), so 3.3.0 ships
+    /// the original identifier again and this carries any settings changed
+    /// while the workaround was installed back to it.
+    ///
+    /// Settings live in the preferences domain, which is keyed by bundle
+    /// identifier, so they need copying across. The clipboard history, folders
+    /// and trash do not: they live in `Application Support/Klip`, keyed by
+    /// folder name, and every build reads exactly the same files.
+    ///
+    /// No released version ever carried `com.fxreza.klip.app`, so on any other
+    /// Mac the domain simply does not exist and this does nothing. The
+    /// workaround domain is read, never written or deleted.
+    private func migrateUserDefaultsFromWorkaroundIdentifierIfNeeded() {
+        guard ProcessInfo.processInfo.environment["KLIP_DATA_DIR"] == nil else { return }
+
+        let defaults = KlipDefaults.standard
+        guard !defaults.bool(forKey: "klip.migratedFromWorkaroundIdentifier") else { return }
+
+        if let previous = defaults.persistentDomain(forName: "com.fxreza.klip.app") {
+            var copied = 0
+            for (key, value) in previous where defaults.object(forKey: key) == nil {
+                // The saved status item position is deliberately NOT carried
+                // over — this domain's copy was written while the item was
+                // never being laid out, so it is not a position worth keeping.
+                guard !key.hasPrefix("NSStatusItem ") else { continue }
+                defaults.set(value, forKey: key)
+                copied += 1
+            }
+            print("[AppDelegate] Migrated \(copied) UserDefaults key(s) from com.fxreza.klip.app")
+        }
+
+        defaults.set(true, forKey: "klip.migratedFromWorkaroundIdentifier")
     }
 
     /// Darwin notification hooks for driving the app from test scripts, active only

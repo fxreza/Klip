@@ -226,7 +226,8 @@ struct FilterState: Equatable {
     ///    fields set (no OCR text, no tags, no matching source app) still
     ///    matches nothing, as before. A `#…` query is tag-autocomplete mode
     ///    and does not narrow the list at all.
-    /// 5. Pinned items float to the top.
+    /// 5. Pinned items float to the top — except in folder scope, where the
+    ///    manual drag order from `folderSortIndex` replaces this step entirely.
     ///
     /// The pinned-first step is a **stable partition**: pinned items keep their
     /// relative order and so do the rest. (The original used
@@ -260,6 +261,15 @@ struct FilterState: Equatable {
                 return words.allSatisfy { blob.contains($0) }
             }
         }
+        // 5C: inside a folder the user's own drag order wins outright —
+        // including over pins. Hand-sorting a folder is how the clips used
+        // most often are kept at the top, and a pinned row jumping out of the
+        // position it was dragged to would defeat that. All and Favorites are
+        // unaffected and stay chronological, pinned first.
+        if case .folder = f.scope {
+            return ClipboardStore.folderOrder(base)
+        }
+
         var pinned: [ClipboardItem] = []
         var rest: [ClipboardItem] = []
         pinned.reserveCapacity(base.count)

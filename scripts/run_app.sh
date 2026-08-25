@@ -70,6 +70,23 @@ fi
 # Kill any existing local instance before launching new one
 kill_local_instance
 
+# A local test build must never share the installed app's bundle identifier.
+# Two live copies of one identifier wedged macOS's per-identifier menu bar
+# state so badly that the status item stopped being laid out at all, and it
+# survived a logout and a LaunchServices rebuild — the identifier had to be
+# changed to recover. Rebuild with a dev identifier instead of reusing the
+# installed one.
+BUNDLE_ID_IN_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
+    "${REPO_PATH}/build.noindex/${APP_NAME}.app/Contents/Info.plist" 2>/dev/null || echo "")
+INSTALLED_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
+    "/Applications/${APP_NAME}.app/Contents/Info.plist" 2>/dev/null || echo "")
+if [[ -n "$BUNDLE_ID_IN_BUILD" && "$BUNDLE_ID_IN_BUILD" == "$INSTALLED_ID" ]]; then
+    echo "❌ build.noindex/${APP_NAME}.app has the same bundle ID as /Applications (${INSTALLED_ID})."
+    echo "   Rebuild it with its own identifier first:"
+    echo "     BUNDLE_ID=${INSTALLED_ID}.dev scripts/build_local.sh"
+    exit 1
+fi
+
 # Check if binary exists
 if [[ ! -f "$BINARY" ]]; then
     echo "❌ Error: Binary not found at ${BINARY}"

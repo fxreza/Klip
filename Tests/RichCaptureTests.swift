@@ -23,7 +23,7 @@ enum RichCaptureTests {
         ("store_saveRTF_writesUnderTextsDirectory", testSaveRTFWritesFile),
         ("store_saveFlavors_writesUnderFlavorsDirectory", testSaveFlavorsWritesFile),
         ("store_rtfData_flavorsData_roundTripThroughDisk", testStoreRTFFlavorsRoundTrip),
-        ("store_deleteItem_removesRTFAndFlavorsFiles", testDeleteRemovesRTFAndFlavorsFiles),
+        ("store_purgeItem_removesRTFAndFlavorsFiles", testDeleteRemovesRTFAndFlavorsFiles),
         ("store_clearRichFlavors_dropsFieldsFilesAndDemotesKind", testClearRichFlavorsDemotesKind),
         ("store_clearRichFlavors_noOpWhenNoRichBacking", testClearRichFlavorsNoOp),
         ("pasteMode_default_isRichUnlessAlwaysPlainIsOn", testDefaultPasteModeFollowsSetting),
@@ -167,6 +167,9 @@ enum RichCaptureTests {
 
             let rtfURL = dir.appendingPathComponent("texts").appendingPathComponent(item.rtfFilename!)
             let flavorsURL = dir.appendingPathComponent("flavors").appendingPathComponent(item.flavorsFilename!)
+            // 5D: kept while the clip is recoverable, removed by the purge.
+            try expect(FileManager.default.fileExists(atPath: rtfURL.path), "the RTF file survives in the trash")
+            try expectEqual(store.purgeFromTrash(ids: [item.id]), 1)
             try expect(!FileManager.default.fileExists(atPath: rtfURL.path), "the RTF file should be removed with the item")
             try expect(!FileManager.default.fileExists(atPath: flavorsURL.path), "the flavors file should be removed with the item")
         }

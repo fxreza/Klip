@@ -16,7 +16,18 @@ class StatusBarController {
         self.onToggleHistory = onShowHistory
 
         if !SettingsManager.shared.hideStatusBar {
-            createStatusItem()
+            // Deferred by one run-loop turn on purpose. Under the SwiftUI
+            // `App` lifecycle, `applicationDidFinishLaunching` runs before
+            // AppKit has finished setting up the menu bar, and a status item
+            // created at that moment is registered but never laid out: it
+            // reports a bogus frame at the top-right corner (x = screen width,
+            // y = -1), draws nothing, and only responds to synthetic clicks.
+            // Creating it once the launch turn has finished puts it in the bar
+            // normally.
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self, self.statusItem == nil else { return }
+                self.createStatusItem()
+            }
         }
 
         NotificationCenter.default.addObserver(
@@ -35,11 +46,18 @@ class StatusBarController {
     private func setupButton() {
         guard let button = statusItem?.button else { return }
         
-        // Use SF Symbol for clipboard
+        // Use SF Symbol for clipboard.
+        //
+        // `isTemplate` is set on the CONFIGURED image, not on the original:
+        // `withSymbolConfiguration` returns a new NSImage that does not
+        // inherit the flag. Setting it before the call left the menu bar with
+        // a non-template, solid-black glyph — invisible on a dark menu bar,
+        // while still occupying (and responding to clicks in) its 24pt slot.
         let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
         let image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "Klip")
-        image?.isTemplate = true
-        button.image = image?.withSymbolConfiguration(config)
+        let configured = image?.withSymbolConfiguration(config) ?? image
+        configured?.isTemplate = true
+        button.image = configured
         
         // Direct click action - no menu
         button.action = #selector(handleClick)
@@ -100,6 +118,13 @@ class StatusBarController {
         
         menu.addItem(NSMenuItem.separator())
         
+        // Recently Deleted (5D). Menu-only by design: the trash is a safety
+        // net people reach for rarely, and a bin in the history window would
+        // cost a permanent slot in a very compact toolbar.
+        menu.addItem(recentlyDeletedItem())
+
+        menu.addItem(NSMenuItem.separator())
+
         // Clear History
         let clearItem = NSMenuItem(title: "Clear History", action: #selector(clearHistory), keyEquivalent: "")
         clearItem.target = self
@@ -117,6 +142,99 @@ class StatusBarController {
         statusItem?.menu = nil  // Reset so left click works
     }
     
+    // MARK: - Recently Deleted (5D)
+
+    /// How many trashed clips the submenu lists. A menu is not a browser: past
+    /// a couple of dozen rows it stops being scannable, and the ones anyone
+    /// wants back are the recent ones.
+    private static let trashMenuLimit = 25
+
+    private func recentlyDeletedItem() -> NSMenuItem {
+        let parent = NSMenuItem(title: "Recently Deleted", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+
+        let trashed = store.trashedItems
+        if trashed.isEmpty {
+            let empty = NSMenuItem(title: "No Deleted Clips", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            submenu.addItem(empty)
+            parent.submenu = submenu
+            return parent
+        }
+
+        for item in trashed.prefix(Self.trashMenuLimit) {
+            let entry = NSMenuItem(title: trashMenuTitle(for: item), action: #selector(restoreClip(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = item.id
+            submenu.addItem(entry)
+        }
+        if trashed.count > Self.trashMenuLimit {
+            let more = NSMenuItem(title: "\(trashed.count - Self.trashMenuLimit) more…", action: nil, keyEquivalent: "")
+            more.isEnabled = false
+            submenu.addItem(more)
+        }
+
+        submenu.addItem(NSMenuItem.separator())
+
+        let retention = SettingsManager.shared.trashRetention
+        let note = NSMenuItem(
+            title: retention.days == nil
+                ? "Kept until emptied by hand"
+                : "Kept for \(retention.label)",
+            action: nil,
+            keyEquivalent: ""
+        )
+        note.isEnabled = false
+        submenu.addItem(note)
+
+        let empty = NSMenuItem(title: "Empty Trash…", action: #selector(emptyTrash), keyEquivalent: "")
+        empty.target = self
+        submenu.addItem(empty)
+
+        parent.submenu = submenu
+        return parent
+    }
+
+    /// One row's label: a single line of preview, plus how long ago it went.
+    private func trashMenuTitle(for item: ClipboardItem) -> String {
+        var preview = item.previewText
+            .components(separatedBy: .newlines)
+            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? item.previewText
+        preview = preview.trimmingCharacters(in: .whitespaces)
+        if preview.count > 48 { preview = String(preview.prefix(48)) + "…" }
+        if preview.isEmpty { preview = item.type == .image ? "Image" : "Clip" }
+
+        guard let deletedAt = item.deletedAt else { return preview }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return "\(preview)  —  \(formatter.localizedString(for: deletedAt, relativeTo: Date()))"
+    }
+
+    @objc private func restoreClip(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        store.restoreFromTrash(ids: [id])
+    }
+
+    @objc private func emptyTrash() {
+        let count = store.trashedItems.count
+        guard count > 0 else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Empty Trash?"
+        alert.informativeText = count == 1
+            ? "1 deleted clip will be erased permanently. This cannot be undone."
+            : "\(count) deleted clips will be erased permanently. This cannot be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Empty Trash")
+        alert.addButton(withTitle: "Cancel")
+
+        activeAlert = alert
+        defer { activeAlert = nil }
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        store.emptyTrash()
+    }
+
     @objc private func checkForUpdates() {
         UpdateService.shared.checkForUpdates(silent: false)
     }

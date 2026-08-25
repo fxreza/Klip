@@ -1,6 +1,31 @@
 import Cocoa
 import Carbon
 
+/// Why the last `HotkeyManager.register()` failed, published for
+/// `Views/Settings/ShortcutsTab.swift`.
+///
+/// A separate observable object rather than making `HotkeyManager` itself one:
+/// the manager is owned by `AppDelegate` and never handed to SwiftUI, and the
+/// Settings window is rebuilt from scratch every time it opens, so a shared
+/// object is the only thing the tab can observe. `nil` means the current
+/// global hotkey is registered and working.
+class HotkeyRegistration: ObservableObject {
+    static let shared = HotkeyRegistration()
+
+    @Published private(set) var failureMessage: String?
+
+    fileprivate func succeeded() {
+        failureMessage = nil
+    }
+
+    /// Turns a Carbon failure (in practice always `eventHotKeyExistsErr`,
+    /// -9878) into something the user can act on, by asking `SystemHotkeys`
+    /// whether macOS itself holds the combination.
+    fileprivate func failed(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
+        failureMessage = SystemHotkeys.message(for: SystemHotkeys.systemMatch(keyCode: keyCode, modifiers: modifiers))
+    }
+}
+
 /// Manages global keyboard shortcut registration using Carbon API
 class HotkeyManager {
     private var hotKeyRef: EventHotKeyRef?
@@ -15,7 +40,12 @@ class HotkeyManager {
         HotkeyManager.instance = self
     }
     
-    func register() {
+    /// Registers the global open-Klip hotkey. Returns false when macOS
+    /// refused it — the combination is already held by the system or by
+    /// another app — in which case `HotkeyRegistration.shared` carries the
+    /// message Settings shows.
+    @discardableResult
+    func register() -> Bool {
         let settings = SettingsManager.shared
         print("[HotkeyManager] Registering: keyCode=\(settings.hotkeyKeyCode) mods=\(settings.hotkeyModifiers.displayString)")
         
@@ -56,7 +86,7 @@ class HotkeyManager {
             
             if status != noErr {
                 print("[HotkeyManager] ❌ Failed to install event handler: \(status)")
-                return
+                return false
             }
             HotkeyManager.eventHandlerInstalled = true
         }
@@ -83,12 +113,24 @@ class HotkeyManager {
         
         if registerStatus == noErr {
             print("[HotkeyManager] ✅ Carbon hotkey registered: keyCode=\(requiredKeyCode)")
-        } else {
-            print("[HotkeyManager] ❌ Failed to register hotkey: \(registerStatus)")
+            HotkeyRegistration.shared.succeeded()
+            return true
         }
+
+        print("[HotkeyManager] ❌ Failed to register hotkey: \(registerStatus)")
+        // The recorder speaks NSEvent flags, so translate the modifiers back
+        // for the symbolic-hotkey lookup rather than reusing the Carbon mask.
+        var eventModifiers: NSEvent.ModifierFlags = []
+        if mods.shift { eventModifiers.insert(.shift) }
+        if mods.command { eventModifiers.insert(.command) }
+        if mods.option { eventModifiers.insert(.option) }
+        if mods.control { eventModifiers.insert(.control) }
+        HotkeyRegistration.shared.failed(keyCode: UInt16(settings.hotkeyKeyCode), modifiers: eventModifiers)
+        return false
     }
     
-    func reregister() {
+    @discardableResult
+    func reregister() -> Bool {
         register()
     }
     

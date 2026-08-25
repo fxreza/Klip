@@ -22,7 +22,7 @@ enum ClipboardStoreTests {
         ("clear_keepsLockedAndFolderedItems", testClearKeepsProtected),
         ("clear_keepProtectedFalse_stillKeepsLocked", testClearAllStillKeepsLocked),
         ("itemSize_usesFileAttachmentByteSize", testItemSizeFileAttachment),
-        ("delete_removesFilesFlavorsAndRtfAssets", testDeleteRemovesAssets),
+        ("purge_removesFilesFlavorsAndRtfAssets", testDeleteRemovesAssets),
         ("backfillKindsIfNeeded_fillsMissingKindsAndPersists", testBackfillFillsMissingKinds),
         ("backfillKindsIfNeeded_leavesExistingKindsUntouched", testBackfillLeavesExistingKindAlone),
         ("backfillKindsIfNeeded_secondCall_isIdempotent", testBackfillIsIdempotent),
@@ -470,6 +470,11 @@ enum ClipboardStoreTests {
 
             store.add(item)
             try expect(store.delete(item), "the item should delete")
+
+            // 5D: a delete is recoverable, so the assets outlive it and are
+            // destroyed only when the trashed record is purged.
+            try expect(fm.fileExists(atPath: itemFiles.path), "files/<uuid>/ survives while the clip is in the trash")
+            try expectEqual(store.purgeFromTrash(ids: [item.id]), 1)
 
             try expect(!fm.fileExists(atPath: itemFiles.path), "files/<uuid>/ should be removed")
             try expect(!fm.fileExists(atPath: flavors.path), "flavors/<uuid>.plist should be removed")

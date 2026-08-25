@@ -110,6 +110,17 @@ private struct HistorySettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Trash") {
+                Picker("Keep deleted clips for", selection: $settings.trashRetention) {
+                    ForEach(TrashRetention.allCases, id: \.self) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                Text("Deleted clips move to the trash and are erased for good after this. Reach them from the menu bar icon > Recently Deleted. The trash stays on this Mac and is never synced to iCloud.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Lock / Protect") {
                 Text("Locked clips can't be deleted until you unlock them. Clips inside folders are locked automatically. Pinned, favorited, tagged, locked and folder clips never count toward the history limit.")
                     .font(.caption)

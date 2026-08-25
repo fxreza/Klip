@@ -2,6 +2,40 @@ import Foundation
 import ServiceManagement
 import Combine
 
+/// How long a deleted clip stays in the trash before it is purged for good.
+///
+/// The raw value is the number of days; `0` means "keep forever" (the trash is
+/// only ever emptied by hand). Modelled on the Finder's own Recently Deleted
+/// setting, which is where the 30-day default comes from.
+enum TrashRetention: Int, CaseIterable, Codable {
+    case days7    = 7
+    case days30   = 30
+    case days90   = 90
+    case forever  = 0
+
+    static let `default`: TrashRetention = .days30
+
+    /// Retention window, or `nil` when nothing ever expires.
+    var days: Int? { self == .forever ? nil : rawValue }
+
+    var label: String {
+        switch self {
+        case .days7:   return "7 days"
+        case .days30:  return "30 days"
+        case .days90:  return "90 days"
+        case .forever: return "Forever"
+        }
+    }
+
+    /// Reads a stored raw value, falling back to the default for an absent or
+    /// unrecognised one. A stored `0` is a deliberate "forever", not a missing
+    /// key, which is why the parameter is optional rather than an `Int`.
+    static func from(storedRaw raw: Int?) -> TrashRetention {
+        guard let raw = raw else { return .default }
+        return TrashRetention(rawValue: raw) ?? .default
+    }
+}
+
 /// How many items the history keeps before the oldest unprotected one is evicted.
 ///
 /// The raw value is the item cap and is what lands in the `historyLimit`
@@ -98,6 +132,14 @@ final class SettingsManager: ObservableObject {
             guard isLoaded, historyLimit != oldValue else { return }
             defaults.set(historyLimit.rawValue, forKey: "historyLimit")
             NotificationCenter.default.post(name: .bufferHistoryLimitChanged, object: nil)
+        }
+    }
+    /// How long deleted clips are kept before the trash purges them (5D).
+    @Published var trashRetention: TrashRetention = .default {
+        didSet {
+            guard isLoaded, trashRetention != oldValue else { return }
+            defaults.set(trashRetention.rawValue, forKey: "trashRetention")
+            NotificationCenter.default.post(name: .bufferTrashRetentionChanged, object: nil)
         }
     }
     @Published var includePrereleases: Bool = false {
@@ -323,6 +365,10 @@ final class SettingsManager: ObservableObject {
         // absent key is distinguishable from a stored 0 (= unlimited).
         self.historyLimit = HistoryLimit.from(storedRaw: defaults.object(forKey: "historyLimit") as? Int)
         
+        // Load trash retention. Read as an object for the same reason as the
+        // history limit above: a stored 0 means "forever", not "unset".
+        self.trashRetention = TrashRetention.from(storedRaw: defaults.object(forKey: "trashRetention") as? Int)
+
         // Load pre-release updates toggle
         self.includePrereleases = defaults.bool(forKey: "includePrereleases")
 
