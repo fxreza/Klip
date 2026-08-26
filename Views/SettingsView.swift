@@ -116,7 +116,7 @@ private struct HistorySettingsTab: View {
                         Text(option.label).tag(option)
                     }
                 }
-                Text("Deleted clips move to the trash and are erased for good after this. Reach them from the menu bar icon > Recently Deleted. The trash stays on this Mac and is never synced to iCloud.")
+                Text("Deleted clips move to the trash and are erased for good after this. Open the history window and click Trash in the sidebar to search them, restore them, or empty the trash. The trash stays on this Mac and is never synced to iCloud.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -8,6 +8,95 @@ enum Scope: Hashable {
     case all
     case favorites
     case folder(UUID)
+    /// The Trash (5E). Unlike every other scope this one does not read
+    /// `ClipboardStore.items` at all — `HistoryViewModel.applyFilters` feeds
+    /// `trashedItems` in instead — so the trash stays structurally invisible
+    /// to the history (see `ClipboardStore.trashedItems`).
+    case trash
+}
+
+/// How the Trash list is ordered (5E).
+///
+/// Deletion date first by default: the clip someone came to the trash for is
+/// nearly always the one they just lost. The other three exist because the
+/// trash is browsed, not scanned — a month of deletions is not something you
+/// find by scrolling a timeline.
+///
+/// Every ordering falls back to the deletion date and then the id, so the
+/// result is a strict weak ordering (`sorted` is free to shuffle equal
+/// elements otherwise) and two clips that tie on the chosen key still come out
+/// newest-deletion-first rather than in whatever order the array held.
+enum TrashSort: String, CaseIterable, Hashable {
+    case dateDeleted
+    case dateAdded
+    case name
+    case kind
+
+    static let `default`: TrashSort = .dateDeleted
+
+    var label: String {
+        switch self {
+        case .dateDeleted: return "Date Deleted"
+        case .dateAdded:   return "Date Added"
+        case .name:        return "Name"
+        case .kind:        return "Type"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .dateDeleted: return "clock.arrow.circlepath"
+        case .dateAdded:   return "clock"
+        case .name:        return "textformat"
+        case .kind:        return "square.grid.2x2"
+        }
+    }
+
+    func order(_ items: [ClipboardItem]) -> [ClipboardItem] {
+        items.sorted { a, b in
+            switch self {
+            case .dateDeleted:
+                break
+            case .dateAdded:
+                if a.timestamp != b.timestamp { return a.timestamp > b.timestamp }
+            case .name:
+                let (x, y) = (Self.sortName(a), Self.sortName(b))
+                if x != y { return x < y }
+            case .kind:
+                let (x, y) = (a.displayKind.label, b.displayKind.label)
+                if x != y { return x < y }
+            }
+            // Newest deletion first; a record with no deletion date (only
+            // possible for a hand-edited trash.json) sorts last rather than
+            // first, so it can never push a real deletion off the top.
+            switch (a.deletedAt, b.deletedAt) {
+            case let (x?, y?):
+                if x != y { return x > y }
+            case (nil, _?):
+                return false
+            case (_?, nil):
+                return true
+            case (nil, nil):
+                break
+            }
+            // Deleting a multi-selection stamps every clip in it with the
+            // same instant, so without this the whole batch would fall
+            // through to the id — i.e. random order — right at the top of the
+            // default sort. Capture date puts the batch back in the order the
+            // history had them in.
+            if a.timestamp != b.timestamp { return a.timestamp > b.timestamp }
+            return a.id.uuidString < b.id.uuidString
+        }
+    }
+
+    /// The string the **Name** sort compares: the clip's own preview text,
+    /// folded the same way search is, so "Éclair" and "eclair" land together
+    /// and an image sorts under its "Image" label rather than at random.
+    static func sortName(_ item: ClipboardItem) -> String {
+        item.previewText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+    }
 }
 
 /// The content-kind filter chosen in the chip row under the search field.
@@ -68,12 +157,21 @@ struct FilterState: Equatable {
     var scope: Scope
     /// Content-kind chip.
     var chip: ChipFilter
+    /// Trash ordering (5E). Ignored in every other scope.
+    var trashSort: TrashSort
 
-    init(query: String = "", tag: String? = nil, scope: Scope = .all, chip: ChipFilter = .all) {
+    init(
+        query: String = "",
+        tag: String? = nil,
+        scope: Scope = .all,
+        chip: ChipFilter = .all,
+        trashSort: TrashSort = .default
+    ) {
         self.query = query
         self.tag = tag
         self.scope = scope
         self.chip = chip
+        self.trashSort = trashSort
     }
 
     /// Does `item` belong to `scope`?
@@ -85,6 +183,9 @@ struct FilterState: Equatable {
         case .all:            return true
         case .favorites:      return item.isBookmarked
         case .folder(let id): return item.folderID == id
+        // The array handed to `apply` in trash scope *is* the trash, so
+        // membership is not a question this can answer — or needs to.
+        case .trash:          return true
         }
     }
 
@@ -227,7 +328,13 @@ struct FilterState: Equatable {
     ///    matches nothing, as before. A `#…` query is tag-autocomplete mode
     ///    and does not narrow the list at all.
     /// 5. Pinned items float to the top — except in folder scope, where the
-    ///    manual drag order from `folderSortIndex` replaces this step entirely.
+    ///    manual drag order from `folderSortIndex` replaces this step entirely,
+    ///    and in trash scope (5E), where `trashSort` does.
+    ///
+    /// In trash scope the caller passes `ClipboardStore.trashedItems` rather
+    /// than `items`; steps 2-4 are identical, which is the whole point — the
+    /// trash is searched, tag-filtered and chip-filtered exactly like the
+    /// history.
     ///
     /// The pinned-first step is a **stable partition**: pinned items keep their
     /// relative order and so do the rest. (The original used
@@ -241,7 +348,10 @@ struct FilterState: Equatable {
     static func apply(_ items: [ClipboardItem], _ f: FilterState) -> [ClipboardItem] {
         sweepBlobCache(keeping: items)
         var base = items
-        if f.scope != .all {
+        // `.trash` is skipped along with `.all`: the caller already handed in
+        // the trash, so the filter would keep every element at the cost of a
+        // full copy on every keystroke.
+        if f.scope != .all, f.scope != .trash {
             base = base.filter { matches($0, scope: f.scope) }
         }
         if let tag = f.tag {
@@ -261,6 +371,14 @@ struct FilterState: Equatable {
                 return words.allSatisfy { blob.contains($0) }
             }
         }
+        // 5E: the trash is ordered by its own picker, and never pinned-first
+        // — a pinned clip that was deleted is just a deleted clip, and having
+        // it jump the queue above the deletion someone came here to undo
+        // would defeat the default sort.
+        if case .trash = f.scope {
+            return f.trashSort.order(base)
+        }
+
         // 5C: inside a folder the user's own drag order wins outright —
         // including over pins. Hand-sorting a folder is how the clips used
         // most often are kept at the top, and a pinned row jumping out of the

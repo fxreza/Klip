@@ -119,6 +119,8 @@ struct ActionBar: View {
     private var legend: some View {
         if viewModel.isEditing {
             editingLegend
+        } else if viewModel.isTrashScope {
+            trashLegend
         } else {
             let rows = LegendRowPacking.packRows(
                 legendItems,
@@ -138,6 +140,29 @@ struct ActionBar: View {
     /// `LegendRowPacking`'s width measurement stays accurate at any scale.
     private var legendFontSize: CGFloat {
         KlipFontRole.caption.baseSize * settings.listFontScale
+    }
+
+    /// 5E. Short on purpose: in the trash there are exactly two things a key
+    /// does, and both of them mean something different here than they do in
+    /// the history, so spelling them out matters more than packing the row.
+    private var trashLegend: some View {
+        HStack(spacing: 10) {
+            Text("Trash")
+                .font(.klip(.caption))
+                .fontWeight(.semibold)
+                .foregroundStyle(Theme.accent)
+            legendItem(
+                shortcuts.displayString(for: .paste),
+                "restore",
+                help: "Put the selected clips back at the top of All"
+            )
+            legendItem(
+                shortcuts.displayString(for: .delete),
+                "delete forever",
+                help: "Erase the selected clips, with a confirmation"
+            )
+            legendItem(shortcuts.displayString(for: .copy), "copy")
+        }
     }
 
     private var editingLegend: some View {

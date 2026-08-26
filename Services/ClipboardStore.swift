@@ -581,9 +581,21 @@ class ClipboardStore: ObservableObject {
         saveTrash()
     }
 
-    /// Puts trashed clips back into the history. Ids that are not in the trash
-    /// are ignored. Restored clips land in their chronological place, and keep
-    /// their folder only if that folder still exists.
+    /// Puts trashed clips back into the history, **at the top**. Ids that are
+    /// not in the trash are ignored; a restored clip keeps its folder only if
+    /// that folder still exists.
+    ///
+    /// 5E: this used to insert each clip back into its chronological place,
+    /// which is where it was when it was deleted — a clip deleted from 100
+    /// rows down came back 100 rows down, and finding it again meant
+    /// scrolling or searching for something you had just asked to get back.
+    /// A restore now behaves exactly like re-copying the content does
+    /// (`resurface`): the clip goes to row one and its `timestamp` moves to
+    /// now. Moving the date is what makes the position survive — the history
+    /// is timestamp-ordered, and a sync merge re-sorts it (`applyRemoteMerge`),
+    /// so a clip parked at index 0 with a month-old date would silently drop
+    /// back down the list at the next merge. Everything else the user gave the
+    /// clip — tags, folder, folder position, pin, favorite — is untouched.
     @discardableResult
     func restoreFromTrash(ids: Set<UUID>) -> Int {
         var restored = 0
@@ -593,16 +605,19 @@ class ClipboardStore: ObservableObject {
             guard !coming.isEmpty else { return }
             self.trashedItems.removeAll { ids.contains($0.id) }
 
-            for var item in coming {
+            let now = Date()
+            // Reversed so a multi-clip restore keeps the trash list's own
+            // order once every insert has landed at index 0.
+            for var item in coming.reversed() {
                 item.deletedAt = nil
                 if let folderID = item.folderID, !self.folders.contains(where: { $0.id == folderID }) {
                     // The folder was deleted while the clip sat in the trash.
                     item.folderID = nil
                     item.folderSortIndex = nil
                 }
-                item.updatedAt = Date()
-                let insertAt = self.items.firstIndex { $0.timestamp <= item.timestamp } ?? self.items.count
-                self.items.insert(item, at: insertAt)
+                item.timestamp = now
+                item.updatedAt = now
+                self.items.insert(item, at: 0)
                 restored += 1
             }
 

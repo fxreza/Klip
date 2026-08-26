@@ -139,7 +139,42 @@ struct PreviewPane: View {
         }
     }
 
+    @ViewBuilder
     private func actionIcons(for item: ClipboardItem) -> some View {
+        // 5E: a trashed clip has two things worth doing to it, and every
+        // other icon here would write to `store.items`, where it no longer is.
+        if viewModel.isTrashScope {
+            trashActionIcons(for: item)
+        } else {
+            historyActionIcons(for: item)
+        }
+    }
+
+    private func trashActionIcons(for item: ClipboardItem) -> some View {
+        HStack(spacing: 12) {
+            iconButton(
+                "arrow.uturn.backward",
+                tint: Theme.accent,
+                help: "Restore to the top of All (\(ShortcutManager.shared.displayString(for: .paste)))"
+            ) {
+                viewModel.restore(item)
+            }
+
+            iconButton("doc.on.doc", tint: .secondary, help: "Copy") {
+                viewModel.copy(item)
+            }
+
+            iconButton(
+                "trash.slash",
+                tint: .secondary,
+                help: "Delete permanently (\(ShortcutManager.shared.displayString(for: .delete)))"
+            ) {
+                viewModel.requestPurge(ids: [item.id])
+            }
+        }
+    }
+
+    private func historyActionIcons(for item: ClipboardItem) -> some View {
         HStack(spacing: 12) {
             if item.isEditable {
                 iconButton(

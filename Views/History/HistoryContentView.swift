@@ -57,6 +57,13 @@ struct HistoryContentView: View {
                         TagAutocompleteBar(store: store, viewModel: viewModel, tags: viewModel.tagsByUsage)
                     }
 
+                    // 5E: sort + retention note + Empty Trash, only in the
+                    // trash. Everything above this line is shared with every
+                    // other scope.
+                    if viewModel.isTrashScope {
+                        TrashBar(viewModel: viewModel)
+                    }
+
                     Divider()
 
                     listPane
@@ -92,6 +99,8 @@ struct HistoryContentView: View {
             }
 
             FolderPromptLayer(viewModel: viewModel)  // 3B: rename / delete / move
+
+            TrashPromptLayer(viewModel: viewModel)   // 5E: purge / empty trash
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Opaque on purpose: `.regularMaterial` let the desktop through, and
@@ -170,6 +179,12 @@ struct HistoryContentView: View {
         .onChange(of: store.items) { _ in
             viewModel.applyFilters(resetSelection: .preserve)
         }
+        // 5E: in trash scope the list is fed by `trashedItems`, so it has to
+        // watch that array too — a delete made elsewhere in the app (or a
+        // retention purge) changes what the trash shows.
+        .onChange(of: store.trashedItems) { _ in
+            viewModel.applyFilters(resetSelection: .preserve)
+        }
         .onChange(of: store.folders) { _ in
             viewModel.validateScope()
         }
@@ -217,14 +232,34 @@ struct HistoryContentView: View {
             || viewModel.chipFilter != .all
             || viewModel.scope != .all
 
+        // 5E: an empty trash is a normal, good state, not a failed search —
+        // saying "No matches" there would read as something having gone
+        // wrong. A *filtered* trash still says "No matches", same as anywhere.
+        let trashIsEmpty = viewModel.isTrashScope && viewModel.trashIsEmpty
+
         return VStack(spacing: 10) {
-            Image(systemName: isFiltered ? "magnifyingglass" : "doc.on.clipboard")
+            Image(systemName: emptyStateIcon(isFiltered: isFiltered, trashIsEmpty: trashIsEmpty))
                 .font(Theme.icon(34))
                 .foregroundStyle(.tertiary)
-            Text(isFiltered ? "No matches" : "No clipboard history")
+            Text(emptyStateTitle(isFiltered: isFiltered, trashIsEmpty: trashIsEmpty))
                 .font(.klip(.preview))
                 .foregroundStyle(.secondary)
+            if trashIsEmpty {
+                Text("Deleted clips wait here before they are erased.")
+                    .font(.klip(.caption))
+                    .foregroundStyle(.tertiary)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func emptyStateIcon(isFiltered: Bool, trashIsEmpty: Bool) -> String {
+        if trashIsEmpty { return "trash" }
+        return isFiltered ? "magnifyingglass" : "doc.on.clipboard"
+    }
+
+    private func emptyStateTitle(isFiltered: Bool, trashIsEmpty: Bool) -> String {
+        if trashIsEmpty { return "Trash is empty" }
+        return isFiltered ? "No matches" : "No clipboard history"
     }
 }

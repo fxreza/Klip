@@ -18,6 +18,9 @@ enum TrashTests {
         ("clear_movesToTrashToo", testClearGoesToTrash),
         ("eviction_hardDeletes_neverFillsTheTrash", testEvictionSkipsTrash),
         ("restore_putsTheClipBackAndClearsDeletedAt", testRestore),
+        ("restore_landsAtTheTopOfTheHistory", testRestoreGoesToTheTop),
+        ("restore_ofSeveralKeepsTheTrashOrderAtTheTop", testRestoreManyOrder),
+        ("restore_keepsTagsFolderAndPin", testRestoreKeepsMetadata),
         ("restore_dropsAFolderThatIsGone", testRestoreOrphanedFolder),
         ("restore_retractsTheSyncTombstone", testRestoreRetractsTombstone),
         ("purge_removesTheRecordAndItsAssets", testPurgeRemovesAssets),
@@ -175,6 +178,71 @@ enum TrashTests {
             try expectEqual(store.items.count, 1, "back in the history")
             try expectEqual(store.trashedItems.count, 0, "and out of the trash")
             try expectNil(store.items.first?.deletedAt)
+        }
+    }
+
+    /// 5E. The clip that comes back is the one someone just went looking for,
+    /// so it goes to row one — not back to the position it was deleted from,
+    /// which for an old clip is hundreds of rows down.
+    static func testRestoreGoesToTheTop() throws {
+        try withStore { store, _ in
+            let old = ClipboardItem.text("deleted from way down the list")
+            let newer = [
+                ClipboardItem.text("one"),
+                ClipboardItem.text("two"),
+                ClipboardItem.text("three"),
+            ]
+            store.items = newer + [old]
+            let before = Date()
+            store.delete(old)
+            try expectEqual(store.items.count, 3, "the old clip left the history")
+
+            store.restoreFromTrash(ids: [old.id])
+            try expectEqual(store.items.first?.id, old.id, "it comes back at the top, not where it was")
+            try expectEqual(store.items.count, 4)
+            try expect(
+                (store.items.first?.timestamp ?? .distantPast) >= before,
+                "its date moves to now, so a sync merge's re-sort keeps it there"
+            )
+        }
+    }
+
+    static func testRestoreManyOrder() throws {
+        try withStore { store, _ in
+            let a = ClipboardItem.text("a")
+            let b = ClipboardItem.text("b")
+            let c = ClipboardItem.text("c")
+            store.items = [a, b, c, ClipboardItem.text("survivor")]
+            store.delete([a, b, c])
+            try expectEqual(store.trashedItems.map { $0.id }, [a.id, b.id, c.id],
+                            "the trash holds them newest-deletion-first")
+
+            store.restoreFromTrash(ids: [a.id, b.id, c.id])
+            try expectEqual(
+                Array(store.items.prefix(3)).map { $0.id },
+                [a.id, b.id, c.id],
+                "a bulk restore lands at the top in the order the trash listed them"
+            )
+        }
+    }
+
+    static func testRestoreKeepsMetadata() throws {
+        try withStore { store, _ in
+            let folder = store.createFolder(name: "Keep")
+            var item = ClipboardItem.text("filed and tagged")
+            item.folderID = folder.id
+            item.folderSortIndex = 2
+            item.tags = ["work"]
+            item.isPinned = true
+            store.items = [item, ClipboardItem.text("other")]
+            store.delete(item)
+            store.restoreFromTrash(ids: [item.id])
+
+            let restored = store.items.first { $0.id == item.id }
+            try expectEqual(restored?.folderID, folder.id, "its folder survives")
+            try expectEqual(restored?.folderSortIndex, 2, "and its place in that folder")
+            try expectEqual(restored?.tags, ["work"], "and its tags")
+            try expectEqual(restored?.isPinned, true, "and its pin")
         }
     }
 

@@ -68,6 +68,7 @@ let allSuites: [(String, [(String, () throws -> Void)])] = [
     ("DedupeTests", DedupeTests.tests),
     ("FolderOrderTests", FolderOrderTests.tests),
     ("TrashTests", TrashTests.tests),
+    ("TrashUXTests", TrashUXTests.tests),
     ("FolderTests", FolderTests.tests),
     ("FolderUXTests", FolderUXTests.tests),
     ("FilterStateTests", FilterStateTests.tests),

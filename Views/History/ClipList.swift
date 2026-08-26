@@ -39,7 +39,10 @@ struct ClipList: View {
                     // 5C: in folder scope the list is in the user's own drag
                     // order, so there is no pinned run at the top to head or
                     // separate — a pinned clip sits wherever it was dropped.
-                    let pinnedCount = viewModel.isFolderScope
+                    // 5E: the trash has its own ordering too (`trashSort`),
+                    // and a pinned clip in there is just a deleted clip — no
+                    // pinned run, so no "Pinned" header and no separator.
+                    let pinnedCount = (viewModel.isFolderScope || viewModel.isTrashScope)
                         ? 0
                         : items.prefix(while: { $0.isPinned }).count
                     let separatorID: UUID? = (pinnedCount > 0 && pinnedCount < items.count)
@@ -210,6 +213,10 @@ struct ClipList: View {
                 // the whole selection. Nothing happens until the pointer moves
                 // past the drag threshold, so a plain click is unaffected.
                 dragPayload: {
+                    // 5E: nothing in the trash can be dragged anywhere — the
+                    // only drop targets are folders and All, and a trashed
+                    // clip has to be restored before it can be filed.
+                    guard !viewModel.isTrashScope else { return nil }
                     let ids = viewModel.dragIDs(startingAt: item.id)
                     guard !ids.isEmpty else { return nil }
                     return ClipDragRequest(
@@ -244,6 +251,13 @@ struct ClipList: View {
             TapGesture(count: 2)
                 .onEnded { _ in
                     viewModel.focusIndex(of: item.id)
+                    // 5E: double-click means "use this clip". In the trash the
+                    // useful thing is getting it back, and the window stays
+                    // open — a restore is usually one of several.
+                    if viewModel.isTrashScope {
+                        viewModel.restore(item)
+                        return
+                    }
                     viewModel.copy(item)
                     viewModel.onDismiss()
                 }

@@ -15,11 +15,17 @@ struct TagSection: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 4) {
                         ForEach(item.tags, id: \.self) { tag in
-                            TagChip(label: tag, onRemove: {
+                            // 5E: a trashed clip's tags are shown but not
+                            // editable — the write would go to `store.items`,
+                            // where the clip no longer is. Restore it to
+                            // change its tags.
+                            TagChip(label: tag, onRemove: viewModel.isTrashScope ? nil : {
                                 viewModel.removeTag(tag, from: item)
                             })
                         }
-                        if viewModel.showTagInput {
+                        if viewModel.isTrashScope {
+                            EmptyView()
+                        } else if viewModel.showTagInput {
                             HStack(spacing: 6) {
                                 TextField("tag name", text: $viewModel.tagInputText)
                                     .textFieldStyle(.plain)

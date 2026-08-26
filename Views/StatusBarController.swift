@@ -118,12 +118,13 @@ class StatusBarController {
         
         menu.addItem(NSMenuItem.separator())
         
-        // Recently Deleted (5D). Menu-only by design: the trash is a safety
-        // net people reach for rarely, and a bin in the history window would
-        // cost a permanent slot in a very compact toolbar.
-        menu.addItem(recentlyDeletedItem())
-
-        menu.addItem(NSMenuItem.separator())
+        // 5E: "Recently Deleted" used to live here — a submenu of the last
+        // 25 deletions, and the only way to reach the trash at all. It could
+        // not be searched, sorted, filtered or multi-selected, and clip
+        // number 26 was simply unreachable. The trash is a scope in the
+        // history window's sidebar now, which gets all of that for free, so
+        // the submenu is gone rather than left as a worse second door to the
+        // same place.
 
         // Clear History
         let clearItem = NSMenuItem(title: "Clear History", action: #selector(clearHistory), keyEquivalent: "")
@@ -142,99 +143,6 @@ class StatusBarController {
         statusItem?.menu = nil  // Reset so left click works
     }
     
-    // MARK: - Recently Deleted (5D)
-
-    /// How many trashed clips the submenu lists. A menu is not a browser: past
-    /// a couple of dozen rows it stops being scannable, and the ones anyone
-    /// wants back are the recent ones.
-    private static let trashMenuLimit = 25
-
-    private func recentlyDeletedItem() -> NSMenuItem {
-        let parent = NSMenuItem(title: "Recently Deleted", action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-
-        let trashed = store.trashedItems
-        if trashed.isEmpty {
-            let empty = NSMenuItem(title: "No Deleted Clips", action: nil, keyEquivalent: "")
-            empty.isEnabled = false
-            submenu.addItem(empty)
-            parent.submenu = submenu
-            return parent
-        }
-
-        for item in trashed.prefix(Self.trashMenuLimit) {
-            let entry = NSMenuItem(title: trashMenuTitle(for: item), action: #selector(restoreClip(_:)), keyEquivalent: "")
-            entry.target = self
-            entry.representedObject = item.id
-            submenu.addItem(entry)
-        }
-        if trashed.count > Self.trashMenuLimit {
-            let more = NSMenuItem(title: "\(trashed.count - Self.trashMenuLimit) more…", action: nil, keyEquivalent: "")
-            more.isEnabled = false
-            submenu.addItem(more)
-        }
-
-        submenu.addItem(NSMenuItem.separator())
-
-        let retention = SettingsManager.shared.trashRetention
-        let note = NSMenuItem(
-            title: retention.days == nil
-                ? "Kept until emptied by hand"
-                : "Kept for \(retention.label)",
-            action: nil,
-            keyEquivalent: ""
-        )
-        note.isEnabled = false
-        submenu.addItem(note)
-
-        let empty = NSMenuItem(title: "Empty Trash…", action: #selector(emptyTrash), keyEquivalent: "")
-        empty.target = self
-        submenu.addItem(empty)
-
-        parent.submenu = submenu
-        return parent
-    }
-
-    /// One row's label: a single line of preview, plus how long ago it went.
-    private func trashMenuTitle(for item: ClipboardItem) -> String {
-        var preview = item.previewText
-            .components(separatedBy: .newlines)
-            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? item.previewText
-        preview = preview.trimmingCharacters(in: .whitespaces)
-        if preview.count > 48 { preview = String(preview.prefix(48)) + "…" }
-        if preview.isEmpty { preview = item.type == .image ? "Image" : "Clip" }
-
-        guard let deletedAt = item.deletedAt else { return preview }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return "\(preview)  —  \(formatter.localizedString(for: deletedAt, relativeTo: Date()))"
-    }
-
-    @objc private func restoreClip(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID else { return }
-        store.restoreFromTrash(ids: [id])
-    }
-
-    @objc private func emptyTrash() {
-        let count = store.trashedItems.count
-        guard count > 0 else { return }
-
-        let alert = NSAlert()
-        alert.messageText = "Empty Trash?"
-        alert.informativeText = count == 1
-            ? "1 deleted clip will be erased permanently. This cannot be undone."
-            : "\(count) deleted clips will be erased permanently. This cannot be undone."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Empty Trash")
-        alert.addButton(withTitle: "Cancel")
-
-        activeAlert = alert
-        defer { activeAlert = nil }
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        store.emptyTrash()
-    }
-
     @objc private func checkForUpdates() {
         UpdateService.shared.checkForUpdates(silent: false)
     }

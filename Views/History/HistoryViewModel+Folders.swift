@@ -266,6 +266,9 @@ extension HistoryViewModel {
     /// of any folder when `id` is nil. Used by the context menu (3D), the
     /// move prompt and drag-and-drop.
     func moveSelection(toFolder id: UUID?) {
+        // 5E: a trashed clip is not in `items`, so filing it would be a
+        // silent no-op. Restore it first.
+        guard !isTrashScope else { return }
         var ids = selectedIDs
         if ids.isEmpty, let single = selectedID { ids = [single] }
         move(ids: ids, toFolder: id)
@@ -434,7 +437,14 @@ extension HistoryViewModel {
     }
 
     /// Handle clips dropped on a sidebar row. Returns false for scopes that do
-    /// not accept clips (Favorites), so AppKit can show the reject cursor.
+    /// not accept clips (Favorites, Trash), so AppKit can show the reject
+    /// cursor.
+    ///
+    /// 5E deliberately leaves Trash out: a drop is an easy gesture to make by
+    /// accident, and "I dropped my clip somewhere and it disappeared" is worse
+    /// than having to use ⌘⌫ or the row menu to delete. `Sidebar` never
+    /// registers the row as a drop target, so this is only the second line of
+    /// defence.
     @discardableResult
     func handleDrop(ids: [UUID], on scope: Scope) -> Bool {
         guard !ids.isEmpty else { return false }
@@ -446,7 +456,7 @@ extension HistoryViewModel {
             guard folder(folderID) != nil else { return false }
             move(ids: Set(ids), toFolder: folderID)
             return true
-        case .favorites:
+        case .favorites, .trash:
             return false
         }
     }

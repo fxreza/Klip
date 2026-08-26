@@ -43,7 +43,7 @@ enum FolderUXTests {
         ("reorderFolder_movesOntoTheTargetSlot", testReorderFolder),
         // review-2B test gaps #2 and #3.
         ("dragAndDrop_carriesImageAndFileClipsToo", testDragImageAndFileClips),
-        ("orderedScopes_areAllFavoritesThenFoldersInSidebarOrder", testOrderedScopes),
+        ("orderedScopes_areAllFavoritesFoldersThenTrash", testOrderedScopes),
     ]
 
     // MARK: - Harness
@@ -572,8 +572,9 @@ enum FolderUXTests {
         try withViewModel { vm, store in
             let work = store.createFolder(name: "Work")
             let home = store.createFolder(name: "Home")
-            try expectEqual(vm.orderedScopes, [.all, .favorites, .folder(work.id), .folder(home.id)],
-                            "scope order is All, Favorites, then folders in sidebar order")
+            try expectEqual(vm.orderedScopes,
+                            [.all, .favorites, .folder(work.id), .folder(home.id), .trash],
+                            "scope order is All, Favorites, folders in sidebar order, then Trash (5E)")
 
             // A folder that disappears drops the scope back to All rather
             // than leaving a scope nothing can select.

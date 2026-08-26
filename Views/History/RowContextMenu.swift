@@ -23,6 +23,42 @@ struct RowContextMenu: View {
     private var isMultiSelection: Bool { viewModel.selectedItems.count > 1 }
 
     var body: some View {
+        // 5E: in the trash almost nothing on the normal menu applies — a
+        // deleted clip cannot be pasted, filed, pinned or tagged, and
+        // "Delete" means something else. It gets its own short menu instead
+        // of a dozen disabled rows.
+        if viewModel.isTrashScope {
+            trashMenu
+        } else {
+            historyMenu
+        }
+    }
+
+    @ViewBuilder
+    private var trashMenu: some View {
+        Button(RowMenuLabels.restore(selectionCount: selectionCount)) {
+            viewModel.restore(item)
+        }
+
+        Divider()
+
+        Button(shortcutLabel("Copy", .copy)) {
+            viewModel.copyFromMenu(item, mode: viewModel.defaultPasteMode)
+        }
+
+        Divider()
+
+        Button(RowMenuLabels.deletePermanently(selectionCount: selectionCount), role: .destructive) {
+            viewModel.requestPurge(ids: viewModel.selectedIDs.isEmpty ? [item.id] : viewModel.selectedIDs)
+        }
+
+        Button("Empty Trash…", role: .destructive) {
+            viewModel.requestEmptyTrash()
+        }
+    }
+
+    @ViewBuilder
+    private var historyMenu: some View {
         Button(shortcutLabel("Paste", .paste)) {
             viewModel.pasteFromMenu(item, mode: viewModel.defaultPasteMode)
         }
@@ -172,5 +208,17 @@ enum RowMenuLabels {
 
     static func delete(selectionCount: Int) -> String {
         selectionCount > 1 ? "Delete \(selectionCount) Clips" : "Delete"
+    }
+
+    // 5E
+
+    static func restore(selectionCount: Int) -> String {
+        selectionCount > 1 ? "Restore \(selectionCount) Clips" : "Restore"
+    }
+
+    static func deletePermanently(selectionCount: Int) -> String {
+        selectionCount > 1
+            ? "Delete \(selectionCount) Clips Permanently…"
+            : "Delete Permanently…"
     }
 }

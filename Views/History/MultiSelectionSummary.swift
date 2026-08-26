@@ -3,6 +3,10 @@ import SwiftUI
 /// Preview-pane content shown when more than one item is selected: counts,
 /// total size, type breakdown, Download All, first-item preview and the inline
 /// delete confirmation.
+///
+/// 5E: in Trash scope the two actions at the bottom become Restore All and
+/// Delete Permanently; everything above them (the counts, the breakdown, the
+/// first-item preview) is the same either way.
 struct MultiSelectionSummary: View {
     @ObservedObject var viewModel: HistoryViewModel
 
@@ -45,6 +49,63 @@ struct MultiSelectionSummary: View {
 
             Divider()
 
+            // 5E: a multi-selection in the trash gets Restore All / Delete
+            // Permanently instead of Save All / Delete — saving a deleted
+            // clip to disk is a real thing to want, but it is not what
+            // someone in the trash is here for, and "Delete" would be
+            // ambiguous next to rows that are already deleted.
+            if viewModel.isTrashScope {
+                trashActions(selectionCount: selectionCount)
+            } else {
+                historyActions(selectionCount: selectionCount, lockedCount: lockedCount, selectedItems: selectedItems)
+            }
+        }
+    }
+
+    // MARK: - Trash (5E)
+
+    @ViewBuilder
+    private func trashActions(selectionCount: Int) -> some View {
+        Button(action: { viewModel.restoreSelectionFromTrash() }) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.uturn.backward")
+                Text("Restore \(selectionCount) Clips")
+                Spacer()
+            }
+            .font(.klip(.preview))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.chipInactive))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+
+        Divider()
+
+        Button(action: { viewModel.requestPurge(ids: viewModel.selectedIDs) }) {
+            HStack(spacing: 6) {
+                Image(systemName: "trash.slash")
+                Text("Delete \(selectionCount) Clips Permanently…")
+            }
+            .font(.klip(.chip))
+            .fontWeight(.medium)
+            .foregroundStyle(isDeleteHovered ? Theme.destructive : Color.secondary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isDeleteHovered = $0 }
+    }
+
+    // MARK: - History
+
+    @ViewBuilder
+    private func historyActions(
+        selectionCount: Int,
+        lockedCount: Int,
+        selectedItems: [ClipboardItem]
+    ) -> some View {
+        Group {
             // Save All… — images, files and texts together into one chosen
             // folder, with unique names (Phase 3F; replaces the image-only
             // "Download All").

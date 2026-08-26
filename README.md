@@ -11,7 +11,7 @@ A lightweight, beautiful clipboard manager for macOS with organized history, ric
 - **Organized History** - Folder-based organization with drag-and-drop; All/Favorites/Folders sidebar
 - **No Duplicates** - Re-copying something already in the history brings that clip back to the top instead of adding another row; pins, tags, locks and folder stay with it
 - **Manual Folder Order** - Drag clips into any order inside a folder; the order is saved and outranks pins there
-- **Recently Deleted** - Deleted clips move to a local trash you restore from in the menu bar; kept 7/30/90 days or forever, never synced to iCloud
+- **Trash** - Deleted clips move to a Trash in the sidebar you can search, filter and sort (by date deleted, date added, name or type); restore puts a clip back at the top of All; kept 7/30/90 days or forever, never synced to iCloud
 - **Lock & Protect** - Lock individual clips to prevent accidental deletion; folder clips locked by default
 - **Clipfield-style UI** - Material panel with sidebar, filter chips, thumbnail badges, metadata footer
 - **Rich-text Support** - Capture and paste with formatting (RTF/HTML); explicit "Paste as Plain Text" option
@@ -58,13 +58,13 @@ History and settings are migrated automatically from Buffer on first launch; Buf
 | `⇧↑` / `⇧↓` | Extend selection (multi-select) |
 | `⌘`-click | Toggle a row in the selection |
 | `⇧`-click | Extend the selection to the clicked row |
-| `↵` Enter | Paste selected item(s) |
+| `↵` Enter | Paste selected item(s) (in the Trash: restore them) |
 | `⌘C` | Copy selected item text |
 | `⌘P` | Pin / unpin (float to top) |
 | `⌘B` | Star / unstar |
 | `⌘T` | Add tag (or `#tag` in search) |
 | `⌘S` | Save image to disk |
-| `⌘⌫` | Delete selected item(s) - recoverable from Recently Deleted |
+| `⌘⌫` | Delete selected item(s) - recoverable from the Trash (in the Trash: delete permanently) |
 | `⎋` Esc | Close history window |
 
 All shortcuts are rebindable in Settings > Shortcuts.
@@ -76,7 +76,7 @@ All shortcuts are rebindable in Settings > Shortcuts.
 - **Location**: `~/Library/Application Support/Klip`
 - **Format**: JSON-based (history.json, folders.json, trash.json) + image/text/file/flavor storage
 - **Local-only by default** - no network access unless iCloud Drive sync is enabled
-- **Deleted clips**: kept in `trash.json` with their assets until the retention window (Settings > History > Trash) expires or you empty the trash; local to this Mac either way
+- **Deleted clips**: kept in `trash.json` with their assets until the retention window (Settings > History > Trash) expires or you empty the trash; browse them under **Trash** in the history window's sidebar; local to this Mac either way
 - **Sync**: Optional iCloud Drive sync (disabled by default); enable in Settings > Sync
   - Synced data: history, folders, locks, tags, images/text/files
   - Not synced: the trash - a delete propagates as a tombstone, the recoverable copy stays on the Mac it was deleted on

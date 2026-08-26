@@ -100,10 +100,28 @@ final class HistoryViewModel: ObservableObject {
         }
     }
 
+    /// Trash ordering (5E). Only consulted in `.trash` scope; kept here rather
+    /// than in `SettingsManager` on purpose — it is a per-visit way of looking
+    /// at the trash, not a preference, and every visit should start on the
+    /// deletion date.
+    @Published var trashSort: TrashSort = .default {
+        didSet {
+            guard trashSort != oldValue else { return }
+            applyFilters(resetSelection: .defaultItem)
+            scrollTrigger = true
+        }
+    }
+
     @Published var filteredItems: [ClipboardItem] = []
 
     var filterState: FilterState {
-        FilterState(query: debouncedSearchText, tag: activeTagFilter, scope: scope, chip: chipFilter)
+        FilterState(
+            query: debouncedSearchText,
+            tag: activeTagFilter,
+            scope: scope,
+            chip: chipFilter,
+            trashSort: trashSort
+        )
     }
 
     // MARK: - Chip row (task 6B)
@@ -233,6 +251,18 @@ final class HistoryViewModel: ObservableObject {
     @Published var isExtractingText = false
     @Published var showDeleteConfirmation = false
 
+    // MARK: - Trash prompts (5E)
+    //
+    // Both are confirmations for the two things in the trash that actually
+    // destroy something. They are `PromptCard`s rather than `NSAlert`s for the
+    // same reason every other confirmation in this window is: an alert makes
+    // the borderless panel resign key, which closes it.
+
+    /// "Empty Trash?" — erases every trashed clip.
+    @Published var showEmptyTrashPrompt = false
+    /// "Delete N clips permanently?" — erases the selection only.
+    @Published var showPurgePrompt = false
+
     // MARK: - Tag input
 
     @Published var showTagAutocomplete: Bool = false
@@ -347,7 +377,11 @@ final class HistoryViewModel: ObservableObject {
     /// blocks that used to live in `HistoryContentView`'s onChange/onReceive
     /// handlers.
     func applyFilters(resetSelection: SelectionReset) {
-        let currentFiltered = FilterState.apply(store.items, filterState)
+        // 5E: the trash is a different array, not a filtered view of the
+        // history — `ClipboardStore` keeps it that way deliberately so nothing
+        // that reads `items` can ever see a deleted clip. Everything after
+        // this line (search, tag, chip, selection) is identical either way.
+        let currentFiltered = FilterState.apply(filterSource, filterState)
         self.filteredItems = currentFiltered
 
         // 5A-22: clamp before anything reads `filteredItems[selectedIndex]`.
@@ -559,7 +593,7 @@ final class HistoryViewModel: ObservableObject {
     /// the only way to change scope — but the ordering is still what the
     /// sidebar renders and what `validateScope` falls back through.
     var orderedScopes: [Scope] {
-        [.all, .favorites] + store.folders.map { .folder($0.id) }
+        [.all, .favorites] + store.folders.map { .folder($0.id) } + [.trash]
     }
 
     var favoritesCount: Int {
@@ -572,6 +606,7 @@ final class HistoryViewModel: ObservableObject {
         case .all: return "All"
         case .favorites: return "Favorites"
         case .folder(let id): return store.folders.first(where: { $0.id == id })?.name ?? "Folder"
+        case .trash: return "Trash"
         }
     }
 
@@ -611,6 +646,7 @@ final class HistoryViewModel: ObservableObject {
     /// Returns true when a prompt was dismissed.
     @discardableResult
     func dismissTopPrompt() -> Bool {
+        if dismissTopTrashPrompt() { return true }   // 5E
         if dismissTopFolderPrompt() { return true }  // 3B
         if showNewFolderPrompt {
             cancelNewFolder()
@@ -647,6 +683,7 @@ final class HistoryViewModel: ObservableObject {
             activeTagFilter = nil
             scope = .all
             chipFilter = .all
+            trashSort = .default   // 5E: reset with the scope, not separately
         } else {
             debouncedSearchText = searchText
             // A folder deleted while the window was closed must not strand the
@@ -662,6 +699,8 @@ final class HistoryViewModel: ObservableObject {
         showNewFolderPrompt = false
         newFolderName = ""
         showDeleteConfirmation = false
+        showEmptyTrashPrompt = false   // 5E
+        showPurgePrompt = false        // 5E
         resetFolderPrompts()  // 3B
 
         // Recalculate cache immediately and point at the restored / default item
@@ -674,6 +713,9 @@ final class HistoryViewModel: ObservableObject {
     // MARK: - Editing
 
     func enterEditMode() {
+        // 5E: a trashed clip is a record, not a live clip — editing it would
+        // write through `store.items`, where it no longer is.
+        guard !isTrashScope else { return }
         guard let item = selectedItem, item.isEditable else { return }
         editingItemID = item.id
         editText = item.textContent ?? ""
@@ -725,10 +767,12 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func togglePinOnSelection() {
+        guard !isTrashScope else { return }   // 5E
         if let item = selectedItem { store.togglePin(for: item) }
     }
 
     func toggleBookmarkOnSelection() {
+        guard !isTrashScope else { return }   // 5E
         if let item = selectedItem { store.toggleBookmark(for: item) }
     }
 
@@ -737,16 +781,32 @@ final class HistoryViewModel: ObservableObject {
     // skipped consistently, kept selected, and reported via `toast` no matter
     // which UI path triggered the delete.
 
+    // 5E: in trash scope there is nothing left to delete *to* — the same
+    // gesture means "erase this for good", which is destructive and therefore
+    // always goes through a confirmation (`requestPurge`).
+
     func deleteSelection() {
         guard let item = selectedItem else { return }
+        if isTrashScope {
+            requestPurge(ids: selectedIDs.isEmpty ? [item.id] : selectedIDs)
+            return
+        }
         performDelete(ids: [item.id])
     }
 
     func delete(_ item: ClipboardItem) {
+        if isTrashScope {
+            requestPurge(ids: [item.id])
+            return
+        }
         performDelete(ids: [item.id])
     }
 
     func deleteSelectedItems() {
+        if isTrashScope {
+            requestPurge(ids: selectedIDs)
+            return
+        }
         performDelete(ids: selectedIDs)
     }
 
@@ -999,6 +1059,13 @@ final class HistoryViewModel: ObservableObject {
 
     func keyEnter() {
         if isEditing { return }
+        // 5E: ↩ is "use this clip". In the trash, using a clip means getting
+        // it back — pasting a deleted clip straight into a document, and
+        // leaving it deleted, is not a thing anyone means to do.
+        if isTrashScope, !showTagInput, !searchText.hasPrefix("#") {
+            restoreSelectionFromTrash()
+            return
+        }
         if showTagInput {
             commitTagInput(for: selectedItem)
         } else if searchText.hasPrefix("#") {
@@ -1059,6 +1126,7 @@ final class HistoryViewModel: ObservableObject {
 
     func keyAddTag() {
         guard !isEditing else { return }
+        guard !isTrashScope else { return }   // 5E: tags are written to `items`
         guard selectedItem != nil else { return }
         showTagInput = true
     }

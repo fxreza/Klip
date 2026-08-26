@@ -4,7 +4,8 @@
 import SwiftUI
 
 /// Left rail: app title, the fixed **All** / **Favorites** scopes, the user's
-/// folders with live counts, and the "New Folder" action.
+/// folders with live counts, the **Trash** (5E, pinned to the bottom above the
+/// action), and the "New Folder" action.
 ///
 /// Selection is an accent-gradient capsule moved between rows with
 /// `matchedGeometryEffect("sidebarSel")` under `Theme.selectionSpring`.
@@ -68,6 +69,19 @@ struct Sidebar: View {
             }
 
             Spacer(minLength: 0)
+
+            // Trash (5E). Pinned below the folder list, the way every app
+            // that has one places it — it is a scope, not a folder, so it
+            // sits outside the scrolling folder list and never moves. It
+            // takes no drops on purpose; see `handleDrop`.
+            row(
+                title: "Trash",
+                systemImage: "trash",
+                scopeValue: .trash,
+                count: viewModel.trashCount
+            )
+            .contextMenu { trashMenu }
+            .padding(.top, 6)
 
             Button(action: { viewModel.keyNewFolder() }) {
                 HStack(spacing: 7) {
@@ -197,6 +211,21 @@ struct Sidebar: View {
     @ViewBuilder
     private var generalMenu: some View {
         Button("New Folder…") { viewModel.keyNewFolder() }
+    }
+
+    /// Trash context menu (5E). Emptying is the only thing that can be done
+    /// to the trash as a whole; restoring and erasing individual clips happen
+    /// on the rows.
+    @ViewBuilder
+    private var trashMenu: some View {
+        Button("Show Trash") { viewModel.scope = .trash }
+
+        Divider()
+
+        Button("Empty Trash…", role: .destructive) {
+            viewModel.requestEmptyTrash()
+        }
+        .disabled(viewModel.trashCount == 0)
     }
 
     /// Folder context menu.
