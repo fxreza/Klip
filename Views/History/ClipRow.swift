@@ -53,6 +53,12 @@ struct ClipRow: View {
                     .font(.klip(item.displayKind == .code ? .rowTitleMono : .rowTitle))
                     .foregroundStyle(isHighlighted ? Color.white : Color.primary)
                     .multilineTextAlignment(.leading)
+                    // macOS 26 renders Text in lazy-list rows with a flipped
+                    // transform until the row is hovered or selected, so every
+                    // glyph draws upside-down in place. Rendering offscreen
+                    // bypasses the broken path. Same workaround as Maccy
+                    // (p0deje/Maccy#1113, fixed in their 2.5.1).
+                    .drawingGroup()
                 subtitle
             }
 
@@ -197,6 +203,10 @@ struct ClipRow: View {
             }
         }
         .lineLimit(1)
+        // The subtitle (source app, timestamp, tag chips) flips too — see the
+        // title's drawingGroup comment. Buttons inside still hit-test;
+        // drawingGroup only changes how the pixels are produced.
+        .drawingGroup()
     }
 
     // MARK: - Trailing state badges
