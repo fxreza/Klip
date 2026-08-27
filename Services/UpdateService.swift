@@ -254,6 +254,21 @@ class UpdateService {
         btn.frame = NSRect(x: (w - btnW) / 2, y: 18, width: btnW, height: 30)
         blur.addSubview(btn)
 
+        // Close button — the toast auto-dismisses after 8 s, but there was no
+        // way to get rid of it sooner (user report, 3.4.1).
+        let closeSize: CGFloat = 20
+        let closeConfig = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+            .applying(.init(hierarchicalColor: .secondaryLabelColor))
+        let closeButton = NSButton(
+            image: NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Close")?
+                .withSymbolConfiguration(closeConfig) ?? NSImage(),
+            target: self,
+            action: #selector(closeToastTapped)
+        )
+        closeButton.isBordered = false
+        closeButton.frame = NSRect(x: w - closeSize - 10, y: h - closeSize - 10, width: closeSize, height: closeSize)
+        blur.addSubview(closeButton)
+
         window.orderFrontRegardless()
 
         NSAnimationContext.runAnimationGroup { ctx in
@@ -289,6 +304,10 @@ class UpdateService {
             releaseURL: pendingReleaseURL,
             fallbackNotes: pendingReleaseNotes
         )
+    }
+
+    @objc private func closeToastTapped() {
+        dismissToast()
     }
 
     private func dismissToast() {
