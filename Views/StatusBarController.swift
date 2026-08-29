@@ -1,7 +1,7 @@
 import Cocoa
 import SwiftUI
 
-/// Manages the menu bar status item - click to toggle window
+/// Manages the menu bar status item - click (either button) opens the menu
 class StatusBarController {
     private var statusItem: NSStatusItem?
     private let store: ClipboardStore
@@ -59,32 +59,31 @@ class StatusBarController {
         configured?.isTemplate = true
         button.image = configured
         
-        // Direct click action - no menu
+        // Both buttons open the menu; the window is reached from its first
+        // item. The action is kept (rather than assigning `statusItem.menu`
+        // outright) because `showContextMenu` still attaches the menu for one
+        // click and detaches it again.
         button.action = #selector(handleClick)
         button.target = self
         
-        // Right-click for menu
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
     
     @objc private func handleClick(_ sender: NSStatusBarButton) {
-        guard let event = NSApp.currentEvent else {
-            onToggleHistory()
-            return
-        }
-        
-        if event.type == .rightMouseUp {
-            // Show context menu on right click
-            showContextMenu()
-        } else {
-            // Toggle history on left click
-            onToggleHistory()
-        }
+        // Left and right click do the same thing: show the menu.
+        showContextMenu()
     }
     
     
     private func showContextMenu() {
         let menu = NSMenu()
+        
+        // Open the history window - the left-click action this menu replaced.
+        let openItem = NSMenuItem(title: "Open Klip", action: #selector(openHistory), keyEquivalent: "")
+        openItem.target = self
+        menu.addItem(openItem)
+        
+        menu.addItem(NSMenuItem.separator())
         
         // Show current shortcut
         let settings = SettingsManager.shared
@@ -140,9 +139,13 @@ class StatusBarController {
         
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
-        statusItem?.menu = nil  // Reset so left click works
+        statusItem?.menu = nil  // Reset so the button action fires next click
     }
     
+    @objc private func openHistory() {
+        onToggleHistory()
+    }
+
     @objc private func checkForUpdates() {
         UpdateService.shared.checkForUpdates(silent: false)
     }

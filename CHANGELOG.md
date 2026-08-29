@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Unreleased
+
+### Changed
+
+- **Left-clicking the menu bar icon opens the menu** - Both mouse buttons now do the same thing on the Klip icon: they open its menu. The history window, which used to be what a left click opened, is the first item in that menu, **Open Klip**, and the keyboard shortcut still opens it directly.
+
+---
+
 ## 3.4.1 (2026-08-27)
 
 ### Fixed
