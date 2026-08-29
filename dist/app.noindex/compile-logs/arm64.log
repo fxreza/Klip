@@ -1,0 +1,80 @@
+Services/ContentDetector.swift:64:17: warning: main actor-isolated property 'isFile' can not be referenced from a nonisolated context
+ 62 |     /// classification without reading the backing file.
+ 63 |     nonisolated static func detect(for item: ClipboardItem, fullText: String?) -> ContentKind {
+ 64 |         if item.isFile { return .file }
+    |                 `- warning: main actor-isolated property 'isFile' can not be referenced from a nonisolated context
+ 65 |         switch item.type {
+ 66 |         case .image:
+
+Models/ClipboardItem.swift:336:9: note: property declared here
+334 |     /// exhaustive switches in the view files currently being split. The enum
+335 |     /// case arrives at integration; until then this is the check to use.
+336 |     var isFile: Bool {
+    |         `- note: property declared here
+337 |         fileAttachment != nil
+338 |     }
+Services/HotkeyManager.swift:103:13: warning: variable 'hotKeyID' was never mutated; consider changing to 'let' constant
+101 |         if mods.control { modifiers |= UInt32(controlKey) }
+102 |         
+103 |         var hotKeyID = EventHotKeyID(signature: OSType(0x4255_4646), id: 1) // "BUFF"
+    |             `- warning: variable 'hotKeyID' was never mutated; consider changing to 'let' constant
+104 |         
+105 |         let registerStatus = RegisterEventHotKey(
+Services/OCRService.swift:55:25: warning: capture of 'handler' with non-Sendable type 'VNImageRequestHandler' in a '@Sendable' closure [#SendableClosureCaptures]
+53 |             DispatchQueue.global(qos: .userInitiated).async {
+54 |                 do {
+55 |                     try handler.perform([request])
+   |                         `- warning: capture of 'handler' with non-Sendable type 'VNImageRequestHandler' in a '@Sendable' closure [#SendableClosureCaptures]
+56 |                 } catch {
+57 |                     print("[Buffer OCR] Handler error: \(error.localizedDescription)")
+
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Vision.framework/Headers/VNRequestHandler.h:65:12: note: class 'VNImageRequestHandler' does not conform to the 'Sendable' protocol
+ 63 |  */
+ 64 | API_AVAILABLE(macos(10.13), ios(11.0), tvos(11.0))
+ 65 | @interface VNImageRequestHandler : NSObject
+    |            `- note: class 'VNImageRequestHandler' does not conform to the 'Sendable' protocol
+ 66 | 
+ 67 | - (instancetype)init NS_UNAVAILABLE;
+
+Services/OCRService.swift:3:1: warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'Vision'
+ 1 | import Foundation
+ 2 | import AppKit
+ 3 | import Vision
+   | `- warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'Vision'
+ 4 | 
+ 5 | /// Service for extracting text from images using Apple's Vision framework (on-device OCR)
+
+Services/OCRService.swift:55:42: warning: capture of 'request' with non-Sendable type 'VNRecognizeTextRequest' in a '@Sendable' closure [#SendableClosureCaptures]
+53 |             DispatchQueue.global(qos: .userInitiated).async {
+54 |                 do {
+55 |                     try handler.perform([request])
+   |                                          `- warning: capture of 'request' with non-Sendable type 'VNRecognizeTextRequest' in a '@Sendable' closure [#SendableClosureCaptures]
+56 |                 } catch {
+57 |                     print("[Buffer OCR] Handler error: \(error.localizedDescription)")
+
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Vision.framework/Headers/VNRecognizeTextRequest.h:31:12: note: class 'VNRecognizeTextRequest' does not conform to the 'Sendable' protocol
+ 29 |  */
+ 30 | API_AVAILABLE(macos(10.15), ios(13.0), tvos(13.0))
+ 31 | @interface VNRecognizeTextRequest : VNImageBasedRequest <VNRequestProgressProviding>
+    |            `- note: class 'VNRecognizeTextRequest' does not conform to the 'Sendable' protocol
+ 32 | 
+ 33 | /*!
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+Views/History/HistoryViewModel.swift:982:13: warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+ 980 | 
+ 981 |         let chunkResult = await Task.detached(priority: .userInitiated) {
+ 982 |             self.store.textChunk(for: item, charCount: ChunkedTextState.initialChars)
+     |             |                                          `- note: property access is 'async'
+     |             |- warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+     |             `- note: calls to instance method 'textChunk(for:charCount:)' from outside of its actor context are implicitly asynchronous
+ 983 |         }.value
+ 984 | 
+
+Views/History/HistoryViewModel.swift:1001:24: warning: main actor-isolated instance method 'textChunk(for:charCount:)' cannot be called from outside of the actor; this is an error in the Swift 6 language mode
+ 999 | 
+1000 |         let chunkResult = await Task.detached(priority: .userInitiated) {
+1001 |             self.store.textChunk(for: item, charCount: nextCharCount)
+     |                        `- warning: main actor-isolated instance method 'textChunk(for:charCount:)' cannot be called from outside of the actor; this is an error in the Swift 6 language mode
+1002 |         }.value
+1003 | 
