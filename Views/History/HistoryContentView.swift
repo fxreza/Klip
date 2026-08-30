@@ -17,7 +17,29 @@ struct HistoryContentView: View {
     @FocusState private var isSearchFocused: Bool
     @FocusState private var isTagInputFocused: Bool
     @FocusState private var isTextEditorFocused: Bool
+    /// Edit mode's *title* field. Separate from `isTextEditorFocused` because
+    /// edit mode now has two fields, and losing the body editor's focus to
+    /// the title field is not the same thing as leaving edit mode — see the
+    /// `.onChange` handler that commits the edit.
+    @FocusState private var isEditTitleFocused: Bool
     @FocusState private var isFolderFieldFocused: Bool
+
+    /// Commits the edit once focus has genuinely left the editor.
+    ///
+    /// Edit mode has two fields — the title and the body — and clicking from
+    /// one to the other lands as *two* focus changes: the old field goes
+    /// false, then the new one goes true. Committing on the first of those
+    /// dropped the user out of edit mode the moment they clicked the title
+    /// field. Deferring by one run loop lets the hand-off settle, so the edit
+    /// only commits when neither field ends up focused.
+    private func commitIfEditorLostFocus() {
+        guard viewModel.isEditing else { return }
+        DispatchQueue.main.async {
+            guard viewModel.isEditing else { return }
+            guard !isTextEditorFocused, !isEditTitleFocused else { return }
+            viewModel.exitEditMode()
+        }
+    }
 
     /// Reduce Motion turns the open animation into a plain cut.
     private var reduceMotion: Bool {
@@ -87,6 +109,7 @@ struct HistoryContentView: View {
                         store: store,
                         viewModel: viewModel,
                         isTextEditorFocused: $isTextEditorFocused,
+                        isEditTitleFocused: $isEditTitleFocused,
                         isTagInputFocused: $isTagInputFocused
                     )
                     .frame(width: settings.previewWidth)
@@ -96,6 +119,10 @@ struct HistoryContentView: View {
 
             if viewModel.showNewFolderPrompt {
                 NewFolderPrompt(viewModel: viewModel, isFieldFocused: $isFolderFieldFocused)
+            }
+
+            if viewModel.showRenameClipPrompt {
+                RenameClipPrompt(viewModel: viewModel)
             }
 
             FolderPromptLayer(viewModel: viewModel)  // 3B: rename / delete / move
@@ -147,6 +174,7 @@ struct HistoryContentView: View {
                 DispatchQueue.main.async { isTextEditorFocused = true }
             } else {
                 isTextEditorFocused = false
+                isEditTitleFocused = false
                 isSearchFocused = true
             }
         }
@@ -158,11 +186,20 @@ struct HistoryContentView: View {
                 isSearchFocused = true
             }
         }
-        .onChange(of: isTextEditorFocused) { newValue in
-            if !newValue && viewModel.isEditing {
-                viewModel.exitEditMode()
+        .onChange(of: viewModel.showRenameClipPrompt) { newValue in
+            // Same hand-off as every other prompt: the search field lets go
+            // of focus while the card is up, and takes it back afterwards.
+            if newValue {
+                isSearchFocused = false
+                isTextEditorFocused = false
+                isEditTitleFocused = false
+            } else {
+                isSearchFocused = true
             }
         }
+        .animation(Theme.promptSpring, value: viewModel.showRenameClipPrompt)
+        .onChange(of: isTextEditorFocused) { _ in commitIfEditorLostFocus() }
+        .onChange(of: isEditTitleFocused) { _ in commitIfEditorLostFocus() }
         .onChange(of: viewModel.selectedItem?.id) { newID in
             // Moving the selection *away from the item being edited* commits the
             // edit. Comparing against `editingItemID` (rather than "is editing at

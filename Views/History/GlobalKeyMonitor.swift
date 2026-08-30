@@ -224,6 +224,14 @@ struct GlobalKeyMonitor: NSViewRepresentable {
         // editing pattern of pin/favorite/addTag; window toggles run
         // unconditionally like edit, since they affect layout, not
         // the text being edited.
+        // MARK: F2 rename — swallowed while editing (the title is already
+        // in the editor there, so opening the card on top would be two
+        // fields for one name).
+        case .renameClip:
+            if isEditing { return nil }
+            viewModel.keyRenameClip()
+            return nil
+
         case .newFolder:
             if isEditing { return nil }
             viewModel.keyNewFolder()

@@ -15,6 +15,9 @@ struct PreviewPane: View {
     @ObservedObject var store: ClipboardStore
     @ObservedObject var viewModel: HistoryViewModel
     @FocusState.Binding var isTextEditorFocused: Bool
+    /// Edit mode's title field. Tracked separately from the body editor so
+    /// clicking between the two does not read as "left the editor".
+    @FocusState.Binding var isEditTitleFocused: Bool
     @FocusState.Binding var isTagInputFocused: Bool
 
     /// Matches `SearchBar`'s top padding. 3.0.1 made the pane a full-height
@@ -40,7 +43,13 @@ struct PreviewPane: View {
                 header(for: item)
                     .padding(.horizontal, 16)
                     .padding(.top, Self.topPadding)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, item.displayTitle == nil || viewModel.isEditing ? 12 : 6)
+
+                if let name = item.displayTitle, !viewModel.isEditing {
+                    titleStrip(name, for: item)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 12)
+                }
 
                 ScrollView {
                     ScrollViewReader { proxy in
@@ -246,6 +255,61 @@ struct PreviewPane: View {
         .klipHelp(help)
     }
 
+    // MARK: - Title
+
+    /// The clip's name, shown under the kind header when it has one. Click to
+    /// rename — the same inline card F2 and the row menu open.
+    private func titleStrip(_ name: String, for item: ClipboardItem) -> some View {
+        Button {
+            viewModel.requestRenameClip(id: item.id)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "text.cursor")
+                    .font(Theme.icon(11, preview: true))
+                    .foregroundStyle(.tertiary)
+                Text(name)
+                    .font(.klip(.preview))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Color.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.isTrashScope)
+        .klipHelp(viewModel.isTrashScope
+                  ? "Restore the clip to rename it"
+                  : "Rename (\(ShortcutManager.shared.displayString(for: .renameClip)))")
+    }
+
+    /// Edit mode's title field. Sits above the body editor and commits with
+    /// it; leaving it empty removes the name.
+    private var editTitleField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("TITLE")
+                .font(.klip(.caption))
+                .fontWeight(.semibold)
+                .kerning(0.6)
+                .foregroundStyle(.secondary)
+            TextField("Name this clip (optional)", text: $viewModel.editTitleText)
+                .textFieldStyle(.plain)
+                .font(.klip(.preview))
+                .fontWeight(.semibold)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(isEditTitleFocused ? Theme.accent : Theme.hairline, lineWidth: 1)
+                )
+                .focused($isEditTitleFocused)
+                // Return moves to the body rather than committing, so the
+                // title can be typed and the text edited in one pass.
+                .onSubmit { isTextEditorFocused = true }
+        }
+    }
+
     // MARK: - Body
 
     @ViewBuilder
@@ -268,6 +332,9 @@ struct PreviewPane: View {
             chunkedText(item)
         } else if viewModel.isEditing {
             VStack(alignment: .leading, spacing: 6) {
+                editTitleField
+                    .padding(.bottom, 4)
+
                 TextEditor(text: $viewModel.editText)
                     .font(.klip(.previewMono))
                     .scrollContentBackground(.hidden)

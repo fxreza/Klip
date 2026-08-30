@@ -93,6 +93,9 @@
 		8A6B6C300C5A6EAEF7EAD958 /* HistoryViewModel+Trash.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA24022F2DCC4AAB35AEAAA /* HistoryViewModel+Trash.swift */; };
 		8A79C9BCBD7A188FB6FEAE72 /* TrashBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FBA568A6BD6A960255E606D /* TrashBar.swift */; };
 		CFF5CD720A07DE5EEF5D451F /* TrashPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD17F1ECE446D6FA1BA874F8 /* TrashPrompts.swift */; };
+		4C19D475700841B09F755E84 /* HistoryViewModel+Title.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED4CAFA0E1D57DDD066D6069 /* HistoryViewModel+Title.swift */; };
+		AEA5ED3E2571F6CDA15539B8 /* RenameClipPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0681C0B78AF678F8E9EA06 /* RenameClipPrompt.swift */; };
+		FB4820EDF4EDC08DC0B2786D /* FlowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2154FD32059AB0C7041D0972 /* FlowLayout.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -196,6 +199,9 @@
 		FEA24022F2DCC4AAB35AEAAA /* HistoryViewModel+Trash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HistoryViewModel+Trash.swift"; sourceTree = "<group>"; };
 		9FBA568A6BD6A960255E606D /* TrashBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrashBar.swift; sourceTree = "<group>"; };
 		DD17F1ECE446D6FA1BA874F8 /* TrashPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrashPrompts.swift; sourceTree = "<group>"; };
+		ED4CAFA0E1D57DDD066D6069 /* HistoryViewModel+Title.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HistoryViewModel+Title.swift"; sourceTree = "<group>"; };
+		CF0681C0B78AF678F8E9EA06 /* RenameClipPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenameClipPrompt.swift; sourceTree = "<group>"; };
+		2154FD32059AB0C7041D0972 /* FlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowLayout.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -380,6 +386,9 @@
 				FEA24022F2DCC4AAB35AEAAA /* HistoryViewModel+Trash.swift */,
 				9FBA568A6BD6A960255E606D /* TrashBar.swift */,
 				DD17F1ECE446D6FA1BA874F8 /* TrashPrompts.swift */,
+				ED4CAFA0E1D57DDD066D6069 /* HistoryViewModel+Title.swift */,
+				CF0681C0B78AF678F8E9EA06 /* RenameClipPrompt.swift */,
+				2154FD32059AB0C7041D0972 /* FlowLayout.swift */,
 			);
 			path = History;
 			sourceTree = "<group>";
@@ -605,6 +614,9 @@
 				8A6B6C300C5A6EAEF7EAD958 /* HistoryViewModel+Trash.swift in Sources */,
 				8A79C9BCBD7A188FB6FEAE72 /* TrashBar.swift in Sources */,
 				CFF5CD720A07DE5EEF5D451F /* TrashPrompts.swift in Sources */,
+				4C19D475700841B09F755E84 /* HistoryViewModel+Title.swift in Sources */,
+				AEA5ED3E2571F6CDA15539B8 /* RenameClipPrompt.swift in Sources */,
+				FB4820EDF4EDC08DC0B2786D /* FlowLayout.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

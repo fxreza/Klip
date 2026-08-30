@@ -48,17 +48,23 @@ struct ClipRow: View {
             badge
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(titleText)
-                    .lineLimit(2)
-                    .font(.klip(item.displayKind == .code ? .rowTitleMono : .rowTitle))
-                    .foregroundStyle(isHighlighted ? Color.white : Color.primary)
-                    .multilineTextAlignment(.leading)
-                    // macOS 26 renders Text in lazy-list rows with a flipped
-                    // transform until the row is hovered or selected, so every
-                    // glyph draws upside-down in place. Rendering offscreen
-                    // bypasses the broken path. Same workaround as Maccy
-                    // (p0deje/Maccy#1113, fixed in their 2.5.1).
-                    .drawingGroup()
+                // macOS 26 renders Text in lazy-list rows with a flipped
+                // transform until the row is hovered or selected, so every
+                // glyph draws upside-down in place. Rendering offscreen
+                // bypasses the broken path. Same workaround as Maccy
+                // (p0deje/Maccy#1113, fixed in their 2.5.1). It has to wrap
+                // *every* Text in the row, so the named and unnamed layouts
+                // each apply it to their own block.
+                if let name = item.displayTitle {
+                    namedTitle(name)
+                } else {
+                    Text(titleText)
+                        .lineLimit(2)
+                        .font(.klip(item.displayKind == .code ? .rowTitleMono : .rowTitle))
+                        .foregroundStyle(isHighlighted ? Color.white : Color.primary)
+                        .multilineTextAlignment(.leading)
+                        .drawingGroup()
+                }
                 subtitle
             }
 
@@ -98,6 +104,25 @@ struct ClipRow: View {
         return text
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
+    }
+
+    /// A named clip: the user's name takes the first line in semibold, and
+    /// the clip's own content drops to a single dim line underneath. An
+    /// unnamed clip never reaches here, so its row is unchanged.
+    private func namedTitle(_ name: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(name)
+                .lineLimit(1)
+                .font(.klip(.rowTitle))
+                .fontWeight(.semibold)
+                .foregroundStyle(isHighlighted ? Color.white : Color.primary)
+            Text(titleText)
+                .lineLimit(1)
+                .font(.klip(item.displayKind == .code ? .rowTitleMono : .rowTitle))
+                .foregroundStyle(isHighlighted ? Theme.onAccentSecondary : Color.secondary)
+        }
+        .multilineTextAlignment(.leading)
+        .drawingGroup()
     }
 
     // MARK: - Badge
@@ -193,7 +218,7 @@ struct ClipRow: View {
             RelativeTimestampView(timestamp: item.timestamp, role: .rowSubtitle, color: secondaryColor)
 
             ForEach(item.tags.prefix(2), id: \.self) { tag in
-                TagChip(label: tag, onTap: { onTagTap?(tag) })
+                TagChip(label: tag, onAccent: isHighlighted, onTap: { onTagTap?(tag) })
             }
 
             if item.tags.count > 2 {
@@ -355,7 +380,9 @@ enum ClipRowDragImage {
         case .file: symbol = "doc"
         default: symbol = item.displayKind.systemImage
         }
-        let title = count > 1 ? "\(count) clips" : item.previewText
+        // A named clip is dragged by its name — that is what the user is
+        // holding on to, and the folder they drop it in is where names live.
+        let title = count > 1 ? "\(count) clips" : (item.displayTitle ?? item.previewText)
         return make(title: title, count: count, symbolName: symbol)
     }
 }

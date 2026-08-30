@@ -469,6 +469,25 @@ class ClipboardStore: ObservableObject {
         }
     }
 
+    /// Set (or clear) a clip's user-given name.
+    ///
+    /// Blank input clears the title back to `nil` rather than storing an
+    /// empty string, so "rename to nothing" is how a name is removed and
+    /// `displayTitle` never has to defend against `""`. The name is capped at
+    /// `ClipboardItem.titleMaxLength`; the row shows one line of it.
+    func setTitle(_ title: String?, for item: ClipboardItem) {
+        runOnMain { [weak self] in
+            guard let self = self else { return }
+            guard let index = self.items.firstIndex(where: { $0.id == item.id }) else { return }
+            let trimmed = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolved = trimmed.isEmpty ? nil : String(trimmed.prefix(ClipboardItem.titleMaxLength))
+            guard self.items[index].title != resolved else { return }
+            self.items[index].title = resolved
+            self.touchItem(at: index)
+            self.scheduleSave()
+        }
+    }
+
     var allTags: [String] {
         Array(Set(items.flatMap { $0.tags })).sorted()
     }

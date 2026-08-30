@@ -336,6 +336,7 @@ private struct FilePreviewHarness: View {
     @ObservedObject var store: ClipboardStore
     @ObservedObject var viewModel: HistoryViewModel
     @FocusState private var isTextEditorFocused: Bool
+    @FocusState private var isEditTitleFocused: Bool
     @FocusState private var isTagInputFocused: Bool
 
     var body: some View {
@@ -343,6 +344,7 @@ private struct FilePreviewHarness: View {
             store: store,
             viewModel: viewModel,
             isTextEditorFocused: $isTextEditorFocused,
+            isEditTitleFocused: $isEditTitleFocused,
             isTagInputFocused: $isTagInputFocused
         )
     }

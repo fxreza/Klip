@@ -213,6 +213,13 @@ struct ActionBar: View {
         if let item = viewModel.selectedItem, item.isEditable {
             items.append(LegendEntry(key: shortcuts.displayString(for: .edit), label: "edit"))
         }
+        if viewModel.selectedItem != nil {
+            items.append(LegendEntry(
+                key: shortcuts.displayString(for: .renameClip),
+                label: "name",
+                help: "Give the clip a name, shown in place of its first line"
+            ))
+        }
         if viewModel.selectedItem?.type == .image {
             items.append(LegendEntry(key: shortcuts.displayString(for: .saveToDisk), label: "save to disk"))
         }

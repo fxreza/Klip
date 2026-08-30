@@ -227,7 +227,8 @@ struct FilterState: Equatable {
     /// doc comment: filtering must not read files), `ocrText`, tag names,
     /// `sourceApp`, and file names (`fileAttachment.originalName` plus
     /// `additionalNames`). Link/email/phone/code items already store their
-    /// text in `textContent`, so they need no extra field.
+    /// text in `textContent`, so they need no extra field. A clip's title
+    /// joins the blob too, so `⌘F` finds a named clip by its name.
     ///
     /// An image with no OCR text contributes only its (possibly empty) tags
     /// and source app here, matching the old all-or-nothing behaviour for the
@@ -299,6 +300,10 @@ struct FilterState: Equatable {
 
     private static func buildSearchBlob(for item: ClipboardItem) -> String {
         var parts: [String] = []
+        // The clip's own name first: a named clip is nearly always looked up
+        // by that name. Content still matches too — naming a clip never makes
+        // the text inside it unsearchable.
+        if let title = item.displayTitle { parts.append(title) }
         if let text = item.textContent { parts.append(text) }
         if let ocr = item.ocrText { parts.append(ocr) }
         if !item.tags.isEmpty { parts.append(item.tags.joined(separator: " ")) }
@@ -320,7 +325,7 @@ struct FilterState: Equatable {
     /// 2. If a tag filter is active, keep only items carrying that tag.
     /// 3. The content-kind chip narrows next (see `matches(_:chip:)`).
     /// 4. A non-empty query that does not start with `#` matches items whose
-    ///    text content, OCR text, tag names, source app, or file name(s)
+    ///    title, text content, OCR text, tag names, source app, or file name(s)
     ///    contain every word of the query, case- and diacritic-insensitively
     ///    (see `searchBlob(for:)`). Multi-word queries are AND'd across all of
     ///    those fields combined, not per-field. An image with none of those

@@ -75,6 +75,13 @@ struct RowContextMenu: View {
 
         Divider()
 
+        // Naming comes before Edit and is offered on every kind: an image or
+        // a file has no editable body but is exactly what a name helps with.
+        Button(shortcutLabel(item.displayTitle == nil ? "Name Clip…" : "Rename…", .renameClip)) {
+            viewModel.selectSingle(item.id)
+            viewModel.requestRenameClip(id: item.id)
+        }
+
         if item.isEditable {
             Button(shortcutLabel("Edit", .edit)) {
                 viewModel.selectSingle(item.id)

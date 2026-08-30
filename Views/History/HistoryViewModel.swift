@@ -193,7 +193,7 @@ final class HistoryViewModel: ObservableObject {
 
     /// True while any inline prompt owns the keyboard, so list shortcuts stand
     /// down and Esc dismisses the prompt rather than the window.
-    var isPromptShowing: Bool { showNewFolderPrompt || isFolderPromptShowing }  // 3B
+    var isPromptShowing: Bool { showNewFolderPrompt || isFolderPromptShowing || showRenameClipPrompt }
 
     // MARK: - Selection
 
@@ -648,6 +648,10 @@ final class HistoryViewModel: ObservableObject {
     func dismissTopPrompt() -> Bool {
         if dismissTopTrashPrompt() { return true }   // 5E
         if dismissTopFolderPrompt() { return true }  // 3B
+        if showRenameClipPrompt {
+            cancelRenameClip()
+            return true
+        }
         if showNewFolderPrompt {
             cancelNewFolder()
             return true
@@ -674,21 +678,34 @@ final class HistoryViewModel: ObservableObject {
         // (and therefore savedSelectedID) as a side effect.
         let restoreTarget = savedSelectedID
 
+        // The sidebar scope and the top filter chips always go back to All,
+        // however briefly the window was away.
+        //
+        // They used to be part of the `shouldResetOnOpen` block below, so
+        // reopening within 90 seconds brought back whatever folder or kind
+        // chip was last active. That reads as clips having gone missing:
+        // Klip is summoned to grab something that was *just* copied, and it
+        // opens showing one folder, or narrowed to Images, with the new clip
+        // nowhere in the list. A scope and a chip are a view onto the
+        // history, not work in progress — unlike the search query below,
+        // which is something the user typed and may well be coming back to.
+        //
+        // `validateScope()` is not needed here any more: a folder deleted
+        // while the window was closed cannot strand the sidebar on an empty
+        // scope when the scope is always All by the time it is shown.
+        scope = .all
+        chipFilter = .all
+        activeTagFilter = nil
+        trashSort = .default   // 5E: reset with the scope, not separately
+
         // Only reset persistent search state if the window was closed long enough ago
         // (or this is the first open). shouldResetOnOpen is set by the controller in
         // showWindow(_:) before the notification fires.
         if shouldResetOnOpen {
             searchText = ""
             debouncedSearchText = ""
-            activeTagFilter = nil
-            scope = .all
-            chipFilter = .all
-            trashSort = .default   // 5E: reset with the scope, not separately
         } else {
             debouncedSearchText = searchText
-            // A folder deleted while the window was closed must not strand the
-            // sidebar on an empty scope.
-            validateScope()
         }
 
         // Transient UI state always resets
@@ -696,6 +713,8 @@ final class HistoryViewModel: ObservableObject {
         showTagInput = false
         tagInputText = ""
         isEditing = false
+        editTitleText = ""
+        cancelRenameClip()
         showNewFolderPrompt = false
         newFolderName = ""
         showDeleteConfirmation = false
@@ -719,6 +738,7 @@ final class HistoryViewModel: ObservableObject {
         guard let item = selectedItem, item.isEditable else { return }
         editingItemID = item.id
         editText = item.textContent ?? ""
+        editTitleText = item.displayTitle ?? ""
         isEditing = true
         showTagInput = false
     }
@@ -728,6 +748,10 @@ final class HistoryViewModel: ObservableObject {
         if let itemID = editingItemID,
            let item = store.items.first(where: { $0.id == itemID }) {
             store.updateText(editText, for: item)
+            // The title field sits above the body in the same editor, so it
+            // commits on the same exit. Blank clears the name (see
+            // `ClipboardStore.setTitle`).
+            store.setTitle(editTitleText, for: item)
 
             // Phase 3D deliverable 3: editing a rich item keeps plain text
             // only — its RTF/flavors backing is now stale (it describes text
@@ -742,6 +766,7 @@ final class HistoryViewModel: ObservableObject {
             pasteboard.setString(editText, forType: .string)
         }
         editingItemID = nil
+        editTitleText = ""
         isEditing = false
     }
 
@@ -1224,4 +1249,20 @@ final class HistoryViewModel: ObservableObject {
 
     /// Sidebar row currently highlighted as a drop target, or nil.
     @Published var dropTargetScope: Scope?
+
+    // MARK: - Clip title state
+    //
+    // Behaviour lives in `HistoryViewModel+Title.swift`; only stored state is
+    // here, matching the 3B block above.
+
+    /// Inline "Rename Clip" prompt (F2, the row context menu, or clicking the
+    /// name in the preview pane). Separate from edit mode: an image or a file
+    /// has no editable body but can still be named.
+    @Published var showRenameClipPrompt = false
+    @Published var renameClipID: UUID?
+    @Published var renameClipText = ""
+
+    /// The name being edited alongside the body in edit mode. Committed by
+    /// `exitEditMode` together with the text.
+    @Published var editTitleText = ""
 }

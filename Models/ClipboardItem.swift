@@ -43,6 +43,15 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     // User-defined tags
     var tags: [String] = []
 
+    /// User-given name for this clip, shown in place of the content preview
+    /// on the row. `nil` — never an empty string — when the clip has not been
+    /// named; `ClipboardStore.setTitle` normalizes blank input back to `nil`.
+    ///
+    /// Stored on the clip itself rather than on its folder membership, so a
+    /// named clip keeps its name when it moves between folders or is dragged
+    /// back out into the loose history.
+    var title: String? = nil
+
     // Extracted OCR text (persisted after first extraction)
     var ocrText: String?
 
@@ -124,7 +133,8 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         updatedAt: Date? = nil,
         contentKey: String? = nil,
         folderSortIndex: Double? = nil,
-        deletedAt: Date? = nil
+        deletedAt: Date? = nil,
+        title: String? = nil
     ) {
         self.id = id
         self.type = type
@@ -148,6 +158,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.contentKey = contentKey
         self.folderSortIndex = folderSortIndex
         self.deletedAt = deletedAt
+        self.title = title
     }
 
     enum CodingKeys: String, CodingKey {
@@ -159,6 +170,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         case contentKey
         case folderSortIndex
         case deletedAt
+        case title
     }
 
     init(from decoder: Decoder) throws {
@@ -187,6 +199,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.contentKey = try container.decodeIfPresent(String.self, forKey: .contentKey)
         self.folderSortIndex = try container.decodeIfPresent(Double.self, forKey: .folderSortIndex)
         self.deletedAt = try container.decodeIfPresent(Date.self, forKey: .deletedAt)
+        self.title = try container.decodeIfPresent(String.self, forKey: .title)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -213,6 +226,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(contentKey, forKey: .contentKey)
         try container.encodeIfPresent(folderSortIndex, forKey: .folderSortIndex)
         try container.encodeIfPresent(deletedAt, forKey: .deletedAt)
+        try container.encodeIfPresent(title, forKey: .title)
     }
 
     // MARK: - Content identity
@@ -346,6 +360,19 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     /// Whether this item is editable inline
     var isEditable: Bool {
         type == .text && !isFileBacked && !isFile && (textContent?.count ?? 0) <= 5000
+    }
+
+    /// Longest name `ClipboardStore.setTitle` will store. A row shows one
+    /// line of it, so anything past this is chrome the user never sees.
+    static let titleMaxLength = 120
+
+    /// The clip's name with surrounding whitespace removed, or `nil` when it
+    /// has none. Views render a title only when this is non-nil, so a clip
+    /// carrying a stored `"   "` from an older build still reads as unnamed.
+    var displayTitle: String? {
+        guard let title = title else { return nil }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// Preview text for display (truncated for long content)
