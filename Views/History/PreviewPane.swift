@@ -386,6 +386,16 @@ struct PreviewPane: View {
                     .frame(maxWidth: .infinity, maxHeight: 240)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.hairline, lineWidth: 1))
+                    // Double-click opens the same Quick Look panel as Space.
+                    // The pane caps the image at 240pt, so anything larger is
+                    // only ever shown shrunk — this is the way to see it at
+                    // full size without leaving Klip. `contentShape` so the
+                    // whole rounded rect is the target, not just the painted
+                    // pixels; it routes through `keyQuickLook()` so the key
+                    // and the click cannot drift apart.
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
+                    .onTapGesture(count: 2) { viewModel.keyQuickLook() }
+                    .klipHelp("Double-click to Quick Look")
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: 200)

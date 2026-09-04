@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Unreleased
+
+### Added
+
+- **Double-click the preview image to Quick Look it** - In the preview pane, double-clicking a clip's image opens the same full-size Quick Look panel that Space opens. The pane shrinks anything taller than 240 points, so this is the quickest way to see a screenshot at its real size without leaving Klip.
+
+---
+
 ## 3.6.0 (2026-09-04)
 
 ### Added
