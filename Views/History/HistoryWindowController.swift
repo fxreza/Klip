@@ -77,6 +77,9 @@ class HistoryWindowController: NSWindowController, NSWindowDelegate {
     override func close() {
         lastClosedAt = Date()
         viewModel.isPresented = false
+        // A preview left on screen after the history window went away would
+        // have nothing to hand focus back to.
+        QuickLookController.shared.close()
         super.close()
     }
 
@@ -112,7 +115,13 @@ class HistoryWindowController: NSWindowController, NSWindowDelegate {
             forName: NSWindow.didBecomeKeyNotification,
             object: panel,
             queue: .main
-        ) { _ in
+        ) { [weak panel] _ in
+            // Coming back from a Quick Look preview is not the window being
+            // opened — see `HistoryPanel.suppressNextBecomeKey`.
+            if panel?.suppressNextBecomeKey == true {
+                panel?.suppressNextBecomeKey = false
+                return
+            }
             NotificationCenter.default.post(name: .bufferWindowDidOpen, object: nil)
         }
     }
@@ -130,6 +139,9 @@ class HistoryWindowController: NSWindowController, NSWindowDelegate {
         viewModel.onDismiss = { [weak self] in
             self?.close()
         }
+        viewModel.onQuickLook = { [weak self] item in
+            self?.quickLook(item)
+        }
 
         let contentView = HistoryContentView(store: store, viewModel: viewModel)
         let host = NSHostingView(rootView: contentView)
@@ -138,6 +150,16 @@ class HistoryWindowController: NSWindowController, NSWindowDelegate {
         host.sizingOptions = []
         host.frame = NSRect(origin: .zero, size: panelSize)
         window?.contentView = host
+    }
+
+    /// Space / ⌘Y. Lives here rather than in the view model because Quick
+    /// Look takes key focus from the panel, and the panel has to be told so it
+    /// does not close itself out from under the preview.
+    private func quickLook(_ item: ClipboardItem) {
+        let panel = window as? HistoryPanel
+        if !QuickLookController.shared.toggle(item: item, store: store, host: panel) {
+            viewModel.showToast("Nothing to preview")
+        }
     }
 
     private func copyToClipboard(_ item: ClipboardItem, mode: PasteMode) {
@@ -167,6 +189,11 @@ class HistoryWindowController: NSWindowController, NSWindowDelegate {
 
         let panel = window as? HistoryPanel
         panel?.suppressResignUntil = Date().addingTimeInterval(0.4)
+        // Backstop: a preview that somehow went away without handing control
+        // back would otherwise leave the panel unable to close on click-away,
+        // or eat the reopen reset of a genuine later open.
+        panel?.isQuickLookPresenting = false
+        panel?.suppressNextBecomeKey = false
         position(window)
 
         // Start collapsed so the card can bounce in.

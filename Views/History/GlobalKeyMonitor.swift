@@ -109,6 +109,17 @@ struct GlobalKeyMonitor: NSViewRepresentable {
         }
 
         guard let action = ShortcutManager.shared.action(for: event) else {
+            // ⌘Y — Finder's *other* Quick Look key, and the unambiguous one.
+            // It is deliberately not a row in the rebindable table: it exists
+            // so Quick Look is always reachable even when the search field has
+            // text and a bare Space has to stay a character (see `.quickLook`
+            // below). Checked only *after* the table, so a user who binds
+            // something of their own to ⌘Y still wins.
+            if isQuickLookFallback(event) {
+                if isEditing { return event }
+                viewModel.keyQuickLook()
+                return nil
+            }
             // Unbound/unknown event: fall through untouched, exactly
             // as the old switch's `default: return event`.
             return event
@@ -250,7 +261,32 @@ struct GlobalKeyMonitor: NSViewRepresentable {
         case .togglePreview:
             viewModel.togglePreviewPane()
             return nil
+
+        // MARK: Space Quick Look. Space is also a literal character, and the
+        // search field holds focus for the whole time the panel is open, so a
+        // *bare* Space stands down whenever something text-shaped can use it:
+        // while editing, while the tag input is open, and whenever there is
+        // search text for it to be a space in. Any other binding the user
+        // chooses — and the ⌘Y fallback above — is unambiguous and always runs.
+        case .quickLook:
+            if isEditing || viewModel.showTagInput { return event }
+            if isBareSpace(event) && !viewModel.searchText.isEmpty { return event }
+            viewModel.keyQuickLook()
+            return nil
         }
+    }
+
+    /// A Space with no modifiers — the one binding that doubles as a typed
+    /// character.
+    static func isBareSpace(_ event: NSEvent) -> Bool {
+        event.keyCode == 49
+            && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
+    }
+
+    /// ⌘Y, the fixed second way into Quick Look.
+    static func isQuickLookFallback(_ event: NSEvent) -> Bool {
+        event.keyCode == 16
+            && KeyModifiers(eventFlags: event.modifierFlags.intersection(.deviceIndependentFlagsMask)) == [.command]
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {

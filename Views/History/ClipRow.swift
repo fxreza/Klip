@@ -7,10 +7,9 @@ import AppKit
 /// One clipboard item in the list.
 ///
 /// Replaces `Views/ClipboardItemRow.swift`. Layout is Clipfield's: a 38×38
-/// badge, a two-line title, a subtitle (source app · relative time · tags) and
-/// trailing state badges. Every size goes through `CGFloat.klipScaled` and
-/// every font through `Font.klip` so the whole row tracks the user's list
-/// text-size setting.
+/// badge, a two-line title, a subtitle (tag chips) and trailing state badges.
+/// Every size goes through `CGFloat.klipScaled` and every font through
+/// `Font.klip` so the whole row tracks the user's list text-size setting.
 ///
 /// Click behaviour is **not** here — `ClipList` owns it, and it is deliberately
 /// unchanged from Buffer: a single click only selects, a double-click copies
@@ -203,35 +202,38 @@ struct ClipRow: View {
 
     // MARK: - Subtitle
 
+    /// Tag chips, and nothing else.
+    ///
+    /// The source app and a live "3 minutes ago" label used to lead this line.
+    /// Both were removed: the preview pane's footer already carries
+    /// the same two facts as static text ("From" and "Copied"), and the
+    /// relative label was the app's last per-second timer. Every visible row
+    /// re-rendered once a second, and because the panel's hosting view is
+    /// built once at launch and only *ordered out* on close, that kept the
+    /// SwiftUI view graph and a Core Animation commit running for an
+    /// invisible window for as long as the app was up — around two thirds of
+    /// Klip's idle CPU. Dropping both also gives the clip's own text the full
+    /// row width.
+    @ViewBuilder
     private var subtitle: some View {
-        HStack(spacing: 5) {
-            if let app = item.sourceApp {
-                Text(app)
-                    .fontWeight(.medium)
-                    .font(.klip(.rowSubtitle))
-                    .foregroundStyle(secondaryColor)
-                Text("·")
-                    .font(.klip(.rowSubtitle))
-                    .foregroundStyle(secondaryColor)
-            }
+        if !item.tags.isEmpty {
+            HStack(spacing: 5) {
+                ForEach(item.tags.prefix(2), id: \.self) { tag in
+                    TagChip(label: tag, onAccent: isHighlighted, onTap: { onTagTap?(tag) })
+                }
 
-            RelativeTimestampView(timestamp: item.timestamp, role: .rowSubtitle, color: secondaryColor)
-
-            ForEach(item.tags.prefix(2), id: \.self) { tag in
-                TagChip(label: tag, onAccent: isHighlighted, onTap: { onTagTap?(tag) })
+                if item.tags.count > 2 {
+                    Text("+\(item.tags.count - 2)")
+                        .font(.klip(.badge))
+                        .foregroundStyle(secondaryColor)
+                }
             }
-
-            if item.tags.count > 2 {
-                Text("+\(item.tags.count - 2)")
-                    .font(.klip(.badge))
-                    .foregroundStyle(secondaryColor)
-            }
+            .lineLimit(1)
+            // The subtitle flips too — see the title's drawingGroup comment.
+            // Buttons inside still hit-test; drawingGroup only changes how the
+            // pixels are produced.
+            .drawingGroup()
         }
-        .lineLimit(1)
-        // The subtitle (source app, timestamp, tag chips) flips too — see the
-        // title's drawingGroup comment. Buttons inside still hit-test;
-        // drawingGroup only changes how the pixels are produced.
-        .drawingGroup()
     }
 
     // MARK: - Trailing state badges

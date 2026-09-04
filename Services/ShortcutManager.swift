@@ -10,6 +10,8 @@ enum ShortcutAction: String, CaseIterable, Codable {
     // Clipboard
     case paste, pastePlain, copy, copyPlain, delete, pin, star, lock, edit, addTag, saveToDisk
     case clearFilter
+    /// Open the focused clip in the system Quick Look panel.
+    case quickLook
     /// Name (or rename) the focused clip. Unlike `edit` this works on every
     /// kind — an image or a file has no editable body but can still be named.
     case renameClip
@@ -37,7 +39,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
     var group: Group {
         switch self {
         case .paste, .pastePlain, .copy, .copyPlain, .delete, .pin, .star, .lock, .edit,
-             .addTag, .saveToDisk, .clearFilter, .renameClip:
+             .addTag, .saveToDisk, .clearFilter, .renameClip, .quickLook:
             return .clipboard
         case .newFolder, .renameFolder, .moveToFolder:
             return .organize
@@ -62,6 +64,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .addTag: return "Add Tag"
         case .saveToDisk: return "Save to Disk"
         case .clearFilter: return "Clear Tag Filter"
+        case .quickLook: return "Quick Look"
         case .renameClip: return "Rename Clip"
         case .newFolder: return "New Folder"
         case .renameFolder: return "Rename Folder"
@@ -106,6 +109,12 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .saveToDisk:     return KeyBinding(keyCode: 1,  modifiers: [.command])    // ⌘S
         case .clearFilter:    return KeyBinding(keyCode: 51, modifiers: [])            // ⌫ (only when search is empty)
         case .renameClip:     return KeyBinding(keyCode: 120, modifiers: [])           // F2 (Finder / Ditto convention)
+        // Space, Finder's Quick Look key. The search field owns the keyboard
+        // while the panel is open, so `GlobalKeyMonitor` only acts on a *bare*
+        // Space when there is no search text for it to be a character of; ⌘Y
+        // (Finder's other Quick Look key) is the unambiguous way in and is
+        // handled there as a fixed fallback.
+        case .quickLook:      return KeyBinding(keyCode: 49, modifiers: [])            // Space
         case .newFolder:      return KeyBinding(keyCode: 45, modifiers: [.command])    // ⌘N
         case .renameFolder:   return KeyBinding(keyCode: 15, modifiers: [.command])    // ⌘R
         case .moveToFolder:   return KeyBinding(keyCode: 46, modifiers: [.command])    // ⌘M

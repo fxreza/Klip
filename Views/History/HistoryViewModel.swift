@@ -26,6 +26,10 @@ final class HistoryViewModel: ObservableObject {
     var onPaste: (ClipboardItem, PasteMode) -> Void = { _, _ in }
     var onPasteMultiple: ([ClipboardItem], PasteMode) -> Void = { _, _ in }
     var onDismiss: () -> Void = { }
+    /// Open the focused clip in the system Quick Look panel (Space / ⌘Y).
+    /// Wired by `HistoryWindowController`, which owns the panel Quick Look has
+    /// to take key focus from.
+    var onQuickLook: (ClipboardItem) -> Void = { _ in }
 
     // MARK: - Controller-owned persistence of search/selection across opens
 

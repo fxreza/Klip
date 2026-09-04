@@ -220,6 +220,13 @@ struct ActionBar: View {
                 help: "Give the clip a name, shown in place of its first line"
             ))
         }
+        if viewModel.selectedItem != nil {
+            items.append(LegendEntry(
+                key: shortcuts.displayString(for: .quickLook),
+                label: "preview",
+                help: "Quick Look the clip. Space works when the search field is empty; ⌘Y always works"
+            ))
+        }
         if viewModel.selectedItem?.type == .image {
             items.append(LegendEntry(key: shortcuts.displayString(for: .saveToDisk), label: "save to disk"))
         }

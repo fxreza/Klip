@@ -25,6 +25,11 @@ enum KeyMonitorTests {
         ("scope_eventOutsideThePanelIsReturnedUntouchedForEveryAction", testForeignEventPassesThroughForEveryAction),
         ("scope_shouldHandleIsFalseWithoutAKeyPanel", testShouldHandleGate),
         ("scope_panelEventsStillDispatch", testPanelEventsStillDispatch),
+        // Quick Look — Space doubles as a typed character, so it has gates.
+        ("quickLook_barePredicatesMatchOnlyTheirOwnKeys", testQuickLookKeyPredicates),
+        ("quickLook_spaceOpensThePreviewWhenSearchIsEmpty", testSpaceOpensQuickLook),
+        ("quickLook_spaceStaysACharacterWhileTextIsBeingTyped", testSpaceIsTypedWhileSearching),
+        ("quickLook_cmdYAlwaysOpensThePreview", testCmdYAlwaysOpensQuickLook),
     ]
 
     // MARK: - Fixtures
@@ -64,8 +69,8 @@ enum KeyMonitorTests {
 
     /// GlobalKeyMonitor's dispatch is only as correct as this resolution: a
     /// synthetic NSEvent built from each action's own `defaultBinding` must
-    /// resolve back to that exact action, for every action (all 33 of
-    /// them), not just the handful ShortcutTests spot-checks.
+    /// resolve back to that exact action, for every action, not just the
+    /// handful ShortcutTests spot-checks.
     static func testEveryDefaultResolves() throws {
         let manager = freshManager()
         for action in ShortcutAction.allCases {
@@ -285,6 +290,97 @@ enum KeyMonitorTests {
             try expectNil(GlobalKeyMonitor.dispatch(esc, viewModel: vm, firstResponder: nil, onBackspace: nil),
                           "Esc inside the panel is consumed")
             try expect(dismissed, "Esc inside the panel closes the window")
+        }
+    }
+
+    // MARK: - Quick Look (Space / ⌘Y)
+    //
+    // Space is the one binding that is also a literal character, and the
+    // search field holds focus for as long as the panel is open. So the
+    // dispatch has to hand a bare Space back to the field whenever it could
+    // be part of what the user is typing, and ⌘Y exists as the way in that
+    // never has to.
+
+    static func testQuickLookKeyPredicates() throws {
+        try expect(GlobalKeyMonitor.isBareSpace(event(keyCode: 49, modifiers: [])),
+                   "a modifier-free Space is the ambiguous case")
+        try expect(!GlobalKeyMonitor.isBareSpace(event(keyCode: 49, modifiers: [.command])),
+                   "⌘Space is not a typed character")
+        try expect(!GlobalKeyMonitor.isBareSpace(event(keyCode: 36, modifiers: [])),
+                   "Return is not Space")
+
+        try expect(GlobalKeyMonitor.isQuickLookFallback(event(keyCode: 16, modifiers: [.command])),
+                   "⌘Y is the fixed fallback")
+        try expect(!GlobalKeyMonitor.isQuickLookFallback(event(keyCode: 16, modifiers: [])),
+                   "a bare Y is just a letter for the search field")
+        try expect(!GlobalKeyMonitor.isQuickLookFallback(event(keyCode: 16, modifiers: [.command, .shift])),
+                   "⇧⌘Y is not ⌘Y")
+    }
+
+    static func testSpaceOpensQuickLook() throws {
+        try FolderUXTests.withViewModel { vm, store in
+            let items = FolderUXTests.seed(vm, store, ["alpha", "beta"])
+            vm.applyFilters(resetSelection: .defaultItem)
+            vm.selectSingle(items[0].id)
+
+            var previewedID: UUID?
+            vm.onQuickLook = { previewedID = $0.id }
+
+            let space = event(keyCode: 49, modifiers: [])
+            try expectNil(GlobalKeyMonitor.dispatch(space, viewModel: vm, firstResponder: nil, onBackspace: nil),
+                          "Space with an empty search field is consumed")
+            try expectEqual(previewedID, items[0].id, "Space previews the focused clip")
+        }
+    }
+
+    static func testSpaceIsTypedWhileSearching() throws {
+        try FolderUXTests.withViewModel { vm, store in
+            let items = FolderUXTests.seed(vm, store, ["alpha", "beta"])
+            vm.applyFilters(resetSelection: .defaultItem)
+            vm.selectSingle(items[0].id)
+
+            var previewed = false
+            vm.onQuickLook = { _ in previewed = true }
+
+            let space = event(keyCode: 49, modifiers: [])
+
+            // Mid-search: the space belongs to the query being typed.
+            vm.searchText = "alp"
+            try expect(GlobalKeyMonitor.dispatch(space, viewModel: vm, firstResponder: nil, onBackspace: nil) === space,
+                       "with search text, Space must reach the search field")
+            vm.searchText = ""
+
+            // The tag input owns the keyboard the same way.
+            vm.showTagInput = true
+            try expect(GlobalKeyMonitor.dispatch(space, viewModel: vm, firstResponder: nil, onBackspace: nil) === space,
+                       "with the tag input open, Space must reach it")
+            vm.showTagInput = false
+
+            // So does the inline editor.
+            vm.isEditing = true
+            try expect(GlobalKeyMonitor.dispatch(space, viewModel: vm, firstResponder: nil, onBackspace: nil) === space,
+                       "while editing, Space must reach the editor")
+            vm.isEditing = false
+
+            try expect(!previewed, "none of those may have opened a preview")
+        }
+    }
+
+    static func testCmdYAlwaysOpensQuickLook() throws {
+        try FolderUXTests.withViewModel { vm, store in
+            let items = FolderUXTests.seed(vm, store, ["alpha", "beta"])
+            vm.applyFilters(resetSelection: .defaultItem)
+            vm.selectSingle(items[0].id)
+
+            var previewedID: UUID?
+            vm.onQuickLook = { previewedID = $0.id }
+
+            // The case Space cannot serve: a query is already being typed.
+            vm.searchText = "alp"
+            let cmdY = event(keyCode: 16, modifiers: [.command])
+            try expectNil(GlobalKeyMonitor.dispatch(cmdY, viewModel: vm, firstResponder: nil, onBackspace: nil),
+                          "⌘Y is consumed even with search text")
+            try expectEqual(previewedID, items[0].id, "⌘Y previews the focused clip")
         }
     }
 }

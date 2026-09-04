@@ -2,6 +2,7 @@
 // UI/Overlay/OverlayPanel.swift.
 
 import Cocoa
+import QuickLookUI
 
 /// Borderless, resizable floating panel that closes when it loses key focus.
 ///
@@ -16,12 +17,50 @@ class HistoryPanel: NSPanel {
     /// the window we just opened. Clicking away afterwards still closes it.
     var suppressResignUntil: Date = .distantPast
 
+    /// True while the system Quick Look panel is up (Space / ⌘Y).
+    ///
+    /// Quick Look takes key focus, and this panel closes on `resignKey` — so
+    /// without the flag, Space would open the preview and dismiss the history
+    /// window underneath it in the same breath. `HistoryWindowController`
+    /// clears it on every show as a backstop, in case a preview ever goes away
+    /// without handing control back.
+    var isQuickLookPresenting = false
+
+    /// Consumed once by the `didBecomeKey` observer in
+    /// `HistoryWindowController.setupPanel`.
+    ///
+    /// Closing Quick Look hands key focus back to this panel, which fires
+    /// `didBecomeKey` → `bufferWindowDidOpen` → `handleWindowDidOpen()` — the
+    /// "Klip always opens on All" reset. Without this, previewing a clip
+    /// inside a folder and pressing Esc would drop the user back on All with
+    /// their kind chip and tag filter cleared, as if the window had been
+    /// summoned afresh.
+    var suppressNextBecomeKey = false
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
     override func resignKey() {
         super.resignKey()
+        guard !isQuickLookPresenting else { return }
         guard Date() >= suppressResignUntil else { return }
         onClickOutside?()
+    }
+
+    // MARK: - Quick Look
+    //
+    // `QLPreviewPanel` finds its controller by walking the key window's
+    // responder chain, which ends here. These three are `NSObject`'s
+    // `QLPreviewPanelController` category, hence `override`.
+
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = QuickLookController.shared
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = nil
+        QuickLookController.shared.didEndControl()
     }
 }

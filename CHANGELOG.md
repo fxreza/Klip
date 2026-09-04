@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## 3.6.0 (2026-09-04)
+
+### Added
+
+- **Quick Look a clip with Space** - Select a clip and press **Space** to open it in the same preview window Finder uses: images at full size, PDFs and documents page by page, and text in a plain reader. Press Space again, or Esc, to close it. Because the search field keeps the keyboard while Klip is open, Space previews only when the search box is empty - once you have typed a query, Space still types a space and **⌘Y** opens the preview instead. ⌘Y always works. A clip holding several files previews all of them, with the preview window's own arrows moving between them. The key is rebindable in Settings → Shortcuts.
+
+### Changed
+
+- **Leaner clip rows, and much lower idle CPU** - Rows no longer show the source app or a live "3 minutes ago" under each clip. Both facts are still in the preview pane, which lists **From** and the exact **Copied** time, and the row now gives the clip's own text the full width. The relative time was also the last thing in Klip that redrew every single second - it kept doing so even with the window closed, which was where roughly two thirds of Klip's idle CPU went. Klip at rest now costs about what checking the clipboard costs, and nothing else.
+
+---
+
 ## 3.5.0 (2026-08-30)
 
 ### Added

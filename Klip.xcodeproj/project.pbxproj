@@ -55,7 +55,6 @@
 		B4E4617D8F2515532C878E30 /* PanelResizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F27EF431893544A75BDF61AF /* PanelResizer.swift */; };
 		FCBDD7EFEB494F6DD1297B9D /* PreviewPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4493F408DE06075CE9D03589 /* PreviewPane.swift */; };
 		2EC336BDF2DF8BF833FD73BC /* PromptCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65860DDF5D17EB32049B930B /* PromptCard.swift */; };
-		5C60F07C55D0C52890E6BFB8 /* RelativeTimestampView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136612209859DBE08D6BE459 /* RelativeTimestampView.swift */; };
 		768435DEFFD63F42B4265B1C /* RowContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D02160D1EECC3BB99DED3DE4 /* RowContextMenu.swift */; };
 		8278944998C1068E2E82FCA9 /* SearchBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 669EFBB0D310AC04BE870A40 /* SearchBar.swift */; };
 		C3C2EFDEF2B7091B8292F971 /* Sidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E44FC6EF08FD7B5E2F47076 /* Sidebar.swift */; };
@@ -96,6 +95,7 @@
 		4C19D475700841B09F755E84 /* HistoryViewModel+Title.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED4CAFA0E1D57DDD066D6069 /* HistoryViewModel+Title.swift */; };
 		AEA5ED3E2571F6CDA15539B8 /* RenameClipPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0681C0B78AF678F8E9EA06 /* RenameClipPrompt.swift */; };
 		FB4820EDF4EDC08DC0B2786D /* FlowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2154FD32059AB0C7041D0972 /* FlowLayout.swift */; };
+		F71430E2BA3F6FF5CC980C89 /* QuickLookController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13D9D44E5ECD35BC0C3E2D94 /* QuickLookController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -161,7 +161,6 @@
 		F27EF431893544A75BDF61AF /* PanelResizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelResizer.swift; sourceTree = "<group>"; };
 		4493F408DE06075CE9D03589 /* PreviewPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewPane.swift; sourceTree = "<group>"; };
 		65860DDF5D17EB32049B930B /* PromptCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptCard.swift; sourceTree = "<group>"; };
-		136612209859DBE08D6BE459 /* RelativeTimestampView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeTimestampView.swift; sourceTree = "<group>"; };
 		D02160D1EECC3BB99DED3DE4 /* RowContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RowContextMenu.swift; sourceTree = "<group>"; };
 		669EFBB0D310AC04BE870A40 /* SearchBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchBar.swift; sourceTree = "<group>"; };
 		1E44FC6EF08FD7B5E2F47076 /* Sidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar.swift; sourceTree = "<group>"; };
@@ -202,6 +201,7 @@
 		ED4CAFA0E1D57DDD066D6069 /* HistoryViewModel+Title.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HistoryViewModel+Title.swift"; sourceTree = "<group>"; };
 		CF0681C0B78AF678F8E9EA06 /* RenameClipPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenameClipPrompt.swift; sourceTree = "<group>"; };
 		2154FD32059AB0C7041D0972 /* FlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowLayout.swift; sourceTree = "<group>"; };
+		13D9D44E5ECD35BC0C3E2D94 /* QuickLookController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickLookController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -367,7 +367,6 @@
 				F27EF431893544A75BDF61AF /* PanelResizer.swift */,
 				4493F408DE06075CE9D03589 /* PreviewPane.swift */,
 				65860DDF5D17EB32049B930B /* PromptCard.swift */,
-				136612209859DBE08D6BE459 /* RelativeTimestampView.swift */,
 				D02160D1EECC3BB99DED3DE4 /* RowContextMenu.swift */,
 				669EFBB0D310AC04BE870A40 /* SearchBar.swift */,
 				1E44FC6EF08FD7B5E2F47076 /* Sidebar.swift */,
@@ -389,6 +388,7 @@
 				ED4CAFA0E1D57DDD066D6069 /* HistoryViewModel+Title.swift */,
 				CF0681C0B78AF678F8E9EA06 /* RenameClipPrompt.swift */,
 				2154FD32059AB0C7041D0972 /* FlowLayout.swift */,
+				13D9D44E5ECD35BC0C3E2D94 /* QuickLookController.swift */,
 			);
 			path = History;
 			sourceTree = "<group>";
@@ -576,7 +576,6 @@
 				B4E4617D8F2515532C878E30 /* PanelResizer.swift in Sources */,
 				FCBDD7EFEB494F6DD1297B9D /* PreviewPane.swift in Sources */,
 				2EC336BDF2DF8BF833FD73BC /* PromptCard.swift in Sources */,
-				5C60F07C55D0C52890E6BFB8 /* RelativeTimestampView.swift in Sources */,
 				768435DEFFD63F42B4265B1C /* RowContextMenu.swift in Sources */,
 				8278944998C1068E2E82FCA9 /* SearchBar.swift in Sources */,
 				C3C2EFDEF2B7091B8292F971 /* Sidebar.swift in Sources */,
@@ -617,6 +616,7 @@
 				4C19D475700841B09F755E84 /* HistoryViewModel+Title.swift in Sources */,
 				AEA5ED3E2571F6CDA15539B8 /* RenameClipPrompt.swift in Sources */,
 				FB4820EDF4EDC08DC0B2786D /* FlowLayout.swift in Sources */,
+				F71430E2BA3F6FF5CC980C89 /* QuickLookController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

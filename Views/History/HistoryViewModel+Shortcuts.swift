@@ -35,4 +35,15 @@ extension HistoryViewModel {
         onCopyToClipboard(item, alternatePasteMode)
     }
 
+    /// Space (or ⌘Y) — Quick Look on the focused clip.
+    ///
+    /// Single-selection only: Quick Look's own arrow keys already page through
+    /// a multi-file clip, and previewing a whole multi-selection would fight
+    /// the panel's navigation for no clear gain.
+    func keyQuickLook() {
+        guard !isEditing else { return }
+        guard let item = selectedItem else { return }
+        onQuickLook(item)
+    }
+
 }
