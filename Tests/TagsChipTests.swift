@@ -56,7 +56,10 @@ enum TagsChipTests {
             try expectEqual(vm.chipFilter, ChipFilter.tagged, "tapping Tags sets chipFilter")
             try expectNil(vm.activeTagFilter, "activating the chip does not pick a specific tag")
             try expect(vm.chipIsActive(.tagged), "Tags now reads active")
-            try expect(vm.showTagsChipBar, "the bar shows once the chip is active")
+            // The bar only exists while there is a tag UI at all
+            // (`Features.tagsEnabled`); the filtering below is the part that
+            // keeps working either way.
+            try expectEqual(vm.showTagsChipBar, Features.tagsEnabled, "the bar shows once the chip is active")
             try expectEqual(vm.filteredItems.map { $0.textContent }, ["a"], "only the tagged clip shows")
         }
     }
@@ -128,15 +131,17 @@ enum TagsChipTests {
     }
 
     /// The chip-driven bar defers to the `#`-mode bar above the chips so the
-    /// two lists (differently ordered) never show at once.
+    /// two lists (differently ordered) never show at once — and with tags
+    /// hidden (`Features.tagsEnabled`) neither bar exists, so `#` opens
+    /// nothing at all.
     static func testBarHiddenDuringHashSearch() throws {
         try withViewModel { vm, store in
             seed(vm, store, [text("a", tags: ["work"])])
             vm.tapChip(.tagged)
-            try expect(vm.showTagsChipBar, "bar shows once the chip is active")
+            try expectEqual(vm.showTagsChipBar, Features.tagsEnabled, "bar shows once the chip is active")
 
             vm.searchText = "#wo"
-            try expect(vm.showTagAutocomplete, "typing # opens the search-mode bar")
+            try expectEqual(vm.showTagAutocomplete, Features.tagsEnabled, "typing # opens the search-mode bar")
             try expect(!vm.showTagsChipBar, "the chip-driven bar steps aside")
         }
     }

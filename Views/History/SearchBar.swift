@@ -21,12 +21,14 @@ struct SearchBar: View {
                     .font(.klip(.sidebar))
                     .foregroundStyle(.secondary)
 
-                if let tag = viewModel.activeTagFilter {
+                if Features.tagsEnabled, let tag = viewModel.activeTagFilter {
                     tagPill(tag)
                 }
 
                 TextField(
-                    "Search text, tags, apps, files, OCR…",
+                    Features.tagsEnabled
+                        ? "Search text, tags, apps, files, OCR…"
+                        : "Search text, apps, files, OCR…",
                     text: $viewModel.searchText
                 )
                 .textFieldStyle(.plain)

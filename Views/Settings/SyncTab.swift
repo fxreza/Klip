@@ -38,7 +38,9 @@ struct SyncTab: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 } else {
-                    Text("Your history is mirrored into a Klip folder in iCloud Drive. Each Mac writes only its own snapshot, so nothing is ever overwritten; deletes, locks, tags and folders travel with it.")
+                    Text(Features.tagsEnabled
+                         ? "Your history is mirrored into a Klip folder in iCloud Drive. Each Mac writes only its own snapshot, so nothing is ever overwritten; deletes, locks, tags and folders travel with it."
+                         : "Your history is mirrored into a Klip folder in iCloud Drive. Each Mac writes only its own snapshot, so nothing is ever overwritten; deletes, locks and folders travel with it.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

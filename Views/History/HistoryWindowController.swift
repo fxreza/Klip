@@ -13,9 +13,6 @@ class HistoryWindowController: NSWindowController, NSWindowDelegate {
     let viewModel: HistoryViewModel
     var previousApp: NSRunningApplication?
 
-    /// Timestamp of the last close — used to decide whether to persist search state
-    private var lastClosedAt: Date?
-
     /// Default window size when the user has never resized it (Clipfield's
     /// "standard" overlay size).
     private static let defaultSize = NSSize(width: 880, height: 540)
@@ -34,10 +31,17 @@ class HistoryWindowController: NSWindowController, NSWindowDelegate {
         set { viewModel.savedSelectedID = newValue }
     }
 
-    /// Reset search if window was closed more than 1.5 minutes ago (or never opened)
+    /// Whether this open should start with an empty search field.
+    ///
+    /// This used to be a 90-second timer on the last close: reopen quickly
+    /// and the query came back, reopen later and it did not. Nothing on
+    /// screen said which of the two you were getting, so a query typed to
+    /// find one clip could still be filtering the list minutes later, with
+    /// the rest of the history apparently missing. It is a setting now
+    /// (`Settings ▸ General ▸ Search`), off by default: the field is empty
+    /// every single time unless the user asks for it to be kept.
     private var shouldResetSearch: Bool {
-        guard let lastClosed = lastClosedAt else { return true }
-        return Date().timeIntervalSince(lastClosed) > 90
+        !SettingsManager.shared.keepSearchBetweenOpens
     }
 
     /// Persisted content size, clamped so a stale value cannot make the window
@@ -75,7 +79,6 @@ class HistoryWindowController: NSWindowController, NSWindowDelegate {
     }
 
     override func close() {
-        lastClosedAt = Date()
         viewModel.isPresented = false
         // A preview left on screen after the history window went away would
         // have nothing to hand focus back to.
@@ -167,18 +170,53 @@ class HistoryWindowController: NSWindowController, NSWindowDelegate {
         PasteController.copyToClipboard(item, store: store, mode: mode)
     }
 
+    /// Keep Open (`SettingsManager.keepWindowOpen`): the window survives a
+    /// paste instead of closing behind it, so several clips can be pasted in
+    /// a row without summoning Klip again each time.
+    ///
+    /// Note what it does *not* change: pasting still hands focus to the
+    /// target app (`PasteController` activates `previousApp` and synthesises
+    /// ⌘V there), so after a paste Klip is visible but no longer the key
+    /// window — the next clip is chosen with the mouse, not with ↩. Making ↩
+    /// keep working would mean yanking focus back to Klip after every paste,
+    /// which bounces the caret out of the document mid-typing; that is a
+    /// deliberate no.
+    private func closeUnlessKeptOpen() {
+        guard !SettingsManager.shared.keepWindowOpen else { return }
+        close()
+    }
+
     func pasteItem(_ item: ClipboardItem, mode: PasteMode = .rich) {
         let appToRestore = previousApp
-        close()
+        closeUnlessKeptOpen()
         NotificationCenter.default.post(name: .bufferIgnoreNextChange, object: nil)
         PasteController.paste(item, store: store, previousApp: appToRestore, mode: mode)
     }
 
     func pasteMultiple(_ items: [ClipboardItem], mode: PasteMode = .rich) {
         let appToRestore = previousApp
-        close()
+        closeUnlessKeptOpen()
         NotificationCenter.default.post(name: .bufferIgnoreNextChange, object: nil)
         PasteController.pasteMultiple(items, store: store, previousApp: appToRestore, mode: mode)
+    }
+
+    /// Bring an already-visible window back to the keyboard without treating
+    /// it as a fresh open.
+    ///
+    /// Only reachable in Keep Open mode: everywhere else, a window that lost
+    /// key has already closed itself. `suppressNextBecomeKey` keeps
+    /// `handleWindowDidOpen` out of it, so refocusing does not snap the
+    /// sidebar back to All or wipe the query the way summoning Klip does —
+    /// this is picking the window back up, not opening it.
+    func refocus() {
+        guard let window, window.isVisible else { return }
+        // The app in front right now is what a paste should go back to.
+        previousApp = NSWorkspace.shared.frontmostApplication
+        let panel = window as? HistoryPanel
+        panel?.suppressNextBecomeKey = true
+        panel?.suppressResignUntil = Date().addingTimeInterval(0.4)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 
     override func showWindow(_ sender: Any?) {

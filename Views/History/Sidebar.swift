@@ -14,12 +14,32 @@ import SwiftUI
 /// folder renames it, the context menu renames/deletes/creates, and every row
 /// that can hold clips is an AppKit drop target (`SidebarDropTarget`) for rows
 /// dragged out of the list — "All" meaning *remove from folder*. Folders are
-/// also drag sources for reordering.
+/// Folders reorder by dragging too, but through SwiftUI rather than AppKit
+/// (`folderDrag` below): press a folder, move, and an insertion line shows the
+/// gap it will land in — including above the first folder and below the last.
+/// See `SidebarDropTarget` for why that half cannot be an AppKit drag source.
 struct Sidebar: View {
     @ObservedObject var store: ClipboardStore
     @ObservedObject var viewModel: HistoryViewModel
 
     @Namespace private var sidebarNS
+
+    /// Each folder row's frame, in the window's coordinate space, republished
+    /// by the rows themselves. `folderDrag` needs it to answer "which gap is
+    /// the pointer in?" — a `DragGesture` reports where the pointer is, not
+    /// what is under it.
+    @State private var folderFrames: [UUID: CGRect] = [:]
+    /// The folder currently being dragged, and where it would land. Local
+    /// rather than view-model state: it exists only for the length of one
+    /// gesture and nothing outside this view reads it.
+    @State private var draggingFolderID: UUID?
+    @State private var dropTarget: FolderDropTarget?
+
+    /// A gap in the folder list: above or below one row.
+    private struct FolderDropTarget: Equatable {
+        let folderID: UUID
+        let above: Bool
+    }
 
     var body: some View {
         let counts = store.folderCounts()
@@ -66,6 +86,7 @@ struct Sidebar: View {
                         .contextMenu { folderMenu(folder) }
                     }
                 }
+                .onPreferenceChange(FolderFramesKey.self) { folderFrames = $0 }
             }
 
             Spacer(minLength: 0)
@@ -163,8 +184,15 @@ struct Sidebar: View {
                     .strokeBorder(Theme.accentGradient, lineWidth: 2)
             }
         }
+        // Reorder feedback, folder rows only: a line in the gap the dragged
+        // folder would land in, and the dragged row itself faded so it reads
+        // as the thing in flight.
+        .overlay(alignment: .top) { insertionLine(folder, above: true) }
+        .overlay(alignment: .bottom) { insertionLine(folder, above: false) }
+        .opacity(folder != nil && draggingFolderID == folder?.id ? 0.4 : 1)
         .contentShape(Rectangle())
-        .background(dropTarget(scopeValue: scopeValue, acceptsClips: acceptsClips, folder: folder))
+        .background(clipDropTarget(scopeValue: scopeValue, acceptsClips: acceptsClips))
+        .background(frameReporter(folder))
         .onTapGesture(count: 2) {
             if let folder = folder {
                 viewModel.requestRenameFolder(id: folder.id)
@@ -173,27 +201,118 @@ struct Sidebar: View {
             }
         }
         .onTapGesture(count: 1) { select(scopeValue) }
+        // Applied after the taps so a press that never moves is still a
+        // click: `minimumDistance` means the drag only wins once the pointer
+        // has actually travelled, which is also what stops a sloppy click
+        // from shuffling the sidebar.
+        .gesture(folderDrag(folder))
         .padding(.horizontal, 8)
         .animation(.easeOut(duration: 0.12), value: targeted)
+    }
+
+    // MARK: - Folder reordering (SwiftUI drag)
+
+    /// Publishes this folder row's frame in window coordinates. Window space
+    /// rather than a named one so the gesture below can read locations in the
+    /// same space without a `coordinateSpace` modifier wrapping the list.
+    @ViewBuilder
+    private func frameReporter(_ folder: Folder?) -> some View {
+        if let folder {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: FolderFramesKey.self,
+                    value: [folder.id: proxy.frame(in: .global)]
+                )
+            }
+        }
+    }
+
+    /// The 2pt accent line marking where the dragged folder will land.
+    @ViewBuilder
+    private func insertionLine(_ folder: Folder?, above: Bool) -> some View {
+        if let folder,
+           let target = dropTarget,
+           target.folderID == folder.id,
+           target.above == above,
+           // Dropping a folder into one of its own gaps moves nothing, so it
+           // gets no line: the feedback and `reorderFolder`'s no-op check
+           // must agree.
+           draggingFolderID != folder.id {
+            Capsule()
+                .fill(Theme.accent)
+                .frame(height: 2)
+                .padding(.horizontal, 2)
+        }
+    }
+
+    /// Press-and-move on a folder row reorders it.
+    ///
+    /// The gesture reports a pointer location, so the target gap is resolved
+    /// against the row frames collected in `folderFrames`: whichever row
+    /// contains the pointer, top half meaning "above it" and bottom half
+    /// "below it". Past either end of the list the nearest end row is used, so
+    /// dragging up beyond the first folder means "make this the first" instead
+    /// of quietly doing nothing.
+    private func folderDrag(_ folder: Folder?) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .global)
+            .onChanged { value in
+                guard let folder else { return }
+                draggingFolderID = folder.id
+                dropTarget = target(at: value.location)
+            }
+            .onEnded { value in
+                guard let folder else { return }
+                let landing = target(at: value.location)
+                draggingFolderID = nil
+                dropTarget = nil
+                guard let landing else { return }
+                _ = withAnimation(Theme.selectionSpring) {
+                    viewModel.reorderFolder(
+                        dragged: folder.id,
+                        relativeTo: landing.folderID,
+                        insertAbove: landing.above
+                    )
+                }
+            }
+    }
+
+    /// Which gap `point` (window coordinates) is in.
+    private func target(at point: CGPoint) -> FolderDropTarget? {
+        let rows = store.folders.compactMap { folder -> (UUID, CGRect)? in
+            guard let frame = folderFrames[folder.id] else { return nil }
+            return (folder.id, frame)
+        }
+        guard let first = rows.first, let last = rows.last else { return nil }
+
+        if let hit = rows.first(where: { $0.1.minY <= point.y && point.y < $0.1.maxY }) {
+            return FolderDropTarget(folderID: hit.0, above: point.y < hit.1.midY)
+        }
+        // Off the ends: pin to the first or last row rather than losing the
+        // drop, which is how "move it to the very top / bottom" is reached.
+        if point.y < first.1.minY {
+            return FolderDropTarget(folderID: first.0, above: true)
+        }
+        if point.y >= last.1.maxY {
+            return FolderDropTarget(folderID: last.0, above: false)
+        }
+        // Between two rows, in the 3pt gap the VStack leaves: the row above
+        // owns it.
+        if let above = rows.last(where: { $0.1.maxY <= point.y }) {
+            return FolderDropTarget(folderID: above.0, above: false)
+        }
+        return nil
     }
 
     private func select(_ scopeValue: Scope) {
         withAnimation(Theme.selectionSpring) { viewModel.scope = scopeValue }
     }
 
-    private func dropTarget(scopeValue: Scope, acceptsClips: Bool, folder: Folder?) -> some View {
+    private func clipDropTarget(scopeValue: Scope, acceptsClips: Bool) -> some View {
         SidebarDropTarget(
             acceptsClips: acceptsClips,
-            folderID: folder?.id,
-            folderName: folder?.name ?? "",
             onDropClips: { ids in
                 viewModel.dropTargetScope = nil
                 return viewModel.handleDrop(ids: ids, on: scopeValue)
-            },
-            onDropFolder: { dragged in
-                viewModel.dropTargetScope = nil
-                guard let folder = folder else { return false }
-                return viewModel.reorderFolder(dragged: dragged, onto: folder.id)
             },
             onTargetChanged: { isTargeted in
                 if isTargeted {
@@ -248,5 +367,20 @@ struct Sidebar: View {
         Button("Delete Folder…", role: .destructive) {
             viewModel.requestDeleteFolder(id: folder.id)
         }
+    }
+}
+
+/// Every folder row's frame in window coordinates, merged up from the rows.
+///
+/// `nonisolated` is required, not stylistic: the build passes
+/// `-default-isolation MainActor`, which would otherwise infer `@MainActor`
+/// for these static members and leave them unable to satisfy `PreferenceKey`'s
+/// nonisolated requirements (same pattern as `KlipTooltipKey`).
+private struct FolderFramesKey: PreferenceKey {
+    nonisolated static let defaultValue: [UUID: CGRect] = [:]
+
+    nonisolated static func reduce(value: inout [UUID: CGRect],
+                                   nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
     }
 }

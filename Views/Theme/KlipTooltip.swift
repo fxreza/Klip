@@ -28,7 +28,7 @@ import SwiftUI
 // feature for the garnish.
 //
 // **So: draw them ourselves.** `.klipHelp("…")` is a drop-in replacement for
-// `.help("…")` that renders a Klip-styled card after a hover delay.
+// `.help("…")` that renders a Klip-styled card under the pointer.
 //
 // ⚠️ DO NOT "simplify" this back to `.help(_:)`. It will silently render
 // nothing, exactly as before, and the regression is invisible to any test that
@@ -68,9 +68,9 @@ import SwiftUI
 extension View {
     /// Klip's replacement for SwiftUI's `.help(_:)`.
     ///
-    /// Shows a Klip-styled tooltip card after a ~0.5s hover (macOS's own
-    /// convention), positioned by the window-level `KlipTooltipHost` layer.
-    /// The card is purely decorative — it never takes hit tests — so it can
+    /// Shows a Klip-styled tooltip card the moment the pointer lands on the
+    /// control, positioned by the window-level `KlipTooltipHost` layer. The
+    /// card is purely decorative — it never takes hit tests — so it can
     /// neither eat a click nor break the hover that summons it.
     ///
     /// Also keeps the real `.help(_:)` underneath. That is not redundancy for
@@ -96,43 +96,35 @@ extension View {
 
 // MARK: - Hover tracking
 
-/// The delay before a tooltip appears. Matches AppKit's default initial
-/// tooltip delay closely enough that the app does not feel "off".
-private let klipTooltipDelay: Duration = .milliseconds(500)
+// No delay: the card appears on the same event that reports the hover.
+//
+// It used to wait ~500ms, copying AppKit's initial tooltip delay. That delay
+// exists to stop system tooltips firing while the pointer merely crosses a
+// toolbar — but Klip's icons are the *only* label those controls have. Eight
+// unlabelled glyphs in the preview pane's action row, three more in the action
+// bar, and the answer to "what is this one?" arrived half a second after you
+// had already moved on. Showing at once costs nothing here: the card is inert,
+// it is drawn inside the window, and it disappears the instant the pointer
+// leaves.
 
 private struct KlipTooltipModifier: ViewModifier {
     let text: String
 
-    /// Pending show. Held so a pointer that leaves before the delay elapses
-    /// cancels the tooltip instead of having it pop up over empty space —
-    /// which is what happens if you drive this off a bare `asyncAfter`.
-    @State private var showTask: Task<Void, Never>?
     @State private var isVisible = false
 
     func body(content: Content) -> some View {
         content
             // Accessibility: see the doc comment on `klipHelp`.
             .help(text)
+            // Set straight from the hover event rather than through a `Task`:
+            // even a zero-length sleep is a run-loop hop, which is visible as
+            // a flicker when the pointer sweeps along a row of icons.
             .onHover { hovering in
-                showTask?.cancel()
-                if hovering {
-                    showTask = Task {
-                        try? await Task.sleep(for: klipTooltipDelay)
-                        guard !Task.isCancelled else { return }
-                        isVisible = true
-                    }
-                } else {
-                    showTask = nil
-                    // Hide immediately on exit — a fade-out would trail the
-                    // pointer across the next control.
-                    isVisible = false
-                }
+                isVisible = hovering
             }
             .onDisappear {
                 // A row scrolled out of the LazyVStack (or a button whose
                 // condition flipped) must not leave a tooltip stranded.
-                showTask?.cancel()
-                showTask = nil
                 isVisible = false
             }
             .anchorPreference(key: KlipTooltipKey.self, value: .bounds) { anchor in
@@ -201,8 +193,8 @@ private struct KlipTooltipPositioner: View {
     let window: GeometryProxy
 
     /// Measured on the first layout pass. Until it lands the card is drawn at
-    /// zero opacity, so nobody sees the unpositioned frame. Invisible in
-    /// practice — the card only exists at all after a 500ms hover.
+    /// zero opacity, so nobody sees the unpositioned frame — one frame, at the
+    /// point the pointer arrives.
     @State private var size: CGSize = .zero
 
     /// Keeps the card off the window's rounded corners and hairline border.

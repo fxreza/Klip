@@ -21,6 +21,10 @@ enum ShortcutAction: String, CaseIterable, Codable {
 
     // Window
     case toggleSidebar, togglePreview
+    /// Keep Open: stop the window closing after a paste or on losing focus.
+    /// Named for the window, not "pin", so it never reads as a second kind of
+    /// clip pin — see `SettingsManager.keepWindowOpen`.
+    case toggleKeepOpen
 
     // Navigation
     //
@@ -43,7 +47,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
             return .clipboard
         case .newFolder, .renameFolder, .moveToFolder:
             return .organize
-        case .toggleSidebar, .togglePreview:
+        case .toggleSidebar, .togglePreview, .toggleKeepOpen:
             return .window
         case .moveUp, .moveDown, .extendUp, .extendDown, .tabComplete, .escape:
             return .navigation
@@ -71,12 +75,27 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .moveToFolder: return "Move to Folder"
         case .toggleSidebar: return "Toggle Sidebar"
         case .togglePreview: return "Toggle Preview Pane"
+        case .toggleKeepOpen: return "Keep Window Open"
         case .moveUp: return "Move Selection Up"
         case .moveDown: return "Move Selection Down"
         case .extendUp: return "Extend Selection Up"
         case .extendDown: return "Extend Selection Down"
         case .tabComplete: return "Tab-Complete Tag Filter"
         case .escape: return "Escape / Deselect"
+        }
+    }
+
+    /// Whether this action is shown in Settings ▸ Shortcuts.
+    ///
+    /// Only false for the tag keys while `Features.tagsEnabled` is off: their
+    /// bindings still exist and are still resolved, so nothing about the
+    /// table changes — they are simply not offered for rebinding when there
+    /// is no tag UI for them to act on. `GlobalKeyMonitor` stands the same
+    /// two actions down.
+    var isUserVisible: Bool {
+        switch self {
+        case .addTag, .clearFilter: return Features.tagsEnabled
+        default: return true
         }
     }
 
@@ -120,6 +139,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .moveToFolder:   return KeyBinding(keyCode: 46, modifiers: [.command])    // ⌘M
         case .toggleSidebar:  return KeyBinding(keyCode: 1,  modifiers: [.command, .option]) // ⌥⌘S
         case .togglePreview:  return KeyBinding(keyCode: 35, modifiers: [.command, .option]) // ⌥⌘P
+        case .toggleKeepOpen: return KeyBinding(keyCode: 40, modifiers: [.command, .option]) // ⌥⌘K
         case .moveUp:         return KeyBinding(keyCode: 126, modifiers: [])           // ↑
         case .moveDown:       return KeyBinding(keyCode: 125, modifiers: [])           // ↓
         case .extendUp:       return KeyBinding(keyCode: 126, modifiers: [.shift])     // ⇧↑

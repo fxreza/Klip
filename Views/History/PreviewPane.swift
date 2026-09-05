@@ -77,7 +77,26 @@ struct PreviewPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .animation(.easeOut(duration: 0.18), value: viewModel.selectedItem?.id)
+        // No animation on selection. There used to be
+        // `.animation(.easeOut(duration: 0.18), value: viewModel.selectedItem?.id)`
+        // here, and it is the reason moving onto an image looked like the pane
+        // blinked.
+        //
+        // Text and image clips render structurally different bodies
+        // (`textBody` vs `imageBody`), so SwiftUI does not update the old view
+        // — it removes it and inserts the new one. Under an implicit animation
+        // that removal and insertion become a cross-fade, so every step onto a
+        // clip of a different type faded the whole pane out and back in. On
+        // top of that the image itself arrives a frame or two later, off a
+        // background decode, so what actually played was: fade out the text,
+        // fade in an empty pane, then pop the image in. Any height difference
+        // in between — the header wrapping its action icons onto a second row
+        // for the kinds that have more of them — slid rather than cut, which
+        // is the sideways movement that came with it.
+        //
+        // A preview pane is not a place where motion carries meaning; it
+        // shows whatever is selected, and the selection has already moved.
+        // Finder's and Mail's cut too.
     }
 
     // MARK: - Header
@@ -109,9 +128,18 @@ struct PreviewPane: View {
                     headerTitle(for: item)
                     Spacer(minLength: 0)
                 }
+                // Centred, not pushed right. On its own line the row is
+                // narrower than the pane by whatever the pane happens to be
+                // wider than its minimum, and a single trailing spacer put
+                // every point of that on the left — so the icons sat hard
+                // against the right margin with a visibly bigger gap on the
+                // left. Two spacers split the difference, and the margins
+                // match at any width (at the pane's minimum there is no
+                // slack to split, and the row is flush with both).
                 HStack(spacing: 8) {
                     Spacer(minLength: 0)
                     actionIcons(for: item)
+                    Spacer(minLength: 0)
                 }
             }
         }
@@ -139,7 +167,7 @@ struct PreviewPane: View {
                 .fixedSize()
         }
 
-        if let size = viewModel.itemSize, size > 0 {
+        if let size = viewModel.preview(for: item).byteSize, size > 0 {
             Text(viewModel.formattedByteCount(size))
                 .font(.klip(.caption))
                 .foregroundStyle(.tertiary)
@@ -183,75 +211,116 @@ struct PreviewPane: View {
         }
     }
 
+    /// The eight history actions, always all eight, always in this order.
+    ///
+    /// They used to be built conditionally — no Edit on an image, no Save or
+    /// Extract Text on anything but an image — so the row's contents changed
+    /// as the selection moved and every icon after the missing one shifted
+    /// sideways. Stepping from a text clip to an image slid Pin, Favorite,
+    /// Lock and Delete under the pointer, and because the count changed the
+    /// row could also wrap onto a second line for one clip and not the next,
+    /// moving the preview below it.
+    ///
+    /// An icon that does not apply to the selected clip is drawn greyed and
+    /// disabled instead of being dropped, so the row is the same shape on
+    /// every clip and the target you want is always in the same place. The
+    /// tooltip on a disabled icon says why it is off.
     private func historyActionIcons(for item: ClipboardItem) -> some View {
-        HStack(spacing: 12) {
-            if item.isEditable {
-                iconButton(
-                    "square.and.pencil",
-                    tint: viewModel.isEditing ? Theme.accent : .secondary,
-                    help: viewModel.isEditing
-                        ? "Stop editing (auto-saved) (\(ShortcutManager.shared.displayString(for: .edit)) or \(ShortcutManager.shared.displayString(for: .escape)))"
-                        : "Edit item (\(ShortcutManager.shared.displayString(for: .edit)))"
-                ) { viewModel.toggleEditMode() }
-            }
+        let shortcuts = ShortcutManager.shared
+        let canExtract = item.type == .image && item.ocrText == nil
 
-            iconButton("doc.on.doc", tint: .secondary, help: "Copy") {
+        return HStack(spacing: 12) {
+            iconButton(
+                "square.and.pencil",
+                tint: viewModel.isEditing ? Theme.accent : .secondary,
+                help: !item.isEditable
+                    ? "Only text clips can be edited"
+                    : viewModel.isEditing
+                        ? "Stop editing (auto-saved) (\(shortcuts.displayString(for: .edit)) or \(shortcuts.displayString(for: .escape)))"
+                        : "Edit item (\(shortcuts.displayString(for: .edit)))",
+                enabled: item.isEditable
+            ) { viewModel.toggleEditMode() }
+
+            iconButton("doc.on.doc", tint: .secondary, help: "Copy (\(shortcuts.displayString(for: .copy)))") {
                 viewModel.copy(item)
             }
 
-            if item.type == .image && viewModel.previewImage != nil {
-                iconButton("arrow.down.to.line", tint: .secondary, help: "Save image (\(ShortcutManager.shared.displayString(for: .saveToDisk)))") {
-                    viewModel.saveSelectedImage()
-                }
-            }
+            // Every kind can be written to disk — an image in its captured
+            // format, text as .txt, files straight through — which is what ⌘S
+            // has always done. The icon used to appear for images only, so it
+            // was both a moving target and a narrower promise than the key.
+            iconButton(
+                "arrow.down.to.line",
+                tint: .secondary,
+                help: "Save to disk (\(shortcuts.displayString(for: .saveToDisk)))"
+            ) { viewModel.saveSelectedToDisk() }
 
-            // OCR — only for image items without existing OCR text.
-            if item.type == .image && viewModel.previewImage != nil && item.ocrText == nil {
-                iconButton(
-                    viewModel.isExtractingText ? "ellipsis.circle" : "text.viewfinder",
-                    tint: .secondary,
-                    help: "Extract Text from Image"
-                ) {
-                    Task { @MainActor in await viewModel.extractTextFromSelection() }
-                }
-                .disabled(viewModel.isExtractingText)
+            iconButton(
+                viewModel.isExtractingText ? "ellipsis.circle" : "text.viewfinder",
+                tint: .secondary,
+                help: item.type != .image
+                    ? "Text can only be extracted from images"
+                    : item.ocrText != nil
+                        ? "Text has already been extracted from this image"
+                        : "Extract text from image",
+                enabled: canExtract && !viewModel.isExtractingText
+            ) {
+                Task { @MainActor in await viewModel.extractTextFromSelection() }
             }
 
             iconButton(
                 item.isPinned ? "pin.fill" : "pin",
                 tint: item.isPinned ? Theme.pinTint : .secondary,
                 help: item.isPinned
-                    ? "Unpin (\(ShortcutManager.shared.displayString(for: .pin)))"
-                    : "Pin to top (\(ShortcutManager.shared.displayString(for: .pin)))"
+                    ? "Unpin (\(shortcuts.displayString(for: .pin)))"
+                    : "Pin to top (\(shortcuts.displayString(for: .pin)))"
             ) { viewModel.togglePinOnSelection() }
 
             iconButton(
                 item.isBookmarked ? "star.fill" : "star",
                 tint: item.isBookmarked ? Theme.bookmarkTint : .secondary,
                 help: item.isBookmarked
-                    ? "Unfavorite (\(ShortcutManager.shared.displayString(for: .star)))"
-                    : "Favorite — protects from cleanup (\(ShortcutManager.shared.displayString(for: .star)))"
+                    ? "Unfavorite (\(shortcuts.displayString(for: .star)))"
+                    : "Favorite — protects from cleanup (\(shortcuts.displayString(for: .star)))"
             ) { viewModel.toggleBookmarkOnSelection() }
 
             iconButton(
                 item.isLocked ? "lock.fill" : "lock.open",
                 tint: item.isLocked ? Theme.lockTint : .secondary,
-                help: "\(item.isLocked ? "Unlock" : "Lock") (\(ShortcutManager.shared.displayString(for: .lock)))"
+                help: "\(item.isLocked ? "Unlock" : "Lock") (\(shortcuts.displayString(for: .lock)))"
             ) { viewModel.toggleLockSelection() }
 
-            iconButton("trash", tint: .secondary, help: item.isLocked ? "Locked - unlock to delete" : "Delete (\(ShortcutManager.shared.displayString(for: .delete)))") {                viewModel.deleteSelection()
-            }
-            .disabled(item.isLocked)
+            iconButton(
+                "trash",
+                tint: .secondary,
+                help: item.isLocked
+                    ? "Locked - unlock to delete"
+                    : "Delete (\(shortcuts.displayString(for: .delete)))",
+                enabled: !item.isLocked
+            ) { viewModel.deleteSelection() }
         }
     }
 
-    private func iconButton(_ systemImage: String, tint: Color, help: String, action: @escaping () -> Void) -> some View {
+    /// A header action. `enabled: false` greys it and takes its click, rather
+    /// than the caller dropping it from the row — see `historyActionIcons`.
+    /// The tooltip still works while disabled, which is where the reason it
+    /// is off gets said.
+    private func iconButton(
+        _ systemImage: String,
+        tint: Color,
+        help: String,
+        enabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(Theme.icon(13, preview: true))
-                .foregroundStyle(tint)
+                // `.disabled` alone does not dim a `.plain` button carrying
+                // its own `foregroundStyle`, so the off state is drawn here.
+                .foregroundStyle(enabled ? tint : Color.secondary.opacity(0.3))
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
         .klipHelp(help)
     }
 
@@ -379,7 +448,7 @@ struct PreviewPane: View {
     @ViewBuilder
     private func imageBody(_ item: ClipboardItem) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let img = viewModel.previewImage {
+            if let img = viewModel.preview(for: item).image {
                 Image(nsImage: img)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -396,10 +465,15 @@ struct PreviewPane: View {
                     .contentShape(RoundedRectangle(cornerRadius: 12))
                     .onTapGesture(count: 2) { viewModel.keyQuickLook() }
                     .klipHelp("Double-click to Quick Look")
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: 200)
             }
+            // No placeholder on purpose. There used to be a `ProgressView` in
+            // a 200pt frame here, and it was not information: the image is
+            // decoded off a local disk and is usually on screen within a frame
+            // or two, so what it produced was a spinner flashing and then the
+            // pane jumping from the spinner's height to the image's — two
+            // layout changes back to back, which is what made moving between
+            // image clips look like it blinked. Nothing, then the image, is
+            // one change.
 
             if viewModel.isExtractingText {
                 ProgressView()
@@ -598,30 +672,71 @@ struct PreviewPane: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 5) {
-                metaRow("Copied", value: item.timestamp.formatted(date: .abbreviated, time: .shortened))
-                metaRow("From", value: item.sourceApp ?? "—")
-                metaRow("Size", value: viewModel.itemSize.map { viewModel.formattedByteCount($0) } ?? "—")
-                // Sits under Size because the two answer the same question
-                // ("how big is this?") from different angles. Unlike the rows
-                // around it there is no "—" fallback: most clips are text and
-                // have no dimensions, so a permanent em dash would be noise,
-                // and for images the value arrives a moment after selection —
-                // a row that appears reads better than one that changes.
-                if let dimensions = viewModel.previewDimensions {
-                    metaRow("Dimensions", value: dimensions.displayString)
-                }
+                // Ordered by how specific each fact is to the clip itself,
+                // most first: what it is, how big, where it lives, then where
+                // it came from and when. The two that are the same on whole
+                // runs of clips — the app they were copied from, the minute
+                // they were copied in — sit at the bottom, out of the way of
+                // the ones being scanned.
+                //
+                // Every row is always drawn, with an em dash where a clip has
+                // no value for it, so the list is read by position: Kind is
+                // always the first line and Copied always the last, whatever
+                // is selected. See the notes on Kind and Dimensions below.
+
+                // What the thing actually is: "PNG image", "Word document",
+                // "Excel spreadsheet". Labelled **Kind** because that is the
+                // word Finder uses for exactly this — Get Info's Kind line
+                // reads "PNG image" too — so it is already where a Mac user
+                // looks. (The code below says *format* only to keep clear of
+                // `ContentKind`, which is the broader Text / Image / File
+                // classification shown in the header.)
+                metaRow("Kind", value: formatLabel(for: item) ?? "—")
+                metaRow("Size", value: viewModel.preview(for: item).byteSize.map { viewModel.formattedByteCount($0) } ?? "—")
+                // Under Size because the two answer the same question ("how
+                // big is this?") from different angles.
+                //
+                // The value is a dash rather than the row waiting for it:
+                // dimensions are measured off the file header, and a row
+                // conditional on the value arrived a beat after the image did
+                // — a second reflow, right behind the one the image itself
+                // caused.
+                metaRow("Dimensions", value: viewModel.preview(for: item).dimensions?.displayString ?? "—")
                 metaRow("Folder", value: folderName(for: item))
+                metaRow("From", value: item.sourceApp ?? "—")
+                metaRow("Copied", value: item.timestamp.formatted(date: .abbreviated, time: .shortened))
             }
             .padding(.horizontal, 16)
 
-            TagSection(
-                store: store,
-                viewModel: viewModel,
-                item: item,
-                isTagInputFocused: $isTagInputFocused
-            )
+            if Features.tagsEnabled {
+                TagSection(
+                    store: store,
+                    viewModel: viewModel,
+                    item: item,
+                    isTagInputFocused: $isTagInputFocused
+                )
+            }
         }
         .padding(.bottom, 12)
+        // The pane as a whole animates on selection (see `body`), and that is
+        // right for the content above — but not here. Every value in this
+        // list is right-aligned, so animating a change slides each one
+        // sideways from its old position to its new one, and switching clips
+        // read as the footer wobbling rather than updating. Values that fill
+        // in a moment later (size, dimensions) did it a second time. The
+        // footer swaps instantly instead.
+        .transaction { $0.animation = nil }
+    }
+
+    /// The **Kind** row's value. See `ItemFormat`.
+    private func formatLabel(for item: ClipboardItem) -> String? {
+        if let attachment = item.fileAttachment {
+            return ItemFormat.label(forFile: attachment)
+        }
+        if item.type == .image {
+            return ItemFormat.label(forImage: item)
+        }
+        return ItemFormat.label(forText: item)
     }
 
     private func folderName(for item: ClipboardItem) -> String {

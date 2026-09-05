@@ -11,9 +11,10 @@ import AppKit
 /// Every size goes through `CGFloat.klipScaled` and every font through
 /// `Font.klip` so the whole row tracks the user's list text-size setting.
 ///
-/// Click behaviour is **not** here — `ClipList` owns it, and it is deliberately
-/// unchanged from Buffer: a single click only selects, a double-click copies
-/// and closes. Clipfield's single-click-pastes is not adopted.
+/// Click behaviour is **not** here — `ClipList` owns it: a single click only
+/// selects, a double-click pastes (exactly what ↩ does, via `keyEnter`).
+/// Clipfield's single-click-pastes is not adopted: a list you cannot look
+/// through without pasting out of it is not a list.
 struct ClipRow: View {
     let item: ClipboardItem
     let store: ClipboardStore
@@ -216,7 +217,7 @@ struct ClipRow: View {
     /// row width.
     @ViewBuilder
     private var subtitle: some View {
-        if !item.tags.isEmpty {
+        if Features.tagsEnabled, !item.tags.isEmpty {
             HStack(spacing: 5) {
                 ForEach(item.tags.prefix(2), id: \.self) { tag in
                     TagChip(label: tag, onAccent: isHighlighted, onTap: { onTagTap?(tag) })

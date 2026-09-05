@@ -15,18 +15,33 @@ struct PanelResizer: View {
 
     @State private var startWidth: Double?
 
+    /// Which end of the 12pt strip the hairline is drawn at: the end touching
+    /// the panel this divider resizes.
+    ///
+    /// It used to be centred, which put the line 6pt *outside* the panel it
+    /// delimits — so every panel looked like it had 6pt more padding on its
+    /// divider side than on its window side. The sidebar's rows sit 18pt from
+    /// its own left edge and 18pt from its own right edge, but read as 18 and
+    /// 24; the preview's image is centred to within half a point inside its
+    /// pane, and read as off-centre by six. The content was never wrong — the
+    /// line marking the boundary was in the wrong place.
+    private var lineAlignment: Alignment {
+        // `.leading` = the panel is to the left, so its edge is this strip's
+        // leading edge; `.trailing` = the panel is to the right.
+        side == .leading ? .leading : .trailing
+    }
+
     var body: some View {
         Color.clear
-            // Hit area is wider than the visible hairline below (12pt vs 1pt).
-            // `.overlay` centers its content by default, so the 1pt line stays
-            // centered in the 12pt strip without any extra alignment work.
+            // Hit area is wider than the visible hairline: 12pt to grab, 1pt
+            // to see.
             .frame(width: 12)
             .frame(maxHeight: .infinity)
-            .overlay(
+            .overlay(alignment: lineAlignment) {
                 Rectangle()
                     .fill(Theme.separator)
                     .frame(width: 1)
-            )
+            }
             .contentShape(Rectangle())
             .onHover { inside in
                 // Was `NSCursor.resizeLeftRight.push()` / `.pop()`. push/pop
@@ -79,5 +94,99 @@ struct PanelResizer: View {
                     }
                     .onEnded { _ in startWidth = nil }
             )
+    }
+}
+
+/// How narrow the side panels are allowed to get.
+///
+/// These used to be literals — 120 for the sidebar, 200 for the preview — and
+/// both were narrower than the content they hold. Dragged to the minimum, the
+/// sidebar truncated "Favorites" to "Favor…" and wrapped "New Folder" onto two
+/// lines, and the preview clipped its own header off both edges. A panel you
+/// can shrink past its own contents is a panel with a broken setting in it, so
+/// the floor is now measured from what each panel actually has to draw.
+///
+/// Both scale with the matching font-size setting, because the text they are
+/// sized around does.
+enum PaneMetrics {
+    /// The width an SF Symbol actually renders at.
+    ///
+    /// Asked of the symbol itself rather than estimated from the point size.
+    /// A flat multiplier has to be generous enough for the widest glyph in the
+    /// set, which then pads every panel sized from it with slack that is
+    /// invisible in the code and obvious on screen — the preview pane's floor
+    /// came out about 12pt wider than the icons it was sized around. Falls
+    /// back to an estimate only if the symbol is unavailable.
+    private static func symbolWidth(_ name: String, size: CGFloat) -> CGFloat {
+        let config = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config) else { return size * 1.2 }
+        return image.size.width
+    }
+
+    /// Widest of a set of symbols at `size` — for rows where which glyph is
+    /// drawn depends on state (pinned or not, locked or not).
+    private static func symbolWidth(_ names: [String], size: CGFloat) -> CGFloat {
+        names.map { symbolWidth($0, size: size) }.max() ?? size * 1.2
+    }
+
+    private static func textWidth(_ text: String, size: CGFloat) -> CGFloat {
+        (text as NSString)
+            .size(withAttributes: [.font: NSFont.systemFont(ofSize: size)])
+            .width
+            .rounded(.up)
+    }
+
+    /// Fits the sidebar's own fixed rows: the widest label with its icon, its
+    /// count badge and every scrap of padding around it. Folder names are not
+    /// included — a folder called something enormous truncates, which is
+    /// normal and is not a reason to force the whole panel wider.
+    static func sidebarMinimum(listFontScale: Double) -> Double {
+        let size = KlipFontRole.sidebar.baseSize * listFontScale
+        // The icon sits in a fixed 16pt-wide slot (`Sidebar.row`), scaled.
+        let iconSlot = CGFloat.klipScaled(16)
+        // Row: 8pt outer + 10pt inner padding each side, icon slot, 9pt gap,
+        // label, 4pt minimum gap, then a three-digit count.
+        let row = 36 + iconSlot + 9 + textWidth("Favorites", size: size) + 4
+            + textWidth("999", size: KlipFontRole.caption.baseSize * listFontScale)
+        // "New Folder": 18pt padding each side, icon, 7pt gap, label.
+        let newFolder = 36 + symbolWidth("plus.circle.fill", size: size) + 7
+            + textWidth("New Folder", size: size)
+        return Double(max(row, newFolder).rounded(.up))
+    }
+
+    /// Fits the preview pane's header action row, which is the widest thing in
+    /// it that cannot wrap: eight icons, seven gaps, and 16pt of padding each
+    /// side. `PreviewPane.header` already drops the icons onto their own line
+    /// when the title will not fit beside them, so the title is not part of
+    /// this — but the icon row itself has nowhere left to go.
+    static func previewMinimum(previewFontScale: Double) -> Double {
+        let size = 13 * previewFontScale
+        // `PreviewPane.historyActionIcons`, in order. Where the glyph depends
+        // on state, both are measured and the wider one wins, so the floor
+        // does not move when a clip is pinned or locked.
+        let icons: [[String]] = [
+            ["square.and.pencil"],
+            ["doc.on.doc"],
+            ["arrow.down.to.line"],
+            ["text.viewfinder", "ellipsis.circle"],
+            ["pin", "pin.fill"],
+            ["star", "star.fill"],
+            ["lock.open", "lock.fill"],
+            ["trash"],
+        ]
+        let glyphs = icons.reduce(CGFloat.zero) { $0 + symbolWidth($1, size: size) }
+        let gaps = 12 * CGFloat(icons.count - 1)
+        return Double((32 + glyphs + gaps).rounded(.up))
+    }
+
+    static func sidebarRange(listFontScale: Double) -> ClosedRange<Double> {
+        let low = sidebarMinimum(listFontScale: listFontScale)
+        return low...max(low, 320)
+    }
+
+    static func previewRange(previewFontScale: Double) -> ClosedRange<Double> {
+        let low = previewMinimum(previewFontScale: previewFontScale)
+        return low...max(low, 440)
     }
 }

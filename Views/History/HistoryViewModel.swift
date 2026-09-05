@@ -44,11 +44,23 @@ final class HistoryViewModel: ObservableObject {
 
     // MARK: - Search
 
+    /// Whether what is typed in the search field is a `#tag` query rather than
+    /// text to look for.
+    ///
+    /// Always false while tags are hidden (`Features.tagsEnabled`), so `#` is
+    /// then just a character like any other: it searches, ↩ still pastes, and
+    /// ⇥ does not try to complete a tag name. Without this the leading `#`
+    /// kept its old meaning with none of the UI that made it legible — a
+    /// query starting with `#` matched nothing and swallowed the paste key.
+    var isTagQuery: Bool {
+        Features.tagsEnabled && searchText.hasPrefix("#")
+    }
+
     @Published var searchText = "" {
         didSet {
             guard searchText != oldValue else { return }
             let newValue = searchText
-            showTagAutocomplete = newValue.hasPrefix("#")
+            showTagAutocomplete = Features.tagsEnabled && newValue.hasPrefix("#")
 
             searchDebounceTask?.cancel()
 
@@ -70,7 +82,7 @@ final class HistoryViewModel: ObservableObject {
         didSet {
             guard debouncedSearchText != oldValue else { return }
             // Don't reset selection when in tag autocomplete mode (list is unchanged)
-            applyFilters(resetSelection: debouncedSearchText.hasPrefix("#") ? .keep : .defaultItem)
+            applyFilters(resetSelection: (Features.tagsEnabled && debouncedSearchText.hasPrefix("#")) ? .keep : .defaultItem)
         }
     }
 
@@ -182,8 +194,13 @@ final class HistoryViewModel: ObservableObject {
     /// count) should show under the chip row. Suppressed while the `#`-mode
     /// bar above the chips is already showing its own (alphabetical,
     /// prefix-filtered) list, so the two never double up.
+    ///
+    /// False outright while tags are hidden (`Features.tagsEnabled`), so the
+    /// answer is the same here as it is on screen — the view gates the bar
+    /// too, but a view model that says a bar is showing when no bar can show
+    /// is a thing to be caught out by later.
     var showTagsChipBar: Bool {
-        chipFilter == .tagged && !showTagAutocomplete && !store.allTags.isEmpty
+        Features.tagsEnabled && chipFilter == .tagged && !showTagAutocomplete && !store.allTags.isEmpty
     }
 
     // MARK: - Inline prompts
@@ -242,16 +259,16 @@ final class HistoryViewModel: ObservableObject {
 
     // MARK: - Detail pane
 
-    @Published var previewImage: NSImage?
-    /// Pixel dimensions of the selected clip, when it has any — an image clip
-    /// or a `.file` clip whose first file is an image. `nil` for everything
-    /// else *and* for the brief window before the async load finishes, which
-    /// is why `PreviewPane` omits the whole row rather than showing a "—":
-    /// a placeholder that appears and then turns into a number reads as a
-    /// glitch, while a row that simply arrives reads as loading.
-    @Published var previewDimensions: PixelDimensions?
+    /// Decoded previews by clip id, so returning to a clip costs nothing and
+    /// a redraw never re-reads the disk. Bounded rather than unbounded: a
+    /// full-size screenshot is not small, and the pane only ever shows one.
+    private let previewCache: NSCache<NSUUID, PreviewPayload> = {
+        let cache = NSCache<NSUUID, PreviewPayload>()
+        cache.countLimit = 24
+        return cache
+    }()
+
     @Published var chunkedText = ChunkedTextState()
-    @Published var itemSize: Int?
     @Published var isExtractingText = false
     @Published var showDeleteConfirmation = false
 
@@ -305,7 +322,7 @@ final class HistoryViewModel: ObservableObject {
     // MARK: - Derived values
 
     var tagSuggestions: [String] {
-        let query = searchText.hasPrefix("#") ? String(searchText.dropFirst()).lowercased() : ""
+        let query = isTagQuery ? String(searchText.dropFirst()).lowercased() : ""
         if query.isEmpty { return store.allTags }
         return store.allTags.filter { $0.hasPrefix(query) }
     }
@@ -673,6 +690,21 @@ final class HistoryViewModel: ObservableObject {
         SettingsManager.shared.showPreviewPane.toggle()
     }
 
+    /// Keep Open. Toasts because, unlike the sidebar and preview toggles, the
+    /// thing that changed is not visible in the layout — only the lit button
+    /// in the action bar says so, and the mode's whole effect happens later,
+    /// after a paste that would otherwise have closed the window.
+    func toggleKeepOpen() {
+        let settings = SettingsManager.shared
+        settings.keepWindowOpen.toggle()
+        showToast(
+            text: settings.keepWindowOpen
+                ? "Keep Open on - the window stays after a paste"
+                : "Keep Open off",
+            systemImage: "macwindow"
+        )
+    }
+
     // MARK: - Window lifecycle
 
     /// Runs on `.bufferWindowDidOpen`. Returns nothing; the view still owns the
@@ -752,6 +784,9 @@ final class HistoryViewModel: ObservableObject {
         if let itemID = editingItemID,
            let item = store.items.first(where: { $0.id == itemID }) {
             store.updateText(editText, for: item)
+            // The clip's byte size is cached with the rest of its preview
+            // facts, and editing is the one thing that changes it.
+            invalidatePreview(for: itemID)
             // The title field sits above the body in the same editor, so it
             // commits on the same exit. Blank clears the name (see
             // `ClipboardStore.setTitle`).
@@ -853,7 +888,7 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func extractTextFromSelection() async {
-        guard let img = previewImage, let item = selectedItem else { return }
+        guard let item = selectedItem, let img = preview(for: item).image else { return }
         isExtractingText = true
         let result = await OCRService.shared.recognizeText(from: img)
         let text = result ?? "No text found in this image."
@@ -919,89 +954,95 @@ final class HistoryViewModel: ObservableObject {
     // MARK: - Preview loading
 
     /// Body of `HistoryContentView`'s `.task(id: selectedItem?.id)`.
+    ///
+    /// Only the long-text path is left here. The image, its dimensions and the
+    /// clip's size used to be loaded here too — cleared to nil first, then
+    /// filled back in — and that is what made stepping through image clips
+    /// blink.
+    ///
+    /// `.task(id:)` does not run in the same pass as the selection change; it
+    /// is scheduled after it. So each step drew three times: once with the
+    /// *previous* clip's image and size still in place under the new clip's
+    /// header, once blank after this method cleared them, and once more when
+    /// the values arrived. The rows that never blinked — Copied, From, Kind —
+    /// were exactly the ones read straight off `item` in the view body, which
+    /// change in the same pass as the selection.
+    ///
+    /// So those three are read straight off the item now too, through
+    /// `preview(for:)`. See it for why that is affordable synchronously.
     func reloadPreview() async {
-        // Clear preview
-        previewImage = nil
-        // Must be cleared here, with the rest: the dimensions land a beat
-        // after selection (the image load is async), so if the previous clip's
-        // value survived this block it would sit in the footer describing the
-        // newly selected clip until the new load returned — or forever, for a
-        // clip that has no dimensions at all.
-        previewDimensions = nil
         chunkedText = ChunkedTextState()
         isExtractingText = false
-        itemSize = nil
         showTagInput = false
         tagInputText = ""
 
-        // Load new preview async
-        if let item = selectedItem {
-            itemSize = store.itemSize(for: item)
-
-            if item.type == .image {
-                let loaded = await loadPreviewImage(for: item)
-                // `.task(id:)` cancels this task when the selection moves on,
-                // but the continuation below is not cancellation-aware: it
-                // still resumes, and without this check a slow load could
-                // write itself over the *next* clip's freshly cleared state.
-                // Image and dimensions are assigned together so the footer can
-                // never describe an image other than the one on screen.
-                guard selectedItem?.id == item.id else { return }
-                previewImage = loaded.image
-                previewDimensions = loaded.dimensions
-            } else if item.type == .file {
-                // Image files (a Finder copy of a .png/.heic/...) render as a
-                // QuickLook thumbnail and never produce a `previewImage`, so
-                // their dimensions come straight off the file header instead.
-                let dimensions = await loadFileDimensions(for: item)
-                guard selectedItem?.id == item.id else { return }
-                previewDimensions = dimensions
-            } else if item.type == .text {
-                if item.isFileBacked || (item.textContent?.count ?? 0) > 5000 {
-                    await loadInitialChunk(for: item)
-                } else {
-                    chunkedText.visibleText = item.textContent ?? ""
-                    chunkedText.reachedEOF = true
-                }
-            }
+        guard let item = selectedItem, item.type == .text else { return }
+        if item.isFileBacked || (item.textContent?.count ?? 0) > 5000 {
+            await loadInitialChunk(for: item)
+        } else {
+            chunkedText.visibleText = item.textContent ?? ""
+            chunkedText.reachedEOF = true
         }
     }
 
-    /// Full-resolution image for the preview pane, plus its pixel dimensions.
+    // MARK: - Synchronous preview facts
+
+    /// The image, pixel dimensions and byte size for a clip, resolved without
+    /// suspending and cached so the second look costs nothing.
     ///
-    /// The dimensions are measured here, on the same background hop that
-    /// decoded the image, rather than from `previewImage` afterwards: reading
-    /// `NSBitmapImageRep.pixelsWide` can force AppKit to realise a lazy
-    /// representation, and that is not work the main thread should be doing
-    /// for a 40 MP screenshot.
-    private func loadPreviewImage(
-        for item: ClipboardItem
-    ) async -> (image: NSImage?, dimensions: PixelDimensions?) {
-        let store = self.store
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let img = store.image(for: item)
-                let dimensions = img.flatMap { PixelDimensions(image: $0) }
-                continuation.resume(returning: (img, dimensions))
+    /// **Why this is not async.** Each piece is cheap:
+    ///
+    /// - `NSImage(contentsOf:)` is lazy — it reads the header and defers the
+    ///   pixels until something draws them. The decode happens on the main
+    ///   thread at draw time either way, so hoisting the *construction* onto a
+    ///   background queue never saved that work; it only guaranteed a frame
+    ///   with nothing in it.
+    /// - `PixelDimensions.read(contentsOf:)` reads container metadata and
+    ///   stops. Its own documentation says it is cheap enough to run on every
+    ///   selection change; measuring a decoded `NSImage` instead is the
+    ///   expensive way, and this deliberately does not do that.
+    /// - `ClipboardStore.itemSize(for:)` is one `stat`, or a count of bytes
+    ///   already in memory.
+    ///
+    /// The cache means the disk is touched once per clip however many times
+    /// the pane redraws, so this is safe to call from a view body.
+    func preview(for item: ClipboardItem) -> PreviewPayload {
+        if let cached = previewCache.object(forKey: item.id as NSUUID) { return cached }
+
+        var image: NSImage?
+        var dimensions: PixelDimensions?
+        switch item.type {
+        case .image:
+            image = store.image(for: item)
+            if let url = store.imageURL(for: item) {
+                dimensions = PixelDimensions.read(contentsOf: url)
             }
+        case .file:
+            // A Finder copy of a .png/.heic renders as a QuickLook thumbnail
+            // and never produces an `NSImage` here, so its dimensions come
+            // straight off the file header.
+            if let url = store.fileURLs(for: item).first {
+                dimensions = PixelDimensions.read(contentsOf: url)
+            }
+        case .text:
+            break
         }
+
+        let payload = PreviewPayload(
+            image: image,
+            dimensions: dimensions,
+            byteSize: store.itemSize(for: item)
+        )
+        previewCache.setObject(payload, forKey: item.id as NSUUID)
+        return payload
     }
 
-    /// Pixel dimensions of a `.file` clip's first file, or `nil` when it isn't
-    /// an image (or is gone from disk — a missing file has no dimensions to
-    /// report, and `fileURLs(for:)` would hand back nothing anyway).
-    ///
-    /// Off the main thread like every other bit of preview I/O: the read is
-    /// header-only, but it is still a disk touch and the file may live on a
-    /// slow volume or a network share.
-    private func loadFileDimensions(for item: ClipboardItem) async -> PixelDimensions? {
-        guard !store.fileIsMissing(item), let url = store.fileURLs(for: item).first else {
-            return nil
-        }
-
-        return await Task.detached(priority: .userInitiated) {
-            PixelDimensions.read(contentsOf: url)
-        }.value
+    /// Drop a clip's cached facts. Only editing changes any of them — an
+    /// image's or a file's bytes are written once at capture and never
+    /// rewritten — so this is called when text is committed, where the byte
+    /// size really can change.
+    func invalidatePreview(for id: UUID) {
+        previewCache.removeObject(forKey: id as NSUUID)
     }
 
     private func loadInitialChunk(for item: ClipboardItem) async {
@@ -1091,13 +1132,13 @@ final class HistoryViewModel: ObservableObject {
         // 5E: ↩ is "use this clip". In the trash, using a clip means getting
         // it back — pasting a deleted clip straight into a document, and
         // leaving it deleted, is not a thing anyone means to do.
-        if isTrashScope, !showTagInput, !searchText.hasPrefix("#") {
+        if isTrashScope, !showTagInput, !isTagQuery {
             restoreSelectionFromTrash()
             return
         }
         if showTagInput {
             commitTagInput(for: selectedItem)
-        } else if searchText.hasPrefix("#") {
+        } else if isTagQuery {
             let tagQuery = String(searchText.dropFirst()).trimmingCharacters(in: .whitespaces)
             if let match = store.allTags.first(where: { $0 == tagQuery }) ?? store.allTags.first(where: { $0.hasPrefix(tagQuery) }) {
                 applyTagFilter(match)
@@ -1180,7 +1221,7 @@ final class HistoryViewModel: ObservableObject {
             }
             guard let first = suggestions.first else { return }
             applyTagSuggestion(first, to: item)
-        } else if searchText.hasPrefix("#") {
+        } else if isTagQuery {
             let tagQuery = String(searchText.dropFirst()).lowercased()
             let suggestions = store.allTags.filter { tagQuery.isEmpty || $0.hasPrefix(tagQuery) }
             guard let first = suggestions.first else { return }

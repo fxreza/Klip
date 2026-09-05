@@ -10,14 +10,15 @@ import SwiftUI
 /// itself (`ClickModifierDetector.ClickView.mouseDragged`) and the sidebar rows
 /// are AppKit drop targets (`SidebarDropTarget`).
 ///
+/// Reordering *folders* is not here: it is a SwiftUI `DragGesture` in
+/// `Sidebar`, for the reason spelled out on `SidebarDropTarget`.
+///
 /// The payload is a private pasteboard type carrying newline-separated UUID
 /// strings, so a drag that escapes the app is inert rather than pasting
 /// something surprising into another application.
 enum ClipDragPayload {
     /// Clip ids being dragged out of the list.
     static let clipsType = NSPasteboard.PasteboardType("com.fxreza.klip.clipids")
-    /// A folder id being dragged inside the sidebar (reordering).
-    static let folderType = NSPasteboard.PasteboardType("com.fxreza.klip.folderid")
 
     // MARK: - Encoding
 
@@ -49,22 +50,11 @@ enum ClipDragPayload {
         return item
     }
 
-    static func pasteboardItem(folderID: UUID) -> NSPasteboardItem {
-        let item = NSPasteboardItem()
-        item.setString(folderID.uuidString, forType: folderType)
-        return item
-    }
-
     // MARK: - Reading
 
     static func ids(from pasteboard: NSPasteboard) -> [UUID] {
         guard let string = pasteboard.string(forType: clipsType) else { return [] }
         return decode(string)
-    }
-
-    static func folderID(from pasteboard: NSPasteboard) -> UUID? {
-        guard let string = pasteboard.string(forType: folderType) else { return nil }
-        return UUID(uuidString: string.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
 
@@ -76,28 +66,36 @@ struct ClipDragRequest {
     let image: NSImage
 }
 
-// MARK: - Sidebar drop target / folder drag source
+// MARK: - Sidebar drop target
 
-/// Invisible AppKit layer placed in the **background** of a sidebar row.
+/// Invisible AppKit layer placed in the **background** of a sidebar row, so the
+/// row can accept clips dragged out of the list.
 ///
 /// It is deliberately *not* an overlay: `mouseDown` is forwarded to the next
 /// responder so the row's SwiftUI tap gestures (select scope, double-click to
 /// rename) and its `.contextMenu` keep working exactly as they do without it.
 /// The view exists only so AppKit has something registered for dragged types
-/// under the mouse, plus — for folder rows — a place to start a reorder drag.
+/// under the mouse.
+///
+/// **It cannot be a drag *source*.** This view used to start the folder
+/// reorder drag from its own `mouseDragged`, and that never once fired: a
+/// background view is behind the row's SwiftUI tap gestures, so SwiftUI's
+/// hosting view takes the mouse-down and nothing below it hears about the
+/// press. (Being found as a drag *destination* is a separate AppKit search
+/// and does work — which is why filing clips into folders has always been
+/// fine.) The clip rows get away with an AppKit drag source only because
+/// `ClickModifierDetector` is an **overlay** that owns `mouseDown` outright
+/// and re-implements clicking on top of it. Rather than do that to the
+/// sidebar — where a row has to keep single-click select, double-click
+/// rename and a context menu — folder reordering is a plain SwiftUI
+/// `DragGesture`, in `Sidebar.folderDrag`, living in the same gesture system
+/// as those taps.
 struct SidebarDropTarget: NSViewRepresentable {
     /// Accept dragged clip ids (All + folder rows; Favorites does not).
     var acceptsClips: Bool = false
-    /// Non-nil on a folder row: makes this row a reorder drag source and lets it
-    /// accept another folder being dropped on it.
-    var folderID: UUID? = nil
-    /// Title used for the reorder drag image.
-    var folderName: String = ""
     /// Return true if the drop was consumed.
     var onDropClips: ([UUID]) -> Bool = { _ in false }
-    /// Reorder: the dragged folder id was dropped on this row.
-    var onDropFolder: (UUID) -> Bool = { _ in false }
-    /// Highlight feedback for the SwiftUI row.
+    /// Row-highlight feedback for the SwiftUI row.
     var onTargetChanged: (Bool) -> Void = { _ in }
 
     func makeNSView(context: Context) -> DropView {
@@ -119,23 +117,16 @@ struct SidebarDropTarget: NSViewRepresentable {
 
     private func apply(to view: DropView) {
         view.acceptsClips = acceptsClips
-        view.folderID = folderID
-        view.folderName = folderName
         view.onDropClips = onDropClips
-        view.onDropFolder = onDropFolder
         view.onTargetChanged = onTargetChanged
     }
 
-    final class DropView: NSView, NSDraggingSource {
+    final class DropView: NSView {
         var acceptsClips = false
-        var folderID: UUID?
-        var folderName: String = ""
         var onDropClips: (([UUID]) -> Bool)?
-        var onDropFolder: ((UUID) -> Bool)?
         var onTargetChanged: ((Bool) -> Void)?
 
         private var registeredClips = false
-        private var registeredFolders = false
         private var isTargeted = false {
             didSet {
                 guard isTargeted != oldValue else { return }
@@ -143,111 +134,37 @@ struct SidebarDropTarget: NSViewRepresentable {
             }
         }
 
-        private var mouseDownPoint: CGPoint?
-        private var isDraggingFolder = false
-
-        /// Register only for what this row can actually take, so AppKit shows
-        /// the "no drop" cursor over rows that would reject the drag anyway.
+        /// Registers (or unregisters) for dragged clip ids to match whether
+        /// this row can take them, so AppKit shows the "no drop" cursor over
+        /// rows that would reject the drag anyway. Idempotent.
         func refreshRegistration() {
-            let wantsClips = acceptsClips
-            let wantsFolders = folderID != nil
-            guard wantsClips != registeredClips || wantsFolders != registeredFolders else { return }
-            registeredClips = wantsClips
-            registeredFolders = wantsFolders
-            var types: [NSPasteboard.PasteboardType] = []
-            if wantsClips { types.append(ClipDragPayload.clipsType) }
-            if wantsFolders { types.append(ClipDragPayload.folderType) }
+            guard acceptsClips != registeredClips else { return }
+            registeredClips = acceptsClips
             unregisterDraggedTypes()
-            if !types.isEmpty { registerForDraggedTypes(types) }
+            if acceptsClips { registerForDraggedTypes([ClipDragPayload.clipsType]) }
         }
 
         // MARK: Mouse — forwarded, never consumed
 
         override func mouseDown(with event: NSEvent) {
-            mouseDownPoint = convert(event.locationInWindow, from: nil)
-            isDraggingFolder = false
-            // Forward: the SwiftUI row above owns click/double-click/right-click.
+            // The SwiftUI row above owns click/double-click/right-click.
             super.mouseDown(with: event)
-        }
-
-        override func mouseDragged(with event: NSEvent) {
-            guard !isDraggingFolder,
-                  let folderID = folderID,
-                  let origin = mouseDownPoint,
-                  window != nil else {
-                super.mouseDragged(with: event)
-                return
-            }
-            let point = convert(event.locationInWindow, from: nil)
-            guard hypot(point.x - origin.x, point.y - origin.y) > 4 else {
-                super.mouseDragged(with: event)
-                return
-            }
-            isDraggingFolder = true
-
-            let image = ClipRowDragImage.make(title: folderName, count: 1, symbolName: "folder.fill")
-            let item = NSDraggingItem(pasteboardWriter: ClipDragPayload.pasteboardItem(folderID: folderID))
-            item.setDraggingFrame(
-                NSRect(
-                    x: point.x - image.size.width / 2,
-                    y: point.y - image.size.height / 2,
-                    width: image.size.width,
-                    height: image.size.height
-                ),
-                contents: image
-            )
-            let session = beginDraggingSession(with: [item], event: event, source: self)
-            session.animatesToStartingPositionsOnCancelOrFail = true
-        }
-
-        override func mouseUp(with event: NSEvent) {
-            mouseDownPoint = nil
-            super.mouseUp(with: event)
-        }
-
-        // MARK: NSDraggingSource
-
-        func draggingSession(
-            _ session: NSDraggingSession,
-            sourceOperationMaskFor context: NSDraggingContext
-        ) -> NSDragOperation {
-            context == .withinApplication ? .move : []
-        }
-
-        func draggingSession(
-            _ session: NSDraggingSession,
-            endedAt screenPoint: NSPoint,
-            operation: NSDragOperation
-        ) {
-            isDraggingFolder = false
-            mouseDownPoint = nil
         }
 
         // MARK: NSDraggingDestination
 
-        /// What, if anything, this row would do with the drag currently over it.
-        private func operation(for info: NSDraggingInfo) -> NSDragOperation {
-            let pasteboard = info.draggingPasteboard
-            if acceptsClips, !ClipDragPayload.ids(from: pasteboard).isEmpty {
-                return .move
-            }
-            if let dragged = ClipDragPayload.folderID(from: pasteboard),
-               let folderID = folderID, dragged != folderID {
-                return .move
-            }
-            return []
+        private func canAccept(_ info: NSDraggingInfo) -> Bool {
+            acceptsClips && !ClipDragPayload.ids(from: info.draggingPasteboard).isEmpty
         }
 
         override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-            let op = operation(for: sender)
-            isTargeted = op != []
-            return op
+            isTargeted = canAccept(sender)
+            return isTargeted ? .move : []
         }
 
         override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-            let op = operation(for: sender)
-            isTargeted = op != []
-            return op
+            isTargeted = canAccept(sender)
+            return isTargeted ? .move : []
         }
 
         override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -259,22 +176,14 @@ struct SidebarDropTarget: NSViewRepresentable {
         }
 
         override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-            operation(for: sender) != []
+            canAccept(sender)
         }
 
         override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
             defer { isTargeted = false }
-            let pasteboard = sender.draggingPasteboard
-
-            let ids = ClipDragPayload.ids(from: pasteboard)
-            if acceptsClips, !ids.isEmpty {
-                return onDropClips?(ids) ?? false
-            }
-            if let dragged = ClipDragPayload.folderID(from: pasteboard),
-               let folderID = folderID, dragged != folderID {
-                return onDropFolder?(dragged) ?? false
-            }
-            return false
+            let ids = ClipDragPayload.ids(from: sender.draggingPasteboard)
+            guard acceptsClips, !ids.isEmpty else { return false }
+            return onDropClips?(ids) ?? false
         }
     }
 }

@@ -240,6 +240,47 @@ final class SettingsManager: ObservableObject {
         }
     }
 
+    // MARK: - Window behaviour
+
+    /// Whether the search field keeps what was typed in it between opens.
+    ///
+    /// Off (the default) the field is empty every single time Klip opens, so
+    /// a query typed to find one clip never silently hides the rest of the
+    /// history the next time round. On, the query survives until it is
+    /// cleared by hand.
+    ///
+    /// Before this setting existed the behaviour was a fixed 90-second rule
+    /// in `HistoryWindowController`: reopen inside the window and the query
+    /// came back, reopen later and it did not. That was invisible and
+    /// unpredictable from the outside — the same action gave two different
+    /// results depending on a clock nobody could see — so the timer is gone
+    /// and this switch decides it outright.
+    @Published var keepSearchBetweenOpens: Bool = false {
+        didSet {
+            guard isLoaded, keepSearchBetweenOpens != oldValue else { return }
+            defaults.set(keepSearchBetweenOpens, forKey: "search.keepBetweenOpens")
+        }
+    }
+
+    /// Keep Open: the history window stays on screen after a paste, and stops
+    /// closing when it loses focus.
+    ///
+    /// Deliberately *not* called "pin". A clip's pin (`ClipboardItem.isPinned`)
+    /// floats that clip to the top of the list and is a property of the clip;
+    /// this is a property of the window. Two things called pin in one window
+    /// is exactly the confusion the separate name avoids — see the toggle in
+    /// `ActionBar` and `.toggleKeepOpen` in `ShortcutManager`.
+    ///
+    /// The panel is already `.floating`, so "always on top" was never the
+    /// missing piece: what closed the window was `pasteItem` calling `close()`
+    /// and `HistoryPanel.resignKey`. Both stand down while this is on.
+    @Published var keepWindowOpen: Bool = false {
+        didSet {
+            guard isLoaded, keepWindowOpen != oldValue else { return }
+            defaults.set(keepWindowOpen, forKey: "window.keepOpen")
+        }
+    }
+
     // MARK: - Files (Phase 3F)
 
     /// Cap, in megabytes, under which a copied file's bytes are copied into
@@ -407,6 +448,11 @@ final class SettingsManager: ObservableObject {
         }
 
         self.alwaysPastePlain = defaults.bool(forKey: "paste.alwaysPlain")
+
+        // Window behaviour. Both default to false via `bool(forKey:)` on an
+        // absent key, which is the wanted default for each.
+        self.keepSearchBetweenOpens = defaults.bool(forKey: "search.keepBetweenOpens")
+        self.keepWindowOpen = defaults.bool(forKey: "window.keepOpen")
         // --- Phase 4A: iCloud Drive sync ---
         self.syncEnabled = defaults.bool(forKey: "sync.enabled")
         if let raw = defaults.object(forKey: "sync.maxAttachmentMB") as? Int {

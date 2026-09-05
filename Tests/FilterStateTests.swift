@@ -140,8 +140,13 @@ enum FilterStateTests {
         try expectEqual(noMatch.count, 0, "a query matching nothing returns an empty list")
     }
 
-    /// `#…` is tag-autocomplete mode: it must not narrow the list at all
-    /// (the autocomplete bar handles it), but pinned-first still applies.
+    /// What a leading `#` means depends on whether there is a tag UI behind
+    /// it (`Features.tagsEnabled`).
+    ///
+    /// With tags on it is autocomplete mode: the bar handles the query, so
+    /// the list must not be narrowed at all. With tags hidden there is no bar
+    /// and no tag to complete, so `#` is an ordinary character and has to be
+    /// searched for — otherwise typing one silently empties the list.
     static func testHashQueryIsTagMode() throws {
         let items = [
             text("alpha", tags: ["work"]),
@@ -151,8 +156,14 @@ enum FilterStateTests {
 
         let result = FilterState.apply(items, FilterState(query: "#wo"))
 
-        try expectEqual(result.count, 3, "a #query must not filter the list")
-        try expectEqual(contents(result), ["beta", "alpha", "<image>"], "pinned-first still applies in tag mode")
+        if Features.tagsEnabled {
+            try expectEqual(result.count, 3, "a #query must not filter the list")
+            try expectEqual(contents(result), ["beta", "alpha", "<image>"], "pinned-first still applies in tag mode")
+        } else {
+            try expectEqual(result.count, 0, "with tags hidden, '#wo' is text that nothing contains")
+            let plain = FilterState.apply(items, FilterState(query: "#"))
+            try expectEqual(plain.count, 0, "and a bare # is searched for, not treated as a mode switch")
+        }
     }
 
     /// The tag filter keeps only items carrying that exact tag — images included.

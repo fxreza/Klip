@@ -139,6 +139,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func toggleHistoryWindow() {
         print("[AppDelegate] toggleHistoryWindow called")
         if let window = historyWindowController?.window, window.isVisible {
+            // Keep Open leaves the window on screen after a paste, with the
+            // keyboard back in the app that was pasted into. In that state the
+            // hotkey means "give Klip the keyboard again", not "close" —
+            // closing a window the user can see, and asked to keep, is never
+            // what they meant by summoning it. Once it *is* the key window the
+            // hotkey closes it as usual.
+            if !window.isKeyWindow, SettingsManager.shared.keepWindowOpen {
+                print("[AppDelegate] Window is visible but not key, refocusing...")
+                historyWindowController?.refocus()
+                return
+            }
             print("[AppDelegate] Window is visible, closing...")
             historyWindowController?.close()
         } else {
@@ -269,6 +280,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         register("com.fxreza.klip.debug.togglePreview") { [weak self] in
             self?.historyWindowController?.viewModel.togglePreviewPane()
+        }
+        // Move the selection without a key event. The history panel is
+        // non-activating and closes when it loses key focus, so anything that
+        // drives it from outside — System Events, a synthetic key — takes the
+        // focus away and shuts the window in the same breath. These are how a
+        // screenshot of "the preview pane on the next clip" gets taken at all.
+        register("com.fxreza.klip.debug.selectNext") { [weak self] in
+            self?.historyWindowController?.viewModel.keyDown()
+        }
+        register("com.fxreza.klip.debug.selectPrevious") { [weak self] in
+            self?.historyWindowController?.viewModel.keyUp()
         }
 
         print("[AppDelegate] Debug notification hooks registered")

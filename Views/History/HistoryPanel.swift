@@ -44,6 +44,11 @@ class HistoryPanel: NSPanel {
         super.resignKey()
         guard !isQuickLookPresenting else { return }
         guard Date() >= suppressResignUntil else { return }
+        // Keep Open (`SettingsManager.keepWindowOpen`): the whole point of the
+        // mode is that the window survives handing focus to the app being
+        // pasted into, so losing key must stop meaning "close". The window is
+        // still dismissed by Esc, by the global hotkey and by the menu bar.
+        guard !SettingsManager.shared.keepWindowOpen else { return }
         onClickOutside?()
     }
 

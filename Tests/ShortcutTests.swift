@@ -85,6 +85,8 @@ enum ShortcutTests {
         try expectEqual(ShortcutAction.moveToFolder.defaultBinding, KeyBinding(keyCode: 46, modifiers: [.command]), "moveToFolder = Cmd+M")
         try expectEqual(ShortcutAction.toggleSidebar.defaultBinding, KeyBinding(keyCode: 1, modifiers: [.command, .option]), "toggleSidebar = Cmd+Opt+S")
         try expectEqual(ShortcutAction.togglePreview.defaultBinding, KeyBinding(keyCode: 35, modifiers: [.command, .option]), "togglePreview = Cmd+Opt+P")
+        try expectEqual(ShortcutAction.toggleKeepOpen.defaultBinding, KeyBinding(keyCode: 40, modifiers: [.command, .option]), "toggleKeepOpen = Cmd+Opt+K")
+        try expectEqual(ShortcutAction.toggleKeepOpen.group, .window, "Keep Open is a window toggle, not a clip action")
         try expectEqual(ShortcutAction.moveUp.defaultBinding, KeyBinding(keyCode: 126, modifiers: []), "moveUp = Up")
         try expectEqual(ShortcutAction.moveDown.defaultBinding, KeyBinding(keyCode: 125, modifiers: []), "moveDown = Down")
         try expectEqual(ShortcutAction.extendUp.defaultBinding, KeyBinding(keyCode: 126, modifiers: [.shift]), "extendUp = Shift+Up")

@@ -96,6 +96,7 @@
 		AEA5ED3E2571F6CDA15539B8 /* RenameClipPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0681C0B78AF678F8E9EA06 /* RenameClipPrompt.swift */; };
 		FB4820EDF4EDC08DC0B2786D /* FlowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2154FD32059AB0C7041D0972 /* FlowLayout.swift */; };
 		F71430E2BA3F6FF5CC980C89 /* QuickLookController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13D9D44E5ECD35BC0C3E2D94 /* QuickLookController.swift */; };
+		1D3547113603CF8DBF5548E7 /* Features.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D919C092F4440CABAE7EB7 /* Features.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -202,6 +203,7 @@
 		CF0681C0B78AF678F8E9EA06 /* RenameClipPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenameClipPrompt.swift; sourceTree = "<group>"; };
 		2154FD32059AB0C7041D0972 /* FlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowLayout.swift; sourceTree = "<group>"; };
 		13D9D44E5ECD35BC0C3E2D94 /* QuickLookController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickLookController.swift; sourceTree = "<group>"; };
+		E5D919C092F4440CABAE7EB7 /* Features.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -315,6 +317,7 @@
 				1F6EC2A46F5C7C2793CDD3A1 /* ChangelogService.swift */,
 				0A0459A54EF1E9DB13767A07 /* SyncKindFilter.swift */,
 				13E33614B9F97DB6787A850E /* SystemHotkeys.swift */,
+				E5D919C092F4440CABAE7EB7 /* Features.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -617,6 +620,7 @@
 				AEA5ED3E2571F6CDA15539B8 /* RenameClipPrompt.swift in Sources */,
 				FB4820EDF4EDC08DC0B2786D /* FlowLayout.swift in Sources */,
 				F71430E2BA3F6FF5CC980C89 /* QuickLookController.swift in Sources */,
+				1D3547113603CF8DBF5548E7 /* Features.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

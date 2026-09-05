@@ -56,7 +56,7 @@ struct ShortcutsTab: View {
     }
 
     private func actions(in group: ShortcutAction.Group) -> [ShortcutAction] {
-        ShortcutAction.allCases.filter { $0.group == group }
+        ShortcutAction.allCases.filter { $0.group == group && $0.isUserVisible }
     }
 
     private var globalHotkeyRow: some View {

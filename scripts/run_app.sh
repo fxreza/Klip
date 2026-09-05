@@ -10,6 +10,8 @@ set -euo pipefail
 #   notifyutil -p com.fxreza.klip.debug.hide   - hide window
 #   notifyutil -p com.fxreza.klip.debug.toggle - toggle window
 #   notifyutil -p com.fxreza.klip.debug.quit   - quit app
+#   notifyutil -p com.fxreza.klip.debug.selectNext     - move selection down
+#   notifyutil -p com.fxreza.klip.debug.selectPrevious - move selection up
 #
 # Screenshot:
 #   screencapture -x file.png

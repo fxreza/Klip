@@ -40,7 +40,11 @@ enum FolderUXTests {
         ("dragPayload_dropsGarbageAndDuplicates", testDragPayloadGarbage),
         ("dragIDs_useTheSelectionWhenTheRowIsPartOfIt", testDragIDs),
         ("handleDrop_routesByScope", testHandleDrop),
-        ("reorderFolder_movesOntoTheTargetSlot", testReorderFolder),
+        ("reorderFolder_dropsIntoTheGapBelowTheTarget", testReorderFolderBelow),
+        ("reorderFolder_dropsIntoTheGapAboveTheTarget", testReorderFolderAbove),
+        ("reorderFolder_reachesTheTopOfTheList", testReorderFolderToTop),
+        ("reorderFolder_reachesTheBottomOfTheList", testReorderFolderToBottom),
+        ("reorderFolder_noOpsOnSelfUnknownAndSameGap", testReorderFolderNoOps),
         // review-2B test gaps #2 and #3.
         ("dragAndDrop_carriesImageAndFileClipsToo", testDragImageAndFileClips),
         ("orderedScopes_areAllFavoritesFoldersThenTrash", testOrderedScopes),
@@ -586,24 +590,67 @@ enum FolderUXTests {
         }
     }
 
-    static func testReorderFolder() throws {
+    /// Three folders, A B C, handed to `body` in that order.
+    private static func withThreeFolders(
+        _ body: (HistoryViewModel, ClipboardStore, Folder, Folder, Folder) throws -> Void
+    ) throws {
         try withViewModel { vm, store in
             let a = store.createFolder(name: "A")
             let b = store.createFolder(name: "B")
             let c = store.createFolder(name: "C")
             try expectEqual(store.folders.map { $0.id }, [a.id, b.id, c.id], "initial order")
+            try body(vm, store, a, b, c)
+        }
+    }
 
-            try expect(vm.reorderFolder(dragged: a.id, onto: c.id), "dragging A onto C should reorder")
+    static func testReorderFolderBelow() throws {
+        try withThreeFolders { vm, store, a, b, c in
+            try expect(vm.reorderFolder(dragged: a.id, relativeTo: c.id, insertAbove: false),
+                       "dropping A in the gap under C should reorder")
             try expectEqual(store.folders.map { $0.id }, [b.id, c.id, a.id],
-                            "A should take C's slot when moving down")
+                            "A lands after C")
+            try expectEqual(store.folders.map { $0.sortIndex }, [0, 1, 2], "sortIndex is rewritten")
+        }
+    }
 
-            try expect(vm.reorderFolder(dragged: a.id, onto: b.id), "dragging A onto B should reorder")
-            try expectEqual(store.folders.map { $0.id }, [a.id, b.id, c.id],
-                            "A should take B's slot when moving up")
+    static func testReorderFolderAbove() throws {
+        try withThreeFolders { vm, store, a, b, c in
+            try expect(vm.reorderFolder(dragged: c.id, relativeTo: b.id, insertAbove: true),
+                       "dropping C in the gap above B should reorder")
+            try expectEqual(store.folders.map { $0.id }, [a.id, c.id, b.id], "C lands before B")
+        }
+    }
 
-            try expect(!vm.reorderFolder(dragged: a.id, onto: a.id), "dropping a folder on itself is a no-op")
-            try expect(!vm.reorderFolder(dragged: UUID(), onto: a.id), "an unknown folder is a no-op")
-            try expectEqual(store.folders.map { $0.sortIndex }, [0, 1, 2], "sortIndex should be rewritten")
+    /// The two positions the old drop-onto-a-row reorder could not express at
+    /// all: there was no row to drop on that meant "before the first" or
+    /// "after the last".
+    static func testReorderFolderToTop() throws {
+        try withThreeFolders { vm, store, a, _, c in
+            try expect(vm.reorderFolder(dragged: c.id, relativeTo: a.id, insertAbove: true),
+                       "dropping C above the first folder should reorder")
+            try expectEqual(store.folders.first?.id, c.id, "C is now the top folder")
+        }
+    }
+
+    static func testReorderFolderToBottom() throws {
+        try withThreeFolders { vm, store, a, _, c in
+            try expect(vm.reorderFolder(dragged: a.id, relativeTo: c.id, insertAbove: false),
+                       "dropping A below the last folder should reorder")
+            try expectEqual(store.folders.last?.id, a.id, "A is now the bottom folder")
+        }
+    }
+
+    static func testReorderFolderNoOps() throws {
+        try withThreeFolders { vm, store, a, b, _ in
+            try expect(!vm.reorderFolder(dragged: a.id, relativeTo: a.id, insertAbove: true),
+                       "dropping a folder on itself is a no-op")
+            try expect(!vm.reorderFolder(dragged: UUID(), relativeTo: a.id, insertAbove: true),
+                       "an unknown folder is a no-op")
+            // A drops into the gap it already occupies. Nothing moves, so
+            // nothing is renumbered and no `updatedAt` is bumped for sync.
+            try expect(!vm.reorderFolder(dragged: a.id, relativeTo: b.id, insertAbove: true),
+                       "landing back in the same gap is a no-op")
+            try expectEqual(store.folders.map { $0.sortIndex }, [0, 1, 2], "order untouched")
         }
     }
 }

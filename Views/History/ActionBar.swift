@@ -45,7 +45,17 @@ struct ActionBar: View {
                 .frame(height: 14)
 
             legend
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // `minWidth: 0` is load-bearing, not tidying. Every legend
+                // entry is `.fixedSize()`, so a packed row reports its full
+                // width as a *minimum*: without this the bar could not be laid
+                // out narrower than one long row of shortcuts, so in a narrow
+                // window it overflowed its column and drew across the sidebar
+                // and the preview. Worse, it was self-confirming — the
+                // GeometryReader below then measured that overflowing width,
+                // handed it to `packRows`, and the packer duly decided one row
+                // fitted. Reporting a zero minimum makes the measurement the
+                // real available width again, which is what the packer needs.
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 .background(
                     GeometryReader { proxy in
                         Color.clear
@@ -53,6 +63,11 @@ struct ActionBar: View {
                             .onChange(of: proxy.size.width) { legendAvailableWidth = $0 }
                     }
                 )
+                // Backstop only: `packRows` truncates to fit, so this should
+                // never actually cut anything off. It is here so that a
+                // measurement arriving a frame late can never paint over the
+                // panels either side.
+                .clipped()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
@@ -88,6 +103,28 @@ struct ActionBar: View {
             }
             .buttonStyle(.plain)
             .klipHelp(settings.showPreviewPane ? "Hide preview" : "Show preview")
+
+            // Keep Open. Sits with the other two because all three are
+            // *window* toggles — deliberately nowhere near the preview pane's
+            // clip actions, where the clip pin lives. Same reasoning behind
+            // the name: a window icon and the word "open", so nothing here
+            // reads as a second kind of pin.
+            Button {
+                viewModel.toggleKeepOpen()
+            } label: {
+                // One glyph, tint carries the state — the same way the two
+                // toggles beside it read. A second glyph for "on"
+                // (`macwindow.badge.plus`) looked like "new window".
+                Image(systemName: "macwindow")
+                    .font(Theme.icon(13))
+                    .foregroundStyle(settings.keepWindowOpen ? Theme.accent : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .klipHelp(
+                settings.keepWindowOpen
+                    ? "Keep Open is on - the window stays after a paste (\(shortcuts.displayString(for: .toggleKeepOpen)))"
+                    : "Keep the window open after pasting (\(shortcuts.displayString(for: .toggleKeepOpen)))"
+            )
         }
     }
 
@@ -202,10 +239,12 @@ struct ActionBar: View {
     ///   the row's own copy affordance), so they're the least essential
     ///   legend entries and the first to go when space runs out.
     private var legendItems: [LegendEntry] {
+        // The two tag entries ("# tags" and ⌘T "tag") are gone with the rest
+        // of the tag UI — see `Features.tagsEnabled`. They are the only
+        // entries this list has ever lost, and they come back with it.
         var items: [LegendEntry] = [
             LegendEntry(key: shortcuts.displayString(for: .paste), label: "paste"),
             LegendEntry(key: shortcuts.displayString(for: .pastePlain), label: "paste plain"),
-            LegendEntry(key: "#", label: "tags", help: "Type #tag in search or use the Tags chip"),
             LegendEntry(key: shortcuts.displayString(for: .pin), label: "pin"),
             LegendEntry(key: shortcuts.displayString(for: .star), label: "favorite"),
             LegendEntry(key: shortcuts.displayString(for: .lock), label: "lock"),
@@ -230,7 +269,6 @@ struct ActionBar: View {
         if viewModel.selectedItem?.type == .image {
             items.append(LegendEntry(key: shortcuts.displayString(for: .saveToDisk), label: "save to disk"))
         }
-        items.append(LegendEntry(key: shortcuts.displayString(for: .addTag), label: "tag"))
         items.append(LegendEntry(key: shortcuts.displayString(for: .copy), label: "copy"))
         return items
     }
@@ -259,11 +297,21 @@ struct ActionBar: View {
                     RoundedRectangle(cornerRadius: 3)
                         .strokeBorder(Theme.separator, lineWidth: 0.5)
                 )
+                // The key glyph never compresses — a half-drawn ⌥↩ is not a
+                // shortcut. Only the word beside it gives way.
+                .fixedSize()
             Text(label)
                 .font(.klip(.caption))
                 .foregroundStyle(.secondary)
+                // `packRows` gives an entry too wide for the whole budget a
+                // row to itself rather than dropping it (deliberately — see
+                // `Tests/ActionBarLegendTests.testOversizedEntry`), and in a
+                // very narrow window that row is wider than the bar. Letting
+                // the label ellipsise means that case reads as a shortened
+                // word instead of one sliced through the middle by the clip.
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
-        .fixedSize()
 
         if let help {
             row.klipHelp(help)

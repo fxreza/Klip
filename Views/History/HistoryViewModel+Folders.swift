@@ -461,19 +461,34 @@ extension HistoryViewModel {
         }
     }
 
-    /// Sidebar reorder: `dragged` was dropped onto `target`; it takes the
-    /// target's position and the rest close up behind it.
+    /// Sidebar reorder: `dragged` is placed immediately above or below
+    /// `target` in the folder list.
+    ///
+    /// The gap, not the row, is the target. Dropping *onto* a folder — which
+    /// is what this used to do — is the gesture that files clips into it, so
+    /// reusing it for reordering meant one drag with two meanings and no way
+    /// to tell from the screen which you were about to get. Worse, "take the
+    /// target's slot" cannot express the two positions people actually reach
+    /// for: there was no way to land a folder above the first one or below
+    /// the last. An insertion point has both, and the sidebar draws it as a
+    /// line in the gap (`SidebarDropTarget`), matching how clips already
+    /// reorder inside a folder (`reorderInFolder(_:relativeTo:insertAbove:)`).
     @discardableResult
-    func reorderFolder(dragged: UUID, onto target: UUID) -> Bool {
+    func reorderFolder(dragged: UUID, relativeTo target: UUID, insertAbove: Bool) -> Bool {
         guard dragged != target else { return false }
         var order = store.folders.map { $0.id }
-        guard let from = order.firstIndex(of: dragged),
-              let to = order.firstIndex(of: target) else { return false }
+        guard order.contains(dragged), let from = order.firstIndex(of: dragged) else { return false }
         order.remove(at: from)
-        // `to` is still the right insertion point after the removal: moving down
-        // lands the folder in the target's old slot, moving up pushes the target
-        // (and everything after it) one row down.
-        order.insert(dragged, at: min(to, order.count))
+        // The anchor is looked up *after* the removal, so its index already
+        // accounts for the dragged folder having left the list — which is what
+        // makes "below the last folder" land at the end rather than one short
+        // of it when the dragged folder came from above the anchor.
+        guard let anchor = order.firstIndex(of: target) else { return false }
+        order.insert(dragged, at: insertAbove ? anchor : anchor + 1)
+        // A drag that puts the folder back exactly where it started is not
+        // worth a write: `reorderFolders` stamps `updatedAt` on everything it
+        // renumbers, and a no-op reorder would still push that to iCloud.
+        guard order != store.folders.map({ $0.id }) else { return false }
         store.reorderFolders(order)
         return true
     }

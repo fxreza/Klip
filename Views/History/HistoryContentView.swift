@@ -41,6 +41,34 @@ struct HistoryContentView: View {
         }
     }
 
+    /// The panels' allowed widths, measured from what they have to draw —
+    /// see `PaneMetrics`.
+    private var sidebarRange: ClosedRange<Double> {
+        PaneMetrics.sidebarRange(listFontScale: settings.listFontScale)
+    }
+
+    private var previewRange: ClosedRange<Double> {
+        PaneMetrics.previewRange(previewFontScale: settings.previewFontScale)
+    }
+
+    /// Pull a stored width back inside the current range.
+    ///
+    /// The minimums used to be smaller, and they move with the font-size
+    /// settings, so a width saved under either can be narrower than the panel
+    /// is now allowed to be. Without this the panel would keep that width
+    /// until the divider was next dragged — which is exactly the state a user
+    /// who had already dragged it to the old minimum would open the app in.
+    private func clampPaneWidths() {
+        let sidebar = sidebarRange
+        if settings.sidebarWidth < sidebar.lowerBound || settings.sidebarWidth > sidebar.upperBound {
+            settings.sidebarWidth = min(max(settings.sidebarWidth, sidebar.lowerBound), sidebar.upperBound)
+        }
+        let preview = previewRange
+        if settings.previewWidth < preview.lowerBound || settings.previewWidth > preview.upperBound {
+            settings.previewWidth = min(max(settings.previewWidth, preview.lowerBound), preview.upperBound)
+        }
+    }
+
     /// Reduce Motion turns the open animation into a plain cut.
     private var reduceMotion: Bool {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -53,7 +81,7 @@ struct HistoryContentView: View {
                     Sidebar(store: store, viewModel: viewModel)
                         .frame(width: settings.sidebarWidth)
                         .transition(.move(edge: .leading).combined(with: .opacity))
-                    PanelResizer(width: $settings.sidebarWidth, range: 120...320, side: .leading)
+                    PanelResizer(width: $settings.sidebarWidth, range: sidebarRange, side: .leading)
                 }
 
                 // Middle column: search / chips / list / action bar. 180
@@ -63,7 +91,7 @@ struct HistoryContentView: View {
                 VStack(spacing: 0) {
                     SearchBar(store: store, viewModel: viewModel, isSearchFocused: $isSearchFocused)
 
-                    if viewModel.showTagAutocomplete && !store.allTags.isEmpty {
+                    if Features.tagsEnabled, viewModel.showTagAutocomplete, !store.allTags.isEmpty {
                         TagAutocompleteBar(store: store, viewModel: viewModel, tags: viewModel.tagSuggestions)
                     }
 
@@ -75,7 +103,7 @@ struct HistoryContentView: View {
                     // while the `#`-mode bar above is already showing its
                     // own (differently ordered) list, so the two never
                     // double up.
-                    if viewModel.showTagsChipBar {
+                    if Features.tagsEnabled, viewModel.showTagsChipBar {
                         TagAutocompleteBar(store: store, viewModel: viewModel, tags: viewModel.tagsByUsage)
                     }
 
@@ -104,7 +132,7 @@ struct HistoryContentView: View {
                 // `PreviewPane` carries its own 13pt top padding, matching
                 // the search bar's, so the columns' first lines line up.
                 if settings.showPreviewPane {
-                    PanelResizer(width: $settings.previewWidth, range: 200...440, side: .trailing)
+                    PanelResizer(width: $settings.previewWidth, range: previewRange, side: .trailing)
                     PreviewPane(
                         store: store,
                         viewModel: viewModel,
@@ -235,7 +263,11 @@ struct HistoryContentView: View {
                 viewModel.exitEditMode()
             }
         }
+        .onAppear { clampPaneWidths() }
+        .onChange(of: settings.listFontScale) { _ in clampPaneWidths() }
+        .onChange(of: settings.previewFontScale) { _ in clampPaneWidths() }
         .onReceive(NotificationCenter.default.publisher(for: .bufferWindowDidOpen)) { _ in
+            clampPaneWidths()
             viewModel.handleWindowDidOpen()
             // Delay needed for NSHostingView to have settled as key window
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {

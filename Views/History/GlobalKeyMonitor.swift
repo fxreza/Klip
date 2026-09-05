@@ -174,6 +174,9 @@ struct GlobalKeyMonitor: NSViewRepresentable {
             viewModel.keyDelete()
             return nil
         case .clearFilter:
+            // Backspace only ever meant "clear the tag filter", so with tags
+            // hidden it is a plain Backspace again.
+            guard Features.tagsEnabled else { return event }
             if isEditing { return event }
             if onBackspace?() == true { return nil }
             return event
@@ -206,6 +209,11 @@ struct GlobalKeyMonitor: NSViewRepresentable {
             viewModel.keyLock()
             return nil
         case .addTag:
+            // Tags are hidden (`Features.tagsEnabled`), so ⌘T is not Klip's
+            // to take: the event goes back to whatever else might want it
+            // rather than opening an editor nothing else in the window
+            // acknowledges.
+            guard Features.tagsEnabled else { return event }
             if isEditing { return nil }
             viewModel.keyAddTag()
             return nil
@@ -260,6 +268,9 @@ struct GlobalKeyMonitor: NSViewRepresentable {
             return nil
         case .togglePreview:
             viewModel.togglePreviewPane()
+            return nil
+        case .toggleKeepOpen:
+            viewModel.toggleKeepOpen()
             return nil
 
         // MARK: Space Quick Look. Space is also a literal character, and the

@@ -73,6 +73,22 @@ private struct GeneralSettingsTab: View {
                 Toggle("Hide Menu Bar Icon", isOn: $settings.hideStatusBar)
             }
 
+            Section("Search") {
+                Toggle("Keep search text between opens", isOn: $settings.keepSearchBetweenOpens)
+                Text(settings.keepSearchBetweenOpens
+                     ? "What you type in the search box stays there until you clear it, however long Klip has been closed."
+                     : "The search box is empty every time Klip opens, so an old query never hides the rest of your history.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Window") {
+                Toggle("Keep the window open after pasting", isOn: $settings.keepWindowOpen)
+                Text("On, Klip stays on screen after you paste a clip, so you can paste several in a row. Pasting hands the keyboard back to the app you pasted into, so pick the next clip with the mouse, or press \(settings.hotkeyModifiers.displayString)\(keyCodeNames[settings.hotkeyKeyCode] ?? "?") to put the keyboard back in Klip. Esc closes the window. Toggle it any time with the window button at the bottom-left of the history window (\(ShortcutManager.shared.displayString(for: .toggleKeepOpen))).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Paste") {
                 Toggle("Always Paste as Plain Text", isOn: $settings.alwaysPastePlain)
                 Text(settings.alwaysPastePlain
@@ -105,7 +121,9 @@ private struct HistorySettingsTab: View {
                         tierButton(tier)
                     }
                 }
-                Text("Older unpinned, unfavorited, untagged items are removed once the limit is reached.")
+                Text(Features.tagsEnabled
+                     ? "Older unpinned, unfavorited, untagged items are removed once the limit is reached."
+                     : "Older unpinned, unfavorited items are removed once the limit is reached.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -122,7 +140,9 @@ private struct HistorySettingsTab: View {
             }
 
             Section("Lock / Protect") {
-                Text("Locked clips can't be deleted until you unlock them. Clips inside folders are locked automatically. Pinned, favorited, tagged, locked and folder clips never count toward the history limit.")
+                Text(Features.tagsEnabled
+                     ? "Locked clips can't be deleted until you unlock them. Clips inside folders are locked automatically. Pinned, favorited, tagged, locked and folder clips never count toward the history limit."
+                     : "Locked clips can't be deleted until you unlock them. Clips inside folders are locked automatically. Pinned, favorited, locked and folder clips never count toward the history limit.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

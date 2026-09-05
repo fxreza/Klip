@@ -114,18 +114,27 @@ enum ChipFilter: Hashable {
     case tagged
 
     /// The chips shown, in bar order.
-    static let bar: [ChipFilter] = [
-        .all,
-        .kind(.text),
-        .kind(.link),
-        .kind(.image),
-        .kind(.file),
-        .kind(.color),
-        .kind(.code),
-        .kind(.email),
-        .kind(.phone),
-        .tagged,
-    ]
+    ///
+    /// `.tagged` is only in the bar while `Features.tagsEnabled` is on. The
+    /// case itself stays: `matches(_:chip:)` still implements it, and a
+    /// stored or hand-written filter naming it still behaves, so the chip
+    /// comes back with the flag and nothing about the filtering had to be
+    /// unpicked to take it off the bar.
+    static let bar: [ChipFilter] = {
+        var chips: [ChipFilter] = [
+            .all,
+            .kind(.text),
+            .kind(.link),
+            .kind(.image),
+            .kind(.file),
+            .kind(.color),
+            .kind(.code),
+            .kind(.email),
+            .kind(.phone),
+        ]
+        if Features.tagsEnabled { chips.append(.tagged) }
+        return chips
+    }()
 
     var label: String {
         switch self {
@@ -366,7 +375,11 @@ struct FilterState: Equatable {
             base = base.filter { matches($0, chip: f.chip) }
         }
         let query = f.query.trimmingCharacters(in: .whitespaces)
-        if !query.isEmpty && !query.hasPrefix("#") {
+        // A leading `#` means "this is a tag query, the tag filter handles it"
+        // — but only while there is a tag UI. With tags hidden it is an
+        // ordinary character and has to be searched for, or typing `#` would
+        // silently empty the list.
+        if !query.isEmpty && !(Features.tagsEnabled && query.hasPrefix("#")) {
             let words = query
                 .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
                 .split(separator: " ")

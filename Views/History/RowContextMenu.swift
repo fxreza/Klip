@@ -115,9 +115,11 @@ struct RowContextMenu: View {
             }
         }
 
-        Button(shortcutLabel("Add Tag…", .addTag)) {
-            viewModel.selectSingle(item.id)
-            viewModel.keyAddTag()
+        if Features.tagsEnabled {
+            Button(shortcutLabel("Add Tag…", .addTag)) {
+                viewModel.selectSingle(item.id)
+                viewModel.keyAddTag()
+            }
         }
 
         Divider()

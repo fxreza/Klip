@@ -8,20 +8,22 @@ A lightweight, beautiful clipboard manager for macOS with organized history, ric
 
 ## Features
 
-- **Organized History** - Folder-based organization with drag-and-drop; All/Favorites/Folders sidebar
-- **No Duplicates** - Re-copying something already in the history brings that clip back to the top instead of adding another row; pins, tags, locks and folder stay with it
+- **Organized History** - Folder-based organization with drag-and-drop; All/Favorites/Folders sidebar, and folders reorder by dragging them in the sidebar
+- **No Duplicates** - Re-copying something already in the history brings that clip back to the top instead of adding another row; pins, locks and folder stay with it
 - **Manual Folder Order** - Drag clips into any order inside a folder; the order is saved and outranks pins there
 - **Trash** - Deleted clips move to a Trash in the sidebar you can search, filter and sort (by date deleted, date added, name or type); restore puts a clip back at the top of All; kept 7/30/90 days or forever, never synced to iCloud
 - **Lock & Protect** - Lock individual clips to prevent accidental deletion; folder clips locked by default
 - **Clipfield-style UI** - Material panel with sidebar, filter chips, thumbnail badges, metadata footer
+- **Keep Open** - Keep the window on screen after pasting (**⌥⌘K**) so several clips go into one document without summoning Klip each time
+- **Kind at a glance** - The preview's info list names the format the way Finder does: PNG image, PDF document, Excel spreadsheet, Plain text
 - **Rich-text Support** - Capture and paste with formatting (RTF/HTML); explicit "Paste as Plain Text" option
 - **File Clips** - Capture any file with automatic copying (configurable size cap), previews via QuickLook, save to disk
 - **Content Filters** - Filter by type: Text, Link, Image, File, Color, Code, Email, Phone
 - **Custom Shortcuts** - Rebind every action in Settings; no conflicts allowed
 - **iCloud Drive Sync** - Automatic sync across devices with per-device snapshots; optional, disabled by default
 - **Multi-select & Multi-paste** - Select multiple items and paste as one; paste files into Finder
-- **Search & Tags** - Full-text search including OCR text, tags, source app, and file names
-- **Pin & Star** - Pin favorites to keep them at the top; star for quick filtering
+- **Search** - Full-text search including OCR text, source app, and file names; the search box clears on every open, or keeps your query if you turn that on
+- **Pin & Favorite** - Pin clips to keep them at the top of the list; favorite them for the Favorites scope
 - **Inline Editing** - Edit text/code snippets directly in the app; auto-saves to clipboard
 - **History Limit** - Configurable 1K / 5K / 10K / Unlimited; locked items never evicted
 - **Permissions panel** - shows exactly what Klip needs (only Accessibility, for auto-paste) with one-click access to System Settings
@@ -60,10 +62,17 @@ History and settings are migrated automatically from Buffer on first launch; Buf
 | `⇧`-click | Extend the selection to the clicked row |
 | `↵` Enter | Paste selected item(s) (in the Trash: restore them) |
 | `⌘C` | Copy selected item text |
+| `⌥↵` | Paste as plain text (or with formatting, if plain is your default) |
+| double-click | Paste, the same as `↵` |
 | `⌘P` | Pin / unpin (float to top) |
-| `⌘B` | Star / unstar |
-| `⌘T` | Add tag (or `#tag` in search) |
-| `⌘S` | Save image to disk |
+| `⌘F` | Favorite / unfavorite |
+| `⌘L` | Lock / unlock (protects from deletion) |
+| `⌘E` | Edit the clip's text |
+| `F2` | Name the clip |
+| `Space` / `⌘Y` | Quick Look (Space when the search box is empty) |
+| `⌘S` | Save to disk |
+| `⌘N` / `⌘R` / `⌘M` | New folder / rename folder / move to folder |
+| `⌥⌘S` / `⌥⌘P` / `⌥⌘K` | Toggle sidebar / preview / Keep Open |
 | `⌘⌫` | Delete selected item(s) - recoverable from the Trash (in the Trash: delete permanently) |
 | `⎋` Esc | Close history window |
 
@@ -78,7 +87,7 @@ All shortcuts are rebindable in Settings > Shortcuts.
 - **Local-only by default** - no network access unless iCloud Drive sync is enabled
 - **Deleted clips**: kept in `trash.json` with their assets until the retention window (Settings > History > Trash) expires or you empty the trash; browse them under **Trash** in the history window's sidebar; local to this Mac either way
 - **Sync**: Optional iCloud Drive sync (disabled by default); enable in Settings > Sync
-  - Synced data: history, folders, locks, tags, images/text/files
+  - Synced data: history, folders, locks, images/text/files
   - Not synced: the trash - a delete propagates as a tombstone, the recoverable copy stays on the Mac it was deleted on
   - Per-device snapshots prevent conflicts; delete operations sync via tombstones
   - Large files (default >50 MB) stay local-only with a reference

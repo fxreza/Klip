@@ -8,8 +8,7 @@ import AppKit
 /// - single click → select only, via the `ClickModifierDetector` overlay so the
 ///   ⌘ / ⇧ modifiers are visible;
 /// - ⌘-click toggles, ⇧-click extends from the anchor;
-/// - double-click → copy to the clipboard and close the window;
-/// - nothing here ever pastes.
+/// - double-click → paste, exactly as ↩ does (both go through `keyEnter`).
 struct ClipList: View {
     @ObservedObject var store: ClipboardStore
     @ObservedObject var viewModel: HistoryViewModel
@@ -250,16 +249,22 @@ struct ClipList: View {
         .highPriorityGesture(
             TapGesture(count: 2)
                 .onEnded { _ in
+                    // Double-click is ↩ with the mouse: same action, same
+                    // rules, one implementation. It used to copy the clip to
+                    // the clipboard and close instead, which meant the two
+                    // most obvious ways to "use this clip" did different
+                    // things and only one of them put the text where you were
+                    // typing.
+                    //
+                    // `keyEnter` acts on the selection, and the mouse-down
+                    // that opened this double-click has already selected this
+                    // row (`ClickModifierDetector`), so it is this clip that
+                    // gets pasted. Everything else comes along for free:
+                    // restore rather than paste in the trash, paste-plain if
+                    // that is the default, a multi-selection pasted as one,
+                    // and Keep Open leaving the window up afterwards.
                     viewModel.focusIndex(of: item.id)
-                    // 5E: double-click means "use this clip". In the trash the
-                    // useful thing is getting it back, and the window stays
-                    // open — a restore is usually one of several.
-                    if viewModel.isTrashScope {
-                        viewModel.restore(item)
-                        return
-                    }
-                    viewModel.copy(item)
-                    viewModel.onDismiss()
+                    viewModel.keyEnter()
                 }
         )
         .contextMenu {

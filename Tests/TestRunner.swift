@@ -95,6 +95,7 @@ let allSuites: [(String, [(String, () throws -> Void)])] = [
     ("UpdateServiceTests", UpdateServiceTests.tests),
     ("ChangelogServiceTests", ChangelogServiceTests.tests),
     ("ImageDimensionsTests", ImageDimensionsTests.tests),
+    ("ItemFormatTests", ItemFormatTests.tests),
     ("ViewRegressionTests", ViewRegressionTests.tests),
 ]
 

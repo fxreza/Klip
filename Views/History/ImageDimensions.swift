@@ -106,3 +106,20 @@ struct PixelDimensions: Equatable {
         self.height = height
     }
 }
+
+/// What the preview pane needs to know about a clip, resolved in one go.
+///
+/// A class because it lives in an `NSCache`, which only holds objects. Every
+/// field is a `let` set at construction, so sharing one between the view body
+/// and the view model is safe.
+final class PreviewPayload {
+    let image: NSImage?
+    let dimensions: PixelDimensions?
+    let byteSize: Int?
+
+    init(image: NSImage?, dimensions: PixelDimensions?, byteSize: Int?) {
+        self.image = image
+        self.dimensions = dimensions
+        self.byteSize = byteSize
+    }
+}
